@@ -1,0 +1,179 @@
+name: msg-ux-polish-v2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/msg-ux-polish-v2.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch MessageMedia + routes
+        run: |
+          python3 << 'END'
+          from pathlib import Path
+          import re
+
+          mm = Path("src/components/messaging/MessageMedia.tsx")
+          t = mm.read_text()
+
+          # 1) Progress knob: use pct*100% (no 6+88% offset)
+          t = t.replace(
+              "style={{ left: `${6 + pct * 88}%`, transition: active ? \"none\" : \"left 75ms linear\" }}",
+              "style={{ left: `${pct * 100}%`, transition: active ? \"none\" : \"left 50ms linear\" }}",
+          )
+          t = t.replace(
+              "style={{ left: `${6 + pct * 88}%`, transition: active ? \"none\" : \"left 75ms linear\" }}",
+              "style={{ left: `${pct * 100}%`, transition: active ? \"none\" : \"left 50ms linear\" }}",
+          )
+          # also without escape variance
+          t = re.sub(
+              r"left: `\$\{6 \+ pct \* 88\}%`",
+              "left: `${pct * 100}%`",
+              t,
+          )
+          # seek uses full width
+          t = t.replace(
+              "const pad = 6;\n    const usable = Math.max(1, rect.width - pad * 2);\n    const ratio = Math.max(0, Math.min(1, (clientX - rect.left - pad) / usable));",
+              "const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));",
+          )
+
+          # 2) Duration: webm Infinity fix if not present
+          if "1e101" not in t:
+              t = t.replace(
+                  "a.preload = \"metadata\";",
+                  "a.preload = \"auto\";",
+              )
+              old_apply = """const applyDur = () => {\n      if (Number.isFinite(a.duration) && a.duration > 0) setDur(a.duration);\n    };\n    const onMeta = () => applyDur();"""
+              new_apply = """const applyDur = () => {\n      const d = a.duration;\n      if (Number.isFinite(d) && d > 0 && d < 1e6) setDur(d);\n    };\n    const onMeta = () => {\n      if (!Number.isFinite(a.duration) || a.duration === Infinity) {\n        const fix = () => {\n          a.removeEventListener(\"timeupdate\", fix);\n          applyDur();\n          try { a.currentTime = 0; } catch { /* ignore */ }\n        };\n        a.addEventListener(\"timeupdate\", fix);\n        try { a.currentTime = 1e101; } catch { applyDur(); }\n      } else {\n        applyDur();\n      }\n    };"""
+              if old_apply in t:
+                  t = t.replace(old_apply, new_apply)
+                  print("duration fix applied")
+
+          # 3) lastSeen: no recently
+          t = t.replace('return "Last seen recently";', 'return "Last seen just now";')
+
+          # 4) Recorder: remove Recording label if present
+          t = t.replace(
+              '{recording && !paused ? "Recording…" : paused ? "Paused" : "Voice note"}',
+              '{paused ? "Paused" : ""}',
+          )
+          t = t.replace(
+              '{recording && !paused ? "Recording…" : paused ? "Paused" : "Voice note"}',
+              '{paused ? "Paused" : ""}',
+          )
+
+          mm.write_text(t)
+          print("MM patched", "pct * 100" in t)
+
+          def patch_student(p):
+              if not p.exists():
+                  return
+              s = p.read_text()
+              if "VideoBubble" not in s:
+                  s = s.replace(
+                      "VoiceBubble, ImageBubble, ImageLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply",
+                      "VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply",
+                  )
+              s = s.replace('<Mic className="h-7 w-7 stroke-[2.5]" />', '<Mic className="h-5 w-5 stroke-[2.5]" />')
+              s = s.replace("grid h-12 w-12 place-items-center rounded-full", "grid h-10 w-10 place-items-center rounded-full")
+
+              # hide composer while recording
+              if "HIDE_COMPOSER_WHEN_REC" not in s:
+                  s2 = s
+                  s = re.sub(
+                      r'(recording \|\| pendingAudio \|\| pendingAudioUrl \? \([\s\S]*?<VoiceRecorderBar[\s\S]*?\) : null\})\s*(<div className="flex )',
+                      r'\\1\n        {!(recording || pendingAudio || pendingAudioUrl) ? (\n        \\2',
+                      s,
+                      count=1,
+                  )
+                  # fix double backslash from above - rewrite cleanly
+                  s = s2
+                  m = re.search(
+                      r'(recording \|\| pendingAudio \|\| pendingAudioUrl \? \([\s\S]*?<VoiceRecorderBar[\s\S]*?\) : null\})(\s*)(<div className="flex )',
+                      s,
+                  )
+                  if m:
+                      s = s[:m.start(3)] + '{!(recording || pendingAudio || pendingAudioUrl) ? (\n        ' + m.group(3) + s[m.end(3):]
+                      s = re.sub(r'(<input\s+ref=\{fileRef\})', r') : null}\n        \1', s, count=1)
+                      s = "/* HIDE_COMPOSER_WHEN_REC */\n" + s
+                      print("composer hidden")
+                  else:
+                      print("composer pattern miss")
+
+              needle = ")()\n              ) : (\n                <div\n                  id={`msg-${m.key}`}"
+              insert = ")()\n              ) : (m.attachment_type === \"video\" || m.attachment_type === \"videos\") && m.attachment_url ? (\n                <VideoBubble id={`msg-${m.key}`} src={parseMediaUrls(m.attachment_url)[0]} mine={m.side === \"out\"} timeLabel={formatTime(m.at)} tick={m.side === \"out\" ? outTick : \"none\"} onOpen={() => setVideoLightboxSrc(parseMediaUrls(m.attachment_url)[0])} />\n              ) : m.attachment_type === \"file\" && m.attachment_url ? (\n                <FileBubble id={`msg-${m.key}`} src={m.attachment_url} mine={m.side === \"out\"} timeLabel={formatTime(m.at)} tick={m.side === \"out\" ? outTick : \"none\"} />\n              ) : (\n                <div\n                  id={`msg-${m.key}`}"
+              if needle in s and "VideoBubble id=" not in s:
+                  s = s.replace(needle, insert, 1)
+                  print("video/file")
+
+              s = re.sub(
+                  r'\s*\{m\.attachment_type === "file" && m\.attachment_url \? \(\s*<button[^>]*>[\s\S]*?Open attachment[\s\S]*?</button>\s*\) : null\}\s*',
+                  "\n",
+                  s,
+                  count=1,
+              )
+
+              if "videoLightboxSrc" not in s and "lightboxSrc" in s:
+                  s = s.replace(
+                      "const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);",
+                      "const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);\n  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string | null>(null);",
+                  )
+              if "videoLightboxSrc ?" not in s and "VideoLightbox" in s:
+                  s = s.replace(
+                      "{lightboxSrc ? (",
+                      "{videoLightboxSrc ? (\n        <VideoLightbox src={videoLightboxSrc} onClose={() => setVideoLightboxSrc(null)} />\n      ) : null}\n      {lightboxSrc ? (",
+                  )
+
+              s = s.replace(
+                  "const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);",
+                  "const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean } | null>(null);",
+              )
+              if "fromSelf: m.side" not in s:
+                  s = re.sub(
+                      r'setReplyTo\(\{\s*id: m\.reportId,\s*text: \(m\.text && m\.text !== "\(attachment\)" \? m\.text : m\.attachment_type \|\| "Attachment"\)\.slice\(0, 120\),\s*\}\);',
+                      'setReplyTo({\n                      id: m.reportId,\n                      text: (m.attachment_type === "audio" ? "Voice note" : m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)).slice(0, 120),\n                      fromSelf: m.side === "out",\n                    });',
+                      s,
+                      count=1,
+                  )
+              if 'replyTo.fromSelf ? "You"' not in s:
+                  s = s.replace(
+                      '<p className="text-[11px] font-bold text-blue-800">{officerNickname}</p>',
+                      '<p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "You" : officerNickname}</p>',
+                  )
+
+              p.write_text(s)
+              print("student ok")
+
+          def patch_officer(p):
+              if not p.exists():
+                  return
+              s = p.read_text()
+              s = s.replace('<Mic className="h-7 w-7 stroke-[2.5]" />', '<Mic className="h-5 w-5 stroke-[2.5]" />')
+              s = s.replace("grid h-12 w-12 place-items-center rounded-full", "grid h-10 w-10 place-items-center rounded-full")
+              if "HIDE_COMPOSER_WHEN_REC" not in s and "VoiceRecorderBar" in s:
+                  m = re.search(
+                      r'(recording \|\| pendingAudioUrl \? \([\s\S]*?<VoiceRecorderBar[\s\S]*?\) : null\})(\s*)(<div className="flex )',
+                      s,
+                  )
+                  if m:
+                      s = s[:m.start(3)] + '{!(recording || pendingAudioUrl) ? (\n        ' + m.group(3) + s[m.end(3):]
+                      s = re.sub(r'(<input\s+ref=\{fileRef\})', r') : null}\n        \1', s, count=1)
+                      s = "/* HIDE_COMPOSER_WHEN_REC */\n" + s
+              p.write_text(s)
+              print("officer ok")
+
+          patch_student(Path("src/routes/student.contact-officer.tsx"))
+          patch_officer(Path("src/routes/officer.reports.tsx"))
+          print("done")
+          END
+      - name: Commit
+        run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git diff --cached --quiet || git commit -m "fix(messaging): accurate progress ball, duration on load, hide composer while recording, video/file, smaller mic"
+          git push
