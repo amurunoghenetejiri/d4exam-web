@@ -979,7 +979,7 @@ function Page() {
                       {m.replyPreview.slice(0, 100)}
                     </button>
                   ) : null}
-{m.text && m.text !== "(attachment)" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
+{m.text && m.text !== "(attachment)" && m.text !== "Open attachment" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
                   <p className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", m.side === "out" ? "text-slate-400" : "text-blue-100")}>
                     {formatTime(m.at)}
                     {m.side === "out" ? <Ticks state={outTick === "none" ? "delivered" : outTick} /> : null}
@@ -1063,7 +1063,8 @@ function Page() {
               void sendPendingAudio();
             }}
           />
-        ) : null}
+        ) : (
+          <>
         <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.doc,.docx" multiple className="hidden" onChange={(e) => { const fs = e.target.files; if (fs?.length) void onFile(fs); e.target.value = ""; }} />
         <div className="flex items-end gap-1.5">
           <button type="button" className="mb-1 grid h-9 w-9 place-items-center rounded-full text-white/90 hover:bg-white/10" onClick={() => fileRef.current?.click()} aria-label="Attach file">
@@ -1078,10 +1079,12 @@ function Page() {
             </button>
           ) : (
             <button type="button" className={cn("mb-0.5 grid h-10 w-10 place-items-center rounded-full shadow-md", recording || pendingAudio || pendingAudioUrl ? "bg-[#2563eb] text-white ring-2 ring-white/40" : "bg-white text-[#0b1b3a] ring-2 ring-white/70")} onClick={() => (recording || pendingAudio || pendingAudioUrl ? void sendPendingAudio() : void startRec())} aria-label={recording || pendingAudio || pendingAudioUrl ? "Send voice note" : "Record voice"}>
-              {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-5 w-5 stroke-[2.5]" />}
+              {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-4 w-4 stroke-[2.5]" />}
             </button>
           )}
         </div>
+          </>
+        )}
       </div>
     </div>
   ) : (

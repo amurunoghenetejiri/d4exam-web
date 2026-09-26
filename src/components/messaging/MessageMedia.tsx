@@ -57,7 +57,7 @@ function WaveBars({
   const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16, 11, 8, 13, 9];
   const trackRef = useRef<HTMLDivElement>(null);
   const pct = Math.max(0, Math.min(1, progress));
-  const filledCount = Math.round(pct * heights.length);
+  const filledCount = Math.min(heights.length, Math.floor(pct * heights.length + 0.001));
 
   const seekFromClientX = (clientX: number) => {
     const el = trackRef.current;
@@ -70,7 +70,7 @@ function WaveBars({
   return (
     <div
       ref={trackRef}
-      className={cn("relative flex h-6 w-full items-center gap-[2.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
+      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}
       onPointerDown={(e) => {
         if (!onSeek) return;
         e.stopPropagation();
@@ -100,7 +100,7 @@ function WaveBars({
           <span
             key={i}
             className={cn(
-              "w-[2.5px] shrink-0 rounded-full transition-colors duration-75",
+              "min-w-[2px] flex-1 rounded-full transition-colors duration-100",
               light ? (passed ? "bg-white" : "bg-white/35") : (passed ? "bg-[#2563eb]" : "bg-[#93c5fd]/70"),
               active && !passed && "animate-pulse",
             )}
@@ -115,7 +115,7 @@ function WaveBars({
       {onSeek ? (
         <span
           className={cn(
-            "pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white/80",
+            "pointer-events-none absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
           style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
@@ -187,8 +187,11 @@ export function VoiceBubble({
     };
     a.addEventListener("loadedmetadata", onMeta);
     a.addEventListener("durationchange", onDur);
+    a.addEventListener("canplay", onMeta);
+    a.addEventListener("canplaythrough", onMeta);
     a.addEventListener("ended", onEnd);
     void a.load();
+    const retries = [120, 400, 1000, 2500].map((ms) => window.setTimeout(() => onMeta(), ms));
 
     registerVoice(voiceId, {
       id: voiceId,
@@ -221,7 +224,10 @@ export function VoiceBubble({
       a.pause();
       a.removeEventListener("loadedmetadata", onMeta);
       a.removeEventListener("durationchange", onDur);
+      a.removeEventListener("canplay", onMeta);
+      a.removeEventListener("canplaythrough", onMeta);
       a.removeEventListener("ended", onEnd);
+      try { retries.forEach((id) => clearTimeout(id)); } catch {}
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       unregisterVoice(voiceId);
     };
@@ -379,7 +385,7 @@ export function VoiceRecorderBar({
   return (
     <div className="mb-0 select-none rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-2.5 py-2 shadow-sm">
       <div className="mb-2 flex flex-col items-center gap-0.5">
-        <WaveBars active={recording && !paused} />
+        <div className="w-full max-w-[260px] mx-auto"><WaveBars active={recording && !paused} /></div>
         <p className="text-sm font-bold tabular-nums text-slate-800">
           {mm}:{ss}
         </p>
