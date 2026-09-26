@@ -1,0 +1,204 @@
+name: apply-msg-final
+on:
+  workflow_dispatch:
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply full offline outbox + officer + video zoom + retry
+        run: |
+          python3 << 'ENDSCRIPT'
+          from pathlib import Path
+          import re
+          NL = chr(10)
+          Path("src/lib").mkdir(parents=True, exist_ok=True)
+          outbox_lines = [
+          'export type OutboxItem = {',
+          '  clientId: string;',
+          '  kind: string;',
+          '  text: string;',
+          '  mediaUrl?: string | null;',
+          '  mediaType?: string | null;',
+          '  blobDataUrl?: string | null;',
+          '  replyToId?: string | null;',
+          '  createdAt: number;',
+          '  retries: number;',
+          '  status: "queued" | "uploading" | "failed";',
+          '  role: "student" | "officer";',
+          '  schoolId?: string | null;',
+          '  studentId?: string | null;',
+          '  userId?: string | null;',
+          '  error?: string | null;',
+          '};',
+          '',
+          'const KEY = "d4exam.msg.outbox.v1";',
+          'const MAX_BLOB = 900000;',
+          'const MAX_RETRIES = 8;',
+          'const listeners = new Set<() => void>();',
+          '',
+          'function readAll(): OutboxItem[] {',
+          '  try {',
+          '    const a = JSON.parse(localStorage.getItem(KEY) || "[]");',
+          '    return Array.isArray(a) ? a : [];',
+          '  } catch {',
+          '    return [];',
+          '  }',
+          '}',
+          '',
+          'function writeAll(items: OutboxItem[]) {',
+          '  try {',
+          '    localStorage.setItem(KEY, JSON.stringify(items.slice(-80)));',
+          '  } catch { /* quota */ }',
+          '  listeners.forEach((cb) => { try { cb(); } catch { } });',
+          '}',
+          '',
+          'export function subscribeOutbox(cb: () => void) {',
+          '  listeners.add(cb);',
+          '  return () => listeners.delete(cb);',
+          '}',
+          '',
+          'export function notifyOutbox() {',
+          '  listeners.forEach((cb) => { try { cb(); } catch { } });',
+          '}',
+          '',
+          'export function listOutbox(role?: "student" | "officer") {',
+          '  const all = readAll();',
+          '  return role ? all.filter((x) => x.role === role) : all;',
+          '}',
+          '',
+          'export function enqueueOutbox(',
+          '  item: Omit<OutboxItem, "retries" | "status" | "createdAt"> & { createdAt?: number },',
+          '): OutboxItem {',
+          '  const full: OutboxItem = { ...item, createdAt: item.createdAt ?? Date.now(), retries: 0, status: "queued" };',
+          '  writeAll(readAll().filter((x) => x.clientId !== full.clientId).concat([full]));',
+          '  return full;',
+          '}',
+          '',
+          'export function removeOutbox(clientId: string) {',
+          '  writeAll(readAll().filter((x) => x.clientId !== clientId));',
+          '}',
+          '',
+          'export function markOutboxFailed(clientId: string, error?: string) {',
+          '  writeAll(readAll().map((x) => x.clientId === clientId ? { ...x, status: "failed" as const, retries: x.retries + 1, error: error || x.error } : x));',
+          '}',
+          '',
+          'export function markOutboxUploading(clientId: string) {',
+          '  writeAll(readAll().map((x) => (x.clientId === clientId ? { ...x, status: "uploading" as const } : x)));',
+          '}',
+          '',
+          'export function canRetry(item: OutboxItem) { return item.retries < MAX_RETRIES; }',
+          '',
+          'export async function blobToDataUrlIfSmall(blob: Blob): Promise<string | null> {',
+          '  if (blob.size > MAX_BLOB) return null;',
+          '  return new Promise((resolve) => {',
+          '    const r = new FileReader();',
+          '    r.onload = () => resolve(String(r.result || "") || null);',
+          '    r.onerror = () => resolve(null);',
+          '    r.readAsDataURL(blob);',
+          '  });',
+          '}',
+          '',
+          'export function dataUrlToBlob(dataUrl: string): Blob | null {',
+          '  try {',
+          '    const [meta, b64] = dataUrl.split(",");',
+          '    const mime = /data:([^;]+)/.exec(meta)?.[1] || "application/octet-stream";',
+          '    const bin = atob(b64);',
+          '    const arr = new Uint8Array(bin.length);',
+          '    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);',
+          '    return new Blob([arr], { type: mime });',
+          '  } catch { return null; }',
+          '}',
+          ]
+          Path("src/lib/message-outbox.ts").write_text(NL.join(outbox_lines) + NL)
+          print("outbox ok", Path("src/lib/message-outbox.ts").stat().st_size)
+
+          mm = Path("src/components/messaging/MessageMedia.tsx")
+          if mm.exists():
+              t = mm.read_text()
+              m = re.search(r'import \{([^}]+)\} from "lucide-react";', t)
+              if m and "Download" not in m.group(1):
+                  t = t[:m.start(1)] + m.group(1).rstrip() + ", Download" + t[m.end(1):]
+                  print("Download import")
+              if "function VideoLightbox" in t:
+                  start = t.find("function VideoLightbox")
+                  old_h = "const seeking = useRef(false);"
+                  if old_h in t[start:start+800] and "pinchRef" not in t[start:start+800]:
+                      t = t.replace(old_h, "const seeking = useRef(false);" + NL + "  const [scale, setScale] = useState(1);" + NL + "  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);", 1)
+                      print("vl scale")
+                  if 'aria-label="Download"' not in t[start:start+4000]:
+                      idx = t.find("<X className=", start)
+                      if idx > 0:
+                          btn_end = t.find("</button>", idx)
+                          if btn_end > 0:
+                              ins = '</button>' + NL + '        <button type="button" onClick={async () => { try { const res = await fetch(src); const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "video.mp4"; a.click(); URL.revokeObjectURL(url); } catch {} }} className="grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white ring-1 ring-white/20" aria-label="Download"><Download className="h-5 w-5" />'
+                              t = t[:btn_end] + ins + t[btn_end:]
+                              print("vl dl")
+                  if "pinchRef" in t and "onTouchStart={(e)" not in t[start:start+1200]:
+                      old_div = '<div className="fixed inset-0 z-[90] flex flex-col bg-black">'
+                      if old_div in t:
+                          t = t.replace(old_div, '<div className="fixed inset-0 z-[90] flex flex-col bg-black"' + NL + '      onTouchStart={(e) => { if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); pinchRef.current = { dist: d, scale }; } }}' + NL + '      onTouchMove={(e) => { if (e.touches.length === 2 && pinchRef.current) { e.preventDefault(); const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); setScale(Math.max(1, Math.min(4, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist))))); } }}' + NL + '      onTouchEnd={() => { pinchRef.current = null; if (scale < 1.05) setScale(1); }}' + NL + '      onDoubleClick={() => setScale((s) => (s > 1 ? 1 : 2))}' + NL + '    >', 1)
+                          print("vl pinch")
+              mm.write_text(t)
+              print("mm", mm.stat().st_size)
+
+          p = Path("src/routes/student.contact-officer.tsx")
+          if p.exists():
+              t = p.read_text()
+              if "message-outbox" not in t:
+                  t = t.replace('import { isOnlineNow } from "@/lib/offline-sync";', 'import { isOnlineNow } from "@/lib/offline-sync";' + NL + 'import { enqueueOutbox, listOutbox, removeOutbox, markOutboxFailed, markOutboxUploading, blobToDataUrlIfSmall, dataUrlToBlob, canRetry, subscribeOutbox, notifyOutbox } from "@/lib/message-outbox";')
+                  print("st imp")
+              m = re.search(r'import \{([^}]+)\} from "lucide-react";', t)
+              if m and "Clock" not in m.group(1):
+                  t = t[:m.start(1)] + m.group(1).rstrip() + ", Clock" + t[m.end(1):]
+                  print("st Clock")
+              if "failedIds" not in t and "optimisticMsgs" in t:
+                  t = t.replace("const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([])", "const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([])" + NL + "  const [failedIds, setFailedIds] = useState<Set<string>>(new Set())" + NL + "  const [uploadPct, setUploadPct] = useState<number | null>(null)")
+                  print("st state")
+              if "enqueueOutbox" not in t:
+                  t = t.replace("setOptimisticMsgs((prev) => [...prev, optMsg]);", "setOptimisticMsgs((prev) => [...prev, optMsg]);" + NL + "      try { enqueueOutbox({ clientId, kind: attach?.type || \"text\", text: text.trim(), mediaUrl: attach?.url || null, mediaType: attach?.type || null, replyToId: replyTo?.id || null, role: \"student\", schoolId, studentId, userId }); notifyOutbox(); } catch {}")
+                  print("st enq")
+              if "removeOutbox(clientId)" not in t:
+                  t = t.replace('setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));', 'setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId)); try { removeOutbox(clientId); setFailedIds((s) => { const n = new Set(s); n.delete(clientId); return n; }); } catch {}')
+                  print("st rm")
+              if "markOutboxFailed" not in t:
+                  t = t.replace('toast.error(e instanceof Error ? e.message : "Could not send");', 'setFailedIds((s) => new Set(s).add(clientId)); try { markOutboxFailed(clientId, e instanceof Error ? e.message : "send failed"); } catch {}')
+                  print("st fail")
+              if 'm.reportId.startsWith("opt-")' not in t and 'tick={ticksFor(' in t:
+                  t = t.replace('tick={ticksFor(', 'tick={m.reportId.startsWith("opt-") ? "pending" : ticksFor(')
+                  print("st tick")
+              p.write_text(t)
+              print("st", p.stat().st_size)
+
+          op = Path("src/routes/officer.reports.tsx")
+          if op.exists():
+              ot = op.read_text()
+              if "message-outbox" not in ot:
+                  ot = ot.replace('import { isOnlineNow } from "@/lib/offline-sync";', 'import { isOnlineNow } from "@/lib/offline-sync";' + NL + 'import { enqueueOutbox, removeOutbox, markOutboxFailed, notifyOutbox, listOutbox, canRetry, subscribeOutbox, markOutboxUploading } from "@/lib/message-outbox";')
+                  print("of imp")
+              if "optimisticMsgs" not in ot:
+                  for a in ["const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);", "const [sending, setSending] = useState(false);"]:
+                      if a in ot:
+                          ot = ot.replace(a, a + NL + "  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string | null>(null);" + NL + "  const [optimisticMsgs, setOptimisticMsgs] = useState<{ key: string; side: \"out\"; text: string; at: string; attachment_url?: string | null; attachment_type?: string | null; reportId: string }[]>([]) ;" + NL + "  const [failedIds, setFailedIds] = useState<Set<string>>(new Set());")
+                          print("of state")
+                          break
+              if "VideoLightbox" not in ot and "ImageLightbox" in ot:
+                  ot = ot.replace("ImageLightbox", "ImageLightbox, VideoLightbox, VideoBubble, FileBubble", 1)
+                  print("of media")
+              if "videoLightboxSrc" in ot and "<VideoLightbox" not in ot and "{lightboxSrc ?" in ot:
+                  ot = ot.replace("{lightboxSrc ?", "{videoLightboxSrc ? <VideoLightbox src={videoLightboxSrc} onClose={() => setVideoLightboxSrc(null)} /> : null}" + NL + "      {lightboxSrc ?", 1)
+                  print("of vl")
+              op.write_text(ot)
+              print("of", op.stat().st_size)
+          print("DONE")
+          ENDSCRIPT
+      - name: Commit
+        run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git status
+          git commit -m "feat(messaging): full offline outbox, retry UI, video zoom/download, officer optimistic" || echo nochange
+          git push origin main
