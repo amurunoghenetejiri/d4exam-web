@@ -1,0 +1,42 @@
+name: fix-import-v2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/fix-import-v2.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -c "
+          from pathlib import Path
+          import re
+          p = Path('src/routes/student.contact-officer.tsx')
+          if not p.exists():
+              print('no file'); raise SystemExit(0)
+          t = p.read_text()
+          t = t.replace('X,, Clock}', 'X, Clock}')
+          t2 = re.sub(
+              r'import \{ VoiceBubble.*?from \"@/components/messaging/MessageMedia\";',
+              'import { VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply } from \"@/components/messaging/MessageMedia\";',
+              t, count=1, flags=re.DOTALL)
+          if t2 != t:
+              t = t2
+              print('fixed import')
+          if t.find('failedIds.size') < 500 and '<VoiceRecorderBar' in t:
+              inject = '{(uploadPct != null && uploadPct < 100) ? (<div className=\"mx-3 mb-1 h-1 overflow-hidden rounded-full bg-slate-200\"><div className=\"h-full bg-[#1e3a5f] transition-all\" style={{ width: \`\${uploadPct}%\` }} /></div>) : null}{failedIds.size > 0 ? (<div className=\"mx-3 mb-1 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900\"><span>{failedIds.size} waiting</span><button type=\"button\" className=\"rounded-md bg-[#1e3a5f] px-2 py-0.5 font-semibold text-white\" onClick={() => { notifyOutbox(); window.dispatchEvent(new Event(\"online\")); }}>Retry</button></div>) : null}'
+              t = t.replace('<VoiceRecorderBar', inject + '<VoiceRecorderBar', 1)
+              print('retry ui')
+          p.write_text(t)
+          print('ok', p.stat().st_size)
+          "
+      - run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git commit -m "fix: MessageMedia import + retry UI placement" || echo nochange
+          git push origin main
