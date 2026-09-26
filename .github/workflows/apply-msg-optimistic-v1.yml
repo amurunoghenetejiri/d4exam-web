@@ -1,0 +1,228 @@
+name: apply-msg-optimistic-v1
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch MessageMedia voice slim + duration
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/components/messaging/MessageMedia.tsx")
+          t = p.read_text()
+
+          t = t.replace(
+            'className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}',
+            'className={cn("relative flex h-5 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}',
+          )
+          t = t.replace(
+            '"pointer-events-none absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white"',
+            '"pointer-events-none absolute top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ring-2 ring-white"',
+          )
+          t = t.replace(
+            "const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16, 11, 8, 13, 9];",
+            "const heights = [4, 7, 10, 13, 9, 6, 12, 14, 10, 7, 9, 13, 8, 5, 11, 12, 9, 6, 10, 13, 7, 4, 9, 12, 8, 6, 10, 7];",
+          )
+
+          t = t.replace(
+            '''        className={cn(
+          "relative flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 shadow-sm",
+          own ? "border border-slate-200 bg-white text-slate-800" : "bg-[#2563eb] text-white",
+        )}''',
+            '''        className={cn(
+          "relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-1.5 shadow-sm",
+          own ? "border border-slate-200 bg-white text-slate-800" : "bg-[#2563eb] text-white",
+        )}''',
+          )
+          t = t.replace(
+            '''          className={cn(
+            "grid h-9 w-9 shrink-0 place-items-center rounded-full shadow-sm",
+            own ? "bg-[#2563eb] text-white" : "bg-white text-[#2563eb]",
+          )}
+          aria-label={playing ? "Pause" : "Play"}
+        >
+          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}''',
+            '''          className={cn(
+            "grid h-7 w-7 shrink-0 place-items-center rounded-full shadow-sm",
+            own ? "bg-[#2563eb] text-white" : "bg-white text-[#2563eb]",
+          )}
+          aria-label={playing ? "Pause" : "Play"}
+        >
+          {playing ? <Pause className="h-3 w-3" /> : <Play className="ml-0.5 h-3 w-3" />}''',
+          )
+          if "playing ? fmtDur(cur) : fmtDur(dur" in t and " / " not in t[t.find("playing ? fmtDur"):t.find("playing ? fmtDur")+80]:
+            t = t.replace(
+              "const timeShown = playing ? fmtDur(cur) : fmtDur(dur > 0 ? dur : 0);",
+              "const timeShown = dur > 0\n    ? (playing ? `${fmtDur(cur)} / ${fmtDur(dur)}` : fmtDur(dur))\n    : (playing ? fmtDur(cur) : \"…\");",
+            )
+          p.write_text(t)
+          print("MessageMedia patched", p.stat().st_size)
+          PY
+      - name: Patch student route — optimistic + scroll
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.contact-officer.tsx")
+          if not p.exists():
+            print("student route missing"); raise SystemExit(0)
+          t = p.read_text()
+
+          if "optimisticMsgs" not in t:
+            t = t.replace(
+              "const [highlightKey, setHighlightKey] = useState<string | null>(null);",
+              """const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([]);
+  const [nearBottom, setNearBottom] = useState(true);
+  const [newBelow, setNewBelow] = useState(0);
+  const chatScrollRef = useRef<HTMLDivElement>(null);""",
+            )
+
+          old_filter = "return out.filter((m) => !hiddenKeys.has(m.key));\n  }, [rows, hiddenKeys]);"
+          new_filter = """const base = out.filter((m) => !hiddenKeys.has(m.key));
+    const serverKeys = new Set(base.map((m) => m.key));
+    const pending = optimisticMsgs.filter((m) => !serverKeys.has(m.key) && !hiddenKeys.has(m.key));
+    return [...base, ...pending].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  }, [rows, hiddenKeys, optimisticMsgs]);"""
+          if old_filter in t:
+            t = t.replace(old_filter, new_filter)
+            print("merged optimistic into chatMessages")
+          else:
+            print("chatMessages merge point not found")
+
+          marker = "const sendMessage = useCallback(\n    async (text: string, attach?: { url: string; type: string } | null) => {\n      if (sendLock.current) return;\n      if (!schoolId) return;\n      if (!text.trim() && !attach) return;\n      sendLock.current = true;\n      setSending(true);\n      try {"
+          if marker in t:
+            opt_block = '''const sendMessage = useCallback(
+    async (text: string, attach?: { url: string; type: string } | null) => {
+      if (sendLock.current) return;
+      if (!schoolId) return;
+      if (!text.trim() && !attach) return;
+      const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const nowIso = new Date().toISOString();
+      const optMsg: ChatMsg = {
+        key: `${clientId}-s`,
+        side: "out",
+        text: text.trim() || (attach ? "(attachment)" : ""),
+        at: nowIso,
+        subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null,
+        attachment_url: attach?.url || null,
+        attachment_type: attach?.type || null,
+        reportId: clientId,
+        replyPreview: replyTo?.text || null,
+        replyToKey: replyTo ? `${replyTo.id}-s` : null,
+      };
+      setOptimisticMsgs((prev) => [...prev, optMsg]);
+      setReplyText("");
+      setPendingAttach(null);
+      setReplyTo(null);
+      setComposeOpen(false);
+      setInChat(true);
+      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+      sendLock.current = true;
+      setSending(true);
+      try {'''
+            t = t.replace(marker, opt_block)
+            t = t.replace(
+              'await qc.invalidateQueries({ queryKey: ["student-my-reports"] });\n      } catch (e) {\n        toast.error(e instanceof Error ? e.message : "Could not send");\n      } finally {\n        setSending(false);\n        sendLock.current = false;\n      }\n    },\n    [schoolId, session, student, studentId, userId, selectedExamIds, selectedTitles, subject, replyTo, qc],\n  );',
+              '''await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+        setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not send — will retry when online");
+      } finally {
+        setSending(false);
+        sendLock.current = false;
+      }
+    },
+    [schoolId, session, student, studentId, userId, selectedExamIds, selectedTitles, subject, replyTo, qc],
+  );'''
+            )
+            print("optimistic sendMessage applied")
+          else:
+            print("sendMessage marker not found")
+
+          if 'chatScrollRef' in t and 'onScroll' not in t[t.find("relative z-10 min-h-0 flex-1 space-y-4"):t.find("relative z-10 min-h-0 flex-1 space-y-4")+200]:
+            t = t.replace(
+              'className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3"',
+              '''ref={chatScrollRef}
+        onScroll={() => {
+          const el = chatScrollRef.current;
+          if (!el) return;
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          const near = dist < 140;
+          setNearBottom(near);
+          if (near) setNewBelow(0);
+        }}
+        className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3"''',
+            )
+            print("scroll listener added")
+
+          old_scroll_fx = """  useEffect(() => {
+    if (inChat) chatEndRef.current?.scrollIntoView({ behavior: \"smooth\" });
+  }, [inChat, chatMessages.length, officerTyping]);"""
+          new_scroll_fx = """  useEffect(() => {
+    if (!inChat) return;
+    if (nearBottom) {
+      chatEndRef.current?.scrollIntoView({ behavior: \"smooth\" });
+      setNewBelow(0);
+    } else {
+      setNewBelow((n) => n + 1);
+    }
+  }, [inChat, chatMessages.length, officerTyping]);"""
+          if old_scroll_fx in t:
+            t = t.replace(old_scroll_fx, new_scroll_fx)
+            print("scroll respect position applied")
+          else:
+            print("scroll effect not found exactly")
+
+          if "newBelow" in t and "Scroll to latest" not in t:
+            insert_btn = '''      {!nearBottom ? (
+        <button
+          type="button"
+          aria-label="Scroll to latest"
+          onClick={() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            setNearBottom(true);
+            setNewBelow(0);
+          }}
+          className="absolute bottom-[4.5rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-white/20"
+        >
+          <span className="text-sm leading-none">↓</span>
+          {newBelow > 0 ? <span>{newBelow} new</span> : null}
+        </button>
+      ) : null}
+'''
+            anchor = '<div className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2'
+            if anchor in t:
+              t = t.replace(anchor, insert_btn + anchor, 1)
+              print("scroll button inserted")
+            else:
+              print("composer anchor not found for scroll btn")
+
+          if 'm.reportId.startsWith("opt-")' not in t:
+            t = t.replace(
+              'const outTick = tick === "read" ? "read" : tick === "none" ? "none" : "delivered";',
+              '''const outTick: "none" | "sent" | "delivered" | "read" | "pending" =
+                m.reportId.startsWith("opt-") || m.key.startsWith("opt-")
+                  ? "pending"
+                  : tick === "read"
+                    ? "read"
+                    : tick === "none"
+                      ? "none"
+                      : "delivered";''',
+            )
+            print("pending tick for optimistic")
+
+          p.write_text(t)
+          print("student route", p.stat().st_size)
+          PY
+      - name: Commit
+        run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git status
+          git commit -m "feat: optimistic send, slim voice UI, scroll-to-latest, pending clock" || echo nochange
+          git push origin main
