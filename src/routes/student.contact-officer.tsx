@@ -143,6 +143,10 @@ function Page() {
   const swipeRef = useRef<{ key: string; id: string; x: number } | null>(null);
   const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([]);
+  const [nearBottom, setNearBottom] = useState(true);
+  const [newBelow, setNewBelow] = useState(0);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const scrollToMessage = useCallback((reportId: string, prefer: "s" | "o" | "any" = "any") => {
     const tryIds =
@@ -292,8 +296,11 @@ function Page() {
         });
       }
     }
-    return out.filter((m) => !hiddenKeys.has(m.key));
-  }, [rows, hiddenKeys]);
+    const base = out.filter((m) => !hiddenKeys.has(m.key));
+    const serverKeys = new Set(base.map((m) => m.key));
+    const pending = optimisticMsgs.filter((m) => !serverKeys.has(m.key) && !hiddenKeys.has(m.key));
+    return [...base, ...pending].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  }, [rows, hiddenKeys, optimisticMsgs]);
 
   const latest = rows.length ? rows[rows.length - 1] : null;
   const inboxUnread = useMemo(() => {
@@ -349,7 +356,7 @@ function Page() {
   }, [inChat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (inChat) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!inChat) return; if (nearBottom) { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); setNewBelow(0); } else { setNewBelow((n) => n + 1); }
   }, [inChat, chatMessages.length, officerTyping]);
 
   useEffect(() => {
@@ -455,6 +462,12 @@ function Page() {
       if (sendLock.current) return;
       if (!schoolId) return;
       if (!text.trim() && !attach) return;
+      const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const nowIso = new Date().toISOString();
+      const optMsg: ChatMsg = { key: `${clientId}-s`, side: "out", text: text.trim() || (attach ? "(attachment)" : ""), at: nowIso, subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null, attachment_url: attach?.url || null, attachment_type: attach?.type || null, reportId: clientId, replyPreview: replyTo?.text || null, replyToKey: replyTo ? `${replyTo.id}-s` : null };
+      setOptimisticMsgs((prev) => [...prev, optMsg]);
+      setReplyText(""); setPendingAttach(null); setReplyTo(null); setComposeOpen(false); setInChat(true);
+      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
       sendLock.current = true;
       setSending(true);
       try {
@@ -500,7 +513,7 @@ function Page() {
         setComposeOpen(false);
         setInChat(true);
         setLocallyRead(false);
-        await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+        await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not send");
       } finally {
@@ -664,7 +677,7 @@ function Page() {
     setClearOpen(false);
     setInChat(false);
     setChatMenuOpen(false);
-    await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+    await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
   }
 
   const filteredShow =
@@ -824,7 +837,7 @@ function Page() {
           ) : null}
         </div>
       </div>
-      <div className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
+      <div ref={chatScrollRef} onScroll={() => { const el = chatScrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; const near = dist < 140; setNearBottom(near); if (near) setNewBelow(0); }} className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
         {chatMessages.map((m) => {
           const tick =
             m.side === "out"
@@ -842,7 +855,7 @@ function Page() {
           const endLP = () => {
             if (longPressTimer.current) clearTimeout(longPressTimer.current);
           };
-          const outTick = tick === "read" ? "read" : tick === "none" ? "none" : "delivered";
+          const outTick: "none" | "sent" | "delivered" | "read" | "pending" = (m.reportId.startsWith("opt-") || m.key.startsWith("opt-")) ? "pending" : tick === "read" ? "read" : tick === "none" ? "none" : "delivered";
           const hasContent =
             Boolean(m.attachment_url) ||
             (Boolean(m.text) && m.text.trim() !== "" && m.text.trim() !== "(attachment)");
@@ -993,7 +1006,8 @@ function Page() {
         {officerTyping ? <p className="text-center text-xs text-slate-500">Officer is typing…</p> : null}
         <div ref={chatEndRef} />
       </div>
-      <div className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-white">
+      {!nearBottom ? (<button type="button" aria-label="Scroll to latest" onClick={() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); setNearBottom(true); setNewBelow(0); }} className="absolute bottom-[4.5rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-white/20"><span className="text-sm leading-none">v</span>{newBelow > 0 ? <span>{newBelow} new</span> : null}</button>) : null}
+<div className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-white">
         {replyTo ? (
           <div className="mb-2 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
             <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0b1b3a] text-white">

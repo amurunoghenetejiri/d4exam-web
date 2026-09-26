@@ -54,7 +54,7 @@ function WaveBars({
   progress?: number;
   onSeek?: (ratio: number) => void;
 }) {
-  const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16, 11, 8, 13, 9];
+  const heights = [4, 7, 10, 13, 9, 6, 12, 14, 10, 7, 9, 13, 8, 5, 11, 12, 9, 6, 10, 13, 7, 4, 9, 12, 8, 6, 10, 7];
   const trackRef = useRef<HTMLDivElement>(null);
   const pct = Math.max(0, Math.min(1, progress));
   const filledCount = Math.min(heights.length, Math.floor(pct * heights.length + 0.001));
@@ -70,7 +70,7 @@ function WaveBars({
   return (
     <div
       ref={trackRef}
-      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}
+      className={cn("relative flex h-5 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}
       onPointerDown={(e) => {
         if (!onSeek) return;
         e.stopPropagation();
@@ -115,7 +115,7 @@ function WaveBars({
       {onSeek ? (
         <span
           className={cn(
-            "pointer-events-none absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white",
+            "pointer-events-none absolute top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ring-2 ring-white",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
           style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
@@ -255,7 +255,7 @@ export function VoiceBubble({
   };
 
   const own = mine;
-  const timeShown = playing ? fmtDur(cur) : fmtDur(dur > 0 ? dur : 0);
+  const timeShown = dur > 0 ? (playing ? fmtDur(cur) + " / " + fmtDur(dur) : fmtDur(dur)) : (playing ? fmtDur(cur) : "...");
 
   return (
     <div
@@ -264,7 +264,7 @@ export function VoiceBubble({
     >
       <div
         className={cn(
-          "relative flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 shadow-sm",
+          "relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-1.5 shadow-sm",
           own ? "border border-slate-200 bg-white text-slate-800" : "bg-[#2563eb] text-white",
         )}
         onCopy={(e) => e.preventDefault()}
@@ -274,12 +274,12 @@ export function VoiceBubble({
           type="button"
           onClick={toggle}
           className={cn(
-            "grid h-9 w-9 shrink-0 place-items-center rounded-full shadow-sm",
+            "grid h-7 w-7 shrink-0 place-items-center rounded-full shadow-sm",
             own ? "bg-[#2563eb] text-white" : "bg-white text-[#2563eb]",
           )}
           aria-label={playing ? "Pause" : "Play"}
         >
-          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}
+          {playing ? <Pause className="h-3 w-3" /> : <Play className="ml-0.5 h-3 w-3" />}
         </button>
         <div className="flex min-w-0 flex-1 flex-col items-stretch justify-center gap-0.5">
           <WaveBars
