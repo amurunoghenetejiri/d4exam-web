@@ -25,7 +25,7 @@ import { SplitHandle } from "@/components/dashboard/SplitHandle";
 import { isOnlineNow } from "@/lib/offline-sync";
 import { joinMessagingPresence, ticksFor } from "@/lib/messaging-presence";
 import { uploadMessageMedia } from "@/lib/message-media";
-import { VoiceBubble, ImageBubble, ImageLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply } from "@/components/messaging/MessageMedia";
+import { VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply } from "@/components/messaging/MessageMedia";
 
 export const Route = createFileRoute("/student/contact-officer")({
   head: () => ({ meta: [{ title: "Messages — D4EXAM" }] }),
@@ -125,6 +125,7 @@ function Page() {
   const [listPct, setListPct] = useState(38);
   const [locallyRead, setLocallyRead] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string | null>(null);
   const [menuMsg, setMenuMsg] = useState<ChatMsg | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editText, setEditText] = useState("");
@@ -945,6 +946,10 @@ function Page() {
                     />
                   );
                 })()
+              ) : (m.attachment_type === "video" || m.attachment_type === "videos") && m.attachment_url ? (
+                <VideoBubble id={`msg-${m.key}`} src={parseMediaUrls(m.attachment_url)[0]} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} onOpen={() => setVideoLightboxSrc(parseMediaUrls(m.attachment_url)[0])} />
+              ) : m.attachment_type === "file" && m.attachment_url ? (
+                <FileBubble id={`msg-${m.key}`} src={m.attachment_url} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} />
               ) : (
                 <div
                   id={`msg-${m.key}`}
@@ -974,12 +979,7 @@ function Page() {
                       {m.replyPreview.slice(0, 100)}
                     </button>
                   ) : null}
-                  {m.attachment_type === "file" && m.attachment_url ? (
-                    <button type="button" className="mb-1 block text-left underline" onClick={() => setLightboxSrc(m.attachment_url!)}>
-                      Open attachment
-                    </button>
-                  ) : null}
-                  {m.text && m.text !== "(attachment)" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
+{m.text && m.text !== "(attachment)" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
                   <p className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", m.side === "out" ? "text-slate-400" : "text-blue-100")}>
                     {formatTime(m.at)}
                     {m.side === "out" ? <Ticks state={outTick === "none" ? "delivered" : outTick} /> : null}
@@ -1077,7 +1077,7 @@ function Page() {
               <Send className="h-4 w-4" />
             </button>
           ) : (
-            <button type="button" className={cn("mb-0.5 grid h-12 w-12 place-items-center rounded-full shadow-md", recording || pendingAudio || pendingAudioUrl ? "bg-[#2563eb] text-white ring-2 ring-white/40" : "bg-white text-[#0b1b3a] ring-2 ring-white/70")} onClick={() => (recording || pendingAudio || pendingAudioUrl ? void sendPendingAudio() : void startRec())} aria-label={recording || pendingAudio || pendingAudioUrl ? "Send voice note" : "Record voice"}>
+            <button type="button" className={cn("mb-0.5 grid h-10 w-10 place-items-center rounded-full shadow-md", recording || pendingAudio || pendingAudioUrl ? "bg-[#2563eb] text-white ring-2 ring-white/40" : "bg-white text-[#0b1b3a] ring-2 ring-white/70")} onClick={() => (recording || pendingAudio || pendingAudioUrl ? void sendPendingAudio() : void startRec())} aria-label={recording || pendingAudio || pendingAudioUrl ? "Send voice note" : "Record voice"}>
               {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-5 w-5 stroke-[2.5]" />}
             </button>
           )}
@@ -1201,6 +1201,9 @@ function Page() {
         </div>
       ) : null}
 
+      {videoLightboxSrc ? (
+        <VideoLightbox src={videoLightboxSrc} onClose={() => setVideoLightboxSrc(null)} />
+      ) : null}
       {lightboxSrc ? (
         <ImageLightbox
           urls={(() => {

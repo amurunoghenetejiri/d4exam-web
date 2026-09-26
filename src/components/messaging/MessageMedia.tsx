@@ -63,9 +63,7 @@ function WaveBars({
     const el = trackRef.current;
     if (!el || !onSeek) return;
     const rect = el.getBoundingClientRect();
-    const pad = 6;
-    const usable = Math.max(1, rect.width - pad * 2);
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left - pad) / usable));
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
     onSeek(ratio);
   };
 
@@ -120,7 +118,7 @@ function WaveBars({
             "pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white/80",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
-          style={{ left: `${6 + pct * 88}%`, transition: active ? "none" : "left 75ms linear" }}
+          style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
         />
       ) : null}
     </div>
@@ -151,14 +149,27 @@ export function VoiceBubble({
 
   useEffect(() => {
     const a = new Audio();
-    a.preload = "metadata";
+    a.preload = "auto";
     a.src = src;
     audioRef.current = a;
 
     const applyDur = () => {
-      if (Number.isFinite(a.duration) && a.duration > 0) setDur(a.duration);
+      const d = a.duration;
+      if (Number.isFinite(d) && d > 0 && d < 1e6) setDur(d);
     };
-    const onMeta = () => applyDur();
+    const onMeta = () => {
+      if (!Number.isFinite(a.duration) || a.duration === Infinity) {
+        const fix = () => {
+          a.removeEventListener("timeupdate", fix);
+          applyDur();
+          try { a.currentTime = 0; } catch { /* ignore */ }
+        };
+        a.addEventListener("timeupdate", fix);
+        try { a.currentTime = 1e101; } catch { applyDur(); }
+      } else {
+        applyDur();
+      }
+    };
     const onDur = () => applyDur();
     const onEnd = () => {
       setPlaying(false);
@@ -373,7 +384,7 @@ export function VoiceRecorderBar({
           {mm}:{ss}
         </p>
         <p className="text-[10px] font-medium text-slate-500">
-          {recording && !paused ? "Recording…" : paused ? "Paused" : "Voice note"}
+          {paused ? "Paused" : ""}
         </p>
       </div>
       <div className="flex items-center justify-center gap-4">
@@ -848,7 +859,7 @@ export function LongPressMenu({
 }
 
 export function lastSeenLabel(atMs: number | null | undefined): string {
-  if (!atMs) return "Last seen recently";
+  if (!atMs) return "Last seen just now";
   const diff = Date.now() - atMs;
   if (diff < 45_000) return "Last seen just now";
   if (diff < 3600_000) {

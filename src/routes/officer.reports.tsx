@@ -526,7 +526,7 @@ sendLock.current = true;
                       onClick={() => { setThreadKey(t.key); setLocallyReadThreads((m) => ({ ...m, [t.key]: true })); }}
                       className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-200 hover:shadow-md"
                     >
-                      <span className={cn("relative grid h-12 w-12 place-items-center rounded-full text-sm font-bold text-white", avatarColor(t.key))}>
+                      <span className={cn("relative grid h-10 w-10 place-items-center rounded-full text-sm font-bold text-white", avatarColor(t.key))}>
                         {initials(t.student_name)}
                         <span className={cn("absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full border-2 border-white", online ? "bg-emerald-400" : "bg-slate-300")} />
                       </span>
