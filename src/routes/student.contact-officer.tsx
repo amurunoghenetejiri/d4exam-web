@@ -11,8 +11,7 @@ import {
   Search,
   Send,
   User,
-  X,
-} from "lucide-react";
+  X,, Clock} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +22,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { SplitHandle } from "@/components/dashboard/SplitHandle";
 import { isOnlineNow } from "@/lib/offline-sync";
+import { enqueueOutbox, listOutbox, removeOutbox, markOutboxFailed, markOutboxUploading, blobToDataUrlIfSmall, dataUrlToBlob, canRetry, subscribeOutbox, notifyOutbox } from "@/lib/message-outbox";
 import { joinMessagingPresence, ticksFor } from "@/lib/messaging-presence";
 import { uploadMessageMedia } from "@/lib/message-media";
 import { VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply } from "@/components/messaging/MessageMedia";
@@ -143,7 +143,9 @@ function Page() {
   const swipeRef = useRef<{ key: string; id: string; x: number } | null>(null);
   const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
-  const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([]);
+  const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([])
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set())
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [nearBottom, setNearBottom] = useState(true);
   const [newBelow, setNewBelow] = useState(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -513,7 +515,7 @@ function Page() {
         setComposeOpen(false);
         setInChat(true);
         setLocallyRead(false);
-        await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+        await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId)); try { removeOutbox(clientId); setFailedIds((s) => { const n = new Set(s); n.delete(clientId); return n; }); } catch {}
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not send");
       } finally {
@@ -677,7 +679,7 @@ function Page() {
     setClearOpen(false);
     setInChat(false);
     setChatMenuOpen(false);
-    await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+    await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId)); try { removeOutbox(clientId); setFailedIds((s) => { const n = new Set(s); n.delete(clientId); return n; }); } catch {}
   }
 
   const filteredShow =

@@ -644,7 +644,12 @@ export function ImageLightbox({
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-black">
+    <div className="fixed inset-0 z-[90] flex flex-col bg-black"
+      onTouchStart={(e) => { if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); pinchRef.current = { dist: d, scale }; } }}
+      onTouchMove={(e) => { if (e.touches.length === 2 && pinchRef.current) { e.preventDefault(); const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); setScale(Math.max(1, Math.min(4, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist))))); } }}
+      onTouchEnd={() => { pinchRef.current = null; if (scale < 1.05) setScale(1); }}
+      onDoubleClick={() => setScale((s) => (s > 1 ? 1 : 2))}
+    >
       <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
@@ -718,6 +723,8 @@ export function VideoLightbox({ src, onClose }: { src: string; onClose: () => vo
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const seeking = useRef(false);
+  const [scale, setScale] = useState(1);
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -770,6 +777,7 @@ export function VideoLightbox({ src, onClose }: { src: string; onClose: () => vo
         >
           <X className="h-5 w-5" />
         </button>
+        <button type="button" onClick={async () => { try { const res = await fetch(src); const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "video.mp4"; a.click(); URL.revokeObjectURL(url); } catch {} }} className="grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white ring-1 ring-white/20" aria-label="Download"><Download className="h-5 w-5" /></button>
         <p className="rounded-full bg-black/40 px-3 py-1 text-sm font-semibold text-white backdrop-blur-sm">Video</p>
         <span className="w-10" />
       </div>
