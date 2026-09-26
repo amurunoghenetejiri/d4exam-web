@@ -1,0 +1,96 @@
+name: apply-msg-ux-v4
+on:
+  workflow_dispatch:
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch MessageMedia
+        run: |
+          python3 << 'EOF'
+          from pathlib import Path
+          p = Path("src/components/messaging/MessageMedia.tsx")
+          t = p.read_text()
+          t = t.replace(
+              "const filledCount = Math.round(pct * heights.length);",
+              "const filledCount = Math.min(heights.length, Math.floor(pct * heights.length + 0.001));",
+          )
+          t = t.replace(
+              'className={cn("relative flex h-6 w-full items-center gap-[2.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}',
+              'className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}',
+          )
+          t = t.replace(
+              '"w-[2.5px] shrink-0 rounded-full transition-colors duration-75"',
+              '"min-w-[2px] flex-1 rounded-full transition-colors duration-100"',
+          )
+          t = t.replace(
+              '"pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white/80"',
+              '"pointer-events-none absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white"',
+          )
+          t = t.replace(
+              'style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 75ms linear" }}',
+              'style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 60ms linear" }}',
+          )
+          if "canplaythrough" not in t:
+              t = t.replace(
+                  'a.addEventListener("durationchange", onDur);\n    a.addEventListener("ended", onEnd);\n    void a.load();',
+                  'a.addEventListener("durationchange", onDur);\n    a.addEventListener("canplay", onMeta);\n    a.addEventListener("canplaythrough", onMeta);\n    a.addEventListener("ended", onEnd);\n    void a.load();\n    const retries = [120, 400, 1000, 2500].map((ms) => window.setTimeout(() => onMeta(), ms));',
+              )
+              t = t.replace(
+                  'a.removeEventListener("durationchange", onDur);\n      a.removeEventListener("ended", onEnd);',
+                  'a.removeEventListener("durationchange", onDur);\n      a.removeEventListener("canplay", onMeta);\n      a.removeEventListener("canplaythrough", onMeta);\n      a.removeEventListener("ended", onEnd);\n      try { retries.forEach((id) => clearTimeout(id)); } catch {}',
+              )
+          t = t.replace(
+              "<WaveBars active={recording && !paused} />",
+              '<div className="w-full max-w-[260px] mx-auto"><WaveBars active={recording && !paused} /></div>',
+          )
+          p.write_text(t)
+          print("MessageMedia", p.stat().st_size)
+          EOF
+      - name: Patch student route
+        run: |
+          python3 << 'EOF'
+          from pathlib import Path
+          p = Path("src/routes/student.contact-officer.tsx")
+          if not p.exists():
+              print("no student route"); raise SystemExit(0)
+          t = p.read_text()
+          t = t.replace(
+              'grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white hover:bg-white/25" onClick={() => fileRef.current?.click()}',
+              'grid h-9 w-9 place-items-center rounded-full bg-white/15 text-white hover:bg-white/25" onClick={() => fileRef.current?.click()}',
+          )
+          t = t.replace('<Paperclip className="h-6 w-6" />', '<Paperclip className="h-4 w-4" />')
+          t = t.replace(
+              'grid h-10 w-10 place-items-center rounded-full text-white shadow-md", recording ? "bg-[#2563eb]" : "bg-white/20 ring-2 ring-white/40")}',
+              'grid h-9 w-9 place-items-center rounded-full text-white shadow-md", recording ? "bg-[#2563eb]" : "bg-white/20 ring-2 ring-white/40")}',
+          )
+          t = t.replace('<Mic className="h-5 w-5 stroke-[2.5]" />', '<Mic className="h-4 w-4 stroke-[2.5]" />')
+          t = t.replace(
+              '? "Voice note" : m.text && m.text !== "(attachment)"',
+              '? "🎤 Voice note" : m.text && m.text !== "(attachment)" && m.text !== "Open attachment"',
+          )
+          t = t.replace(
+              '{m.text && m.text !== "(attachment)" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}',
+              '{m.text && m.text !== "(attachment)" && m.text !== "Open attachment" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}',
+          )
+          old_tail = ") : null}\n        <input ref={fileRef}"
+          if old_tail in t:
+              t = t.replace(old_tail, ") : (\n          <>\n        <input ref={fileRef}", 1)
+              close_marker = """          )}\n        </div>\n      </div>\n    </div>\n  ) : (\n    <div className=\"hidden flex-1 flex-col items-center justify-center gap-2 p-8 text-center lg:flex\">"""
+              if close_marker in t:
+                  t = t.replace(close_marker, """          )}\n        </div>\n          </>\n        )}\n      </div>\n    </div>\n  ) : (\n    <div className=\"hidden flex-1 flex-col items-center justify-center gap-2 p-8 text-center lg:flex\">""", 1)
+                  print("composer hide applied")
+          p.write_text(t)
+          print("student", p.stat().st_size)
+          EOF
+      - name: Commit
+        run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git status
+          git commit -m "fix: voice progress ball alignment, duration on load, smaller mic, hide composer while recording" || echo nochange
+          git push origin main
