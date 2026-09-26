@@ -11,7 +11,7 @@ import {
   Search,
   Send,
   User,
-  X,, Clock} from "lucide-react";
+  X, Clock} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1033,7 +1033,7 @@ function Page() {
           </div>
         ) : null}
         {recording || pendingAudio || pendingAudioUrl ? (
-          <VoiceRecorderBar
+          {(uploadPct != null && uploadPct < 100) ? (<div className="mx-3 mb-1 h-1 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-[#1e3a5f] transition-all" style={{ width: `${uploadPct}%` }} /></div>) : null}{failedIds.size > 0 ? (<div className="mx-3 mb-1 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900"><span>{failedIds.size} waiting</span><button type="button" className="rounded-md bg-[#1e3a5f] px-2 py-0.5 font-semibold text-white" onClick={() => { notifyOutbox(); window.dispatchEvent(new Event("online")); }}>Retry</button></div>) : null}<VoiceRecorderBar
             recording={recording}
             paused={recPaused}
             seconds={recSecs}
