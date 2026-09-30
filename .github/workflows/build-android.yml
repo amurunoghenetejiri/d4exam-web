@@ -7,13 +7,17 @@ on:
       - "android/**"
       - "native-android/**"
       - "capacitor.config.*"
+      - "vite.capacitor.config.ts"
       - "scripts/prepare-capacitor-dist.mjs"
+      - "scripts/force-local-capacitor-assets.py"
       - "scripts/android-apply-icons.sh"
       - "public/offline.html"
       - "public/icon-512.png"
       - "public/logo.png"
       - "package.json"
       - "bun.lock"
+      - ".env"
+      - "src/**"
       - ".github/workflows/build-android.yml"
 
 concurrency:
@@ -49,10 +53,43 @@ jobs:
           # Ensure Capgo biometric is present for Capacitor 8
           bun add @capgo/capacitor-native-biometric@^8.6.4 || true
 
+      - name: Ensure Supabase env for SPA build
+        env:
+          SECRET_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SECRET_PUB: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          SECRET_ANON: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          SECRET_PID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -f .env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            source .env || true
+            set +a
+          fi
+          export VITE_SUPABASE_URL="${SECRET_URL:-${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}}"
+          export VITE_SUPABASE_PUBLISHABLE_KEY="${SECRET_PUB:-${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}}"
+          export VITE_SUPABASE_ANON_KEY="${SECRET_ANON:-${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY:-}}}"
+          export VITE_SUPABASE_PROJECT_ID="${SECRET_PID:-${VITE_SUPABASE_PROJECT_ID:-${SUPABASE_PROJECT_ID:-}}}"
+
+          if [ -z "${VITE_SUPABASE_URL}" ] || [ -z "${VITE_SUPABASE_PUBLISHABLE_KEY}${VITE_SUPABASE_ANON_KEY}" ]; then
+            echo "FATAL: Supabase URL / anon key missing for APK SPA build"
+            echo "Add GitHub secrets VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY (or commit .env)"
+            exit 1
+          fi
+          echo "OK: Supabase URL=${VITE_SUPABASE_URL}"
+          echo "OK: project=${VITE_SUPABASE_PROJECT_ID:-unknown}"
+          {
+            echo "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}"
+            echo "VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}"
+            echo "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}"
+            echo "VITE_SUPABASE_PROJECT_ID=${VITE_SUPABASE_PROJECT_ID}"
+          } >> "$GITHUB_ENV"
+
       - name: Build local SPA into dist/ for Capacitor
         run: |
           set -euo pipefail
-          # Build local SPA into dist/ for Capacitor webDir (standalone APK, no remote website shell).
+          # Local-first SPA: bundled in APK (no remote Vercel shell).
           if ! node scripts/prepare-capacitor-dist.mjs; then
             echo "WARN: local SPA build failed — minimal offline shell"
             mkdir -p dist
@@ -62,6 +99,12 @@ jobs:
           if [ -f public/offline.html ]; then cp -f public/offline.html dist/offline.html; fi
           if [ -f public/logo.png ]; then cp -f public/logo.png dist/logo.png; fi
           test -f dist/index.html
+          if ! grep -R -q "rqjchjytqcqjmljahcdr\|supabase.co" dist/assets/*.js 2>/dev/null; then
+            echo "FATAL: Supabase URL not found in built SPA — login would always fail"
+            ls -la dist/assets || true
+            exit 1
+          fi
+          echo "OK: Supabase host present in SPA bundle"
           ls -la dist | head -30
 
       - name: Verify Capacitor uses local bundled assets (no remote website shell)
@@ -177,7 +220,6 @@ jobs:
             cat android/variables.gradle
           fi
 
-
       - name: Add androidx.biometric for D4NativeAuth
         run: |
           set -euo pipefail
@@ -217,9 +259,9 @@ jobs:
           bunx cap sync android
           python3 scripts/ensure-capacitor-plugins.py
           if [ -f android/app/build.gradle ]; then
-            sed -i 's/versionCode [0-9]*/versionCode 54/' android/app/build.gradle || true
-            sed -i 's/versionName "[^"]*"/versionName "1.5.4-deploy-fix"/' android/app/build.gradle || true
-            echo "OK: versionName 1.5.4-deploy-fix"
+            sed -i 's/versionCode [0-9]*/versionCode 55/' android/app/build.gradle || true
+            sed -i 's/versionName "[^"]*"/versionName "1.5.5-local-first"/' android/app/build.gradle || true
+            echo "OK: versionName 1.5.5-local-first"
           fi
           python3 scripts/force-local-capacitor-assets.py || true
           if [ -f android/variables.gradle ]; then
@@ -243,13 +285,19 @@ jobs:
               sed -i "s|</manifest>|    <uses-permission android:name=\"$perm\" />\n</manifest>|" "$MAN"
             fi
           done
+          # LOCAL-FIRST: must NOT contain remote server.url
           if [ -f android/app/src/main/assets/capacitor.config.json ]; then
-            if ! grep -E 'd4exam\.name\.ng|d4exam-platform\.vercel\.app' android/app/src/main/assets/capacitor.config.json; then
-              echo "FATAL: hybrid APK requires server.url to live site (Vercel / d4exam.name.ng)"
+            if grep -E '"url"[[:space:]]*:[[:space:]]*"https?://' android/app/src/main/assets/capacitor.config.json; then
+              echo "FATAL: assets capacitor.config.json must NOT contain server.url"
               cat android/app/src/main/assets/capacitor.config.json || true
               exit 1
             fi
-            echo "OK: hybrid APK assets — live UI + native plugins"
+            if ! grep -q '"hostname"[[:space:]]*:[[:space:]]*"localhost"' android/app/src/main/assets/capacitor.config.json; then
+              echo "FATAL: assets config must use hostname localhost"
+              cat android/app/src/main/assets/capacitor.config.json || true
+              exit 1
+            fi
+            echo "OK: local-first APK assets — NO server.url, hostname=localhost"
           fi
           # Native biometric must be linked after sync
           if ! grep -qi 'capgo-native-biometric\|native-biometric\|NativeBiometric' android/capacitor.settings.gradle android/app/capacitor.build.gradle 2>/dev/null; then
@@ -261,7 +309,7 @@ jobs:
           echo "OK: biometric plugin linked"
           chmod +x android/gradlew
           grep -q 'ExamImmersivePlugin' android/app/src/main/java/com/d4exam/app/MainActivity.java
-          echo "OK: sync complete — hybrid live UI (Vercel) + native plugins (biometric, screen, notif)"
+          echo "OK: sync complete — 100% local-first (dist via localhost) + native plugins"
 
       - name: Inject Google Services JSON
         env:
@@ -291,7 +339,6 @@ jobs:
           else
             echo "firebase-messaging already present"
           fi
-          # Register FCM service in manifest if overlay missed it
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if ! grep -q "D4FirebaseMessagingService" "$MANIFEST"; then
             sed -i 's|android:foregroundServiceType="microphone|phoneCall" />|android:foregroundServiceType="microphone|phoneCall" />\n        <service android:name=".D4FirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>|' "$MANIFEST" || true
@@ -365,10 +412,8 @@ jobs:
           body: |
             Sideload install for D4EXAM (not Play Store).
 
-            **Install / Update URL**
-            https://github.com/amurunoghenetejiri/d4exam-platform/releases/download/apk-latest/d4exam.apk
-
-            Includes fingerprint (NativeBiometric) + multi-account switch fixes.
+            **1.5.5-local-first** — boots from bundled dist/ (NO Vercel server.url).
+            Native plugins stay connected; Supabase only when online.
 
             Built from commit ${{ github.sha }}
           files: /tmp/apk-out/d4exam.apk
