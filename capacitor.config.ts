@@ -1,14 +1,15 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 /**
- * D4EXAM Capacitor Android — standalone APK (local bundled assets).
+ * D4EXAM Capacitor Android — 100% local-first standalone APK.
  *
  * Production runtime:
- *   APK → native splash → dist/ (webDir) → Capacitor bridge → native plugins → Supabase online
+ *   APK → native splash → dist/ (webDir) via https://localhost
+ *   → Capacitor bridge intact → native plugins → Supabase only when online
  *
- * APK production build injects server.url → https://d4exam.name.ng (live UI from Vercel)
- * while native plugins handle fingerprint, notifications, and screen share.
- * Source config stays without server.url; scripts/force-local-capacitor-assets.py sets hybrid mode.
+ * NO server.url — remote URL breaks offline boot and can sever the Capacitor
+ * bridge via HTTP redirects. scripts/force-local-capacitor-assets.py enforces this.
+ * Web (Vercel) deploy is unchanged; this config only affects the APK shell.
  */
 const config: CapacitorConfig = {
   appId: "com.d4exam.app",
@@ -37,8 +38,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      // Keep native splash until JS hides after app shell is ready
-      launchShowDuration: 0,
+      launchShowDuration: 15000,
       launchAutoHide: false,
       backgroundColor: "#0b1b3a",
       androidSplashResourceName: "splash",
@@ -46,7 +46,7 @@ const config: CapacitorConfig = {
       showSpinner: false,
       splashFullScreen: true,
       splashImmersive: true,
-      launchFadeOutDuration: 250,
+      launchFadeOutDuration: 300,
     },
     StatusBar: {
       style: "DARK",

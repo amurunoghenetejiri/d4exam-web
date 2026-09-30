@@ -46,27 +46,19 @@
   <h1>You're <span>Offline</span></h1>
   <p class="msg">It looks like you're not connected to the internet. Please check your network connection and try again.</p>
   <button type="button" id="retry">Try Again</button>
-  <p class="foot">D4EXAM will reconnect automatically once you're back online.</p>
+  <p class="foot">D4EXAM loads from this device. Some actions need the internet when you reconnect.</p>
   <script>
     (function () {
-      var LIVE = "https://d4exam-platform.vercel.app";
       function goApp() {
         try {
-          // Hybrid APK: return to live shell (keeps Capacitor bridge when server.url is set)
-          if (navigator.onLine) {
-            location.replace(LIVE + "/?boot=" + Date.now());
-            return;
-          }
-        } catch (e) {}
-        try {
+          // Local-first APK: always return to bundled SPA (never remote Vercel)
           location.replace("./index.html?boot=" + Date.now());
-        } catch (e2) {
-          try { location.reload(); } catch (e3) {}
+        } catch (e) {
+          try { location.reload(); } catch (e2) {}
         }
       }
       document.getElementById("retry").addEventListener("click", goApp);
       window.addEventListener("online", goApp);
-      // Auto-recover quickly if device is already online (false offline flash after app lock)
       setTimeout(function () {
         if (navigator.onLine) goApp();
       }, 600);

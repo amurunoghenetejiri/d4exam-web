@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Configure Capacitor Android assets for hybrid APK:
+Configure Capacitor Android assets for 100% local-first offline APK.
 
-  UI / menu / deep links  → live site (Vercel / d4exam.name.ng)
+  UI / SPA shell  → bundled dist/ via https://localhost (NO remote server.url)
   Permissions / biometrics / notifications / screen share → native Capacitor plugins
+  Data             → IndexedDB offline-cache; Supabase only when online
 
-server.url loads the production website inside the WebView so menus and pages
-match the live site. Native plugins (D4NativeAuth, D4ScreenShare, Capgo, etc.)
-still run in the APK process and can request real OS permissions.
+Removing server.url ensures:
+  - App boots from local assets even in Airplane Mode
+  - window.Capacitor bridge stays intact (no remote HTTP redirects)
+  - Fingerprint, ScreenShare, LocalNotifications remain available offline
 """
 from __future__ import annotations
 
@@ -18,8 +20,6 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CFG = ROOT / "android" / "app" / "src" / "main" / "assets" / "capacitor.config.json"
 
-LIVE_URL = "https://d4exam-platform.vercel.app"
-
 
 def main() -> int:
     if not CFG.exists():
@@ -29,17 +29,16 @@ def main() -> int:
     d = json.loads(CFG.read_text(encoding="utf-8"))
     server = dict(d.get("server") or {})
 
-    server["url"] = LIVE_URL
+    # CRITICAL: remove any remote URL so WebView never fetches remote HTML
+    server.pop("url", None)
+    server.pop("originalUrl", None)
+
     server["androidScheme"] = "https"
     server["cleartext"] = False
-    server["errorPath"] = "offline.html"
-    # Hostname kept for local asset fallback when offline
     server["hostname"] = "localhost"
+    # SPA fallback for deep paths when offline / local shell
+    server["errorPath"] = "index.html"
     server["allowNavigation"] = [
-        "d4exam.name.ng",
-        "*.d4exam.name.ng",
-        "d4exam-platform.vercel.app",
-        "*.vercel.app",
         "*.supabase.co",
         "*.googleapis.com",
         "*.gstatic.com",
@@ -63,13 +62,18 @@ def main() -> int:
         "splashImmersive": True,
         "launchFadeOutDuration": 300,
     }
+    plugins["LocalNotifications"] = {
+        "smallIcon": "ic_stat_d4exam",
+        "iconColor": "#0b1b3a",
+        "sound": "default",
+    }
     d["plugins"] = plugins
     d["webDir"] = "dist"
     d["appId"] = d.get("appId") or "com.d4exam.app"
     d["appName"] = d.get("appName") or "D4EXAM"
 
     CFG.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
-    print("OK: hybrid APK — server.url =", LIVE_URL, "+ native plugins")
+    print("OK: local-first APK — NO server.url, webDir=dist, hostname=localhost")
     return 0
 
 
