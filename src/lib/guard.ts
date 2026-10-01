@@ -13,6 +13,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { offlineGet, OfflineKeys } from "@/lib/offline-cache";
 import { readLastUserId } from "@/lib/offline-query";
 
+function isCapSpa(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    if ((window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA) return true;
+    const host = (window.location.hostname || "").toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1") return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /**
  * Client-side gate for a role area.
  * Database RLS still enforces real access — this only prevents wrong dashboards.
@@ -20,6 +32,7 @@ import { readLastUserId } from "@/lib/offline-query";
  * Uses the React Query cache when available so sibling navigations (e.g.
  * /student → /student/results) do not re-hit Supabase and stall the page.
  * Offline: falls back to last cached SessionUser so the student shell still opens.
+ * APK: never depends on TanStack server functions (stubs) — session comes from Supabase client.
  */
 export async function requireRole(role: AppRole | AppRole[], queryClient?: QueryClient) {
   const allowed = Array.isArray(role) ? role : [role];
@@ -93,9 +106,9 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
       } catch {
         user = null;
       }
-      if ((!user || isIncomplete(user)) && hasAuthSession) {
+      // Website only: server-side school repair. APK stubs this — skip entirely.
+      if ((!user || isIncomplete(user)) && hasAuthSession && !isCapSpa()) {
         try {
-          // Server repair: write profiles.school_id from officers/teachers/roles
           const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
           const fixed = await Promise.race([
             repairMySessionSchool(),
@@ -153,7 +166,6 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
             fetchSessionUser(),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
           ]);
-          // Accept resolved role even if schoolId is still hydrating (admin/officer login loop fix)
           if (
             hard &&
             (hard.role === "super_admin" ||
@@ -183,13 +195,20 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
           identifier: sess.session.user.email || null,
           identifierLabel: "Email",
         };
-        // Do NOT cache incomplete session — next navigation must re-resolve
         window.setTimeout(() => clearPendingLoginRole(), 60_000);
         return { user: minimal };
       }
-      // Session exists but role not yet known — use pending even if allowed list is strict
-      if (sess.session?.user && pending && pending in { student:1, teacher:1, school_admin:1, examination_officer:1, super_admin:1 }) {
-        // Wrong dashboard: send to the correct home instead of login
+      if (
+        sess.session?.user &&
+        pending &&
+        pending in {
+          student: 1,
+          teacher: 1,
+          school_admin: 1,
+          examination_officer: 1,
+          super_admin: 1,
+        }
+      ) {
         if (!allowed.includes(pending)) {
           throw redirect({ to: roleHome[pending] as never });
         }
@@ -220,7 +239,6 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
   if (!hasRole) {
     const preferred = readPreferredRole() || readPendingLoginRole();
     if (preferred && allowed.includes(preferred)) {
-      // Hydration lag: trust preferred role for this navigation
       user = {
         ...user!,
         role: preferred,
