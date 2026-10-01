@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { clientSignInWithSchoolCode } from "@/lib/auth.client-login";
 import { isNativeShell } from "@/native/platform";
+import { offlineRemove, OfflineKeys } from "@/lib/offline-cache";
 
 /** APK / Capacitor SPA: never rely on stubbed server functions for login. */
 export function shouldUseClientLoginOnly(): boolean {
@@ -213,14 +214,25 @@ export async function runApkClientLogin(input: {
     };
   }
 
-  // Persist session before role lookup so RLS sees auth.uid()
   try {
     await supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
   } catch {
-    /* still return tokens; login page will setSession again */
+    /* still return tokens */
+  }
+
+  // Drop stale offline null student context so dashboard can refill from network
+  if (userId) {
+    try {
+      await offlineRemove(userId, OfflineKeys.studentContext);
+      await offlineRemove(userId, OfflineKeys.studentResults);
+      await offlineRemove(userId, OfflineKeys.studentExams);
+      await offlineRemove(userId, OfflineKeys.sessionUser);
+    } catch {
+      /* ignore */
+    }
   }
 
   let role: string | null = null;
@@ -229,13 +241,13 @@ export async function runApkClientLogin(input: {
       const resolved = await Promise.race([
         resolveRoleAfterSession(userId),
         new Promise<{ role: string; schoolId: string | null }>((resolve) =>
-          setTimeout(() => resolve({ role: "examination_officer", schoolId }), 4_000),
+          setTimeout(() => resolve({ role: "student", schoolId }), 4_000),
         ),
       ]);
       role = resolved.role;
       if (!schoolId && resolved.schoolId) schoolId = resolved.schoolId;
     } catch {
-      role = "examination_officer";
+      role = "student";
     }
   }
 
