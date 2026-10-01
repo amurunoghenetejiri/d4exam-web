@@ -27,7 +27,6 @@ export function LiteDrawer({
 
   useEffect(() => setMounted(true), []);
 
-  // Keep content in the DOM during the close animation, then hide it fully.
   useEffect(() => {
     if (open) {
       setVisible(true);
@@ -69,11 +68,17 @@ export function LiteDrawer({
         aria-label={label}
         aria-modal={false}
         className={cn(
-          "absolute inset-y-0 flex h-[100dvh] flex-col shadow-2xl transition-transform duration-200 ease-out will-change-transform",
+          "absolute flex flex-col shadow-2xl transition-transform duration-200 ease-out will-change-transform",
+          // Full phone height including under status bar / gesture area
+          "top-0 bottom-0 h-[100dvh] max-h-[100dvh]",
           side === "left" ? "left-0" : "right-0",
           open ? "translate-x-0" : side === "left" ? "-translate-x-full" : "translate-x-full",
           className,
         )}
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
       >
         {children}
       </aside>
