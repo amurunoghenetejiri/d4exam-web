@@ -1,17 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { appNavigate } from "@/lib/app-navigate";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { forceUnlockBody } from "@/lib/unlock-ui";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { Watermark } from "@/components/brand/Watermark";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { LiteDrawer, useTapThrottle } from "@/components/ui/lite-drawer";
 import { isAppLikeShell } from "@/native/platform";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +41,8 @@ const menuGroups = [
 export function PublicLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const tapThrottle = useTapThrottle(350);
+  const navThrottle = useTapThrottle(350);
   const appShell = useMemo(() => {
     try {
       return isAppLikeShell();
@@ -54,31 +51,24 @@ export function PublicLayout({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * Close the sheet first (so the slide-out animation runs), then navigate.
-   * Avoids Radix SheetClose + TanStack Link composition bugs on mobile/WebView
-   * where the menu stays open and the route never changes.
-   */
+  useEffect(() => {
+    forceUnlockBody();
+  }, []);
+
+  /** Close the drawer and navigate once — repeat taps within 350ms are ignored. */
   function goTo(to: string) {
-    setOpen(false);
-    // Let the close animation start, then navigate. Works on Capacitor WebView.
-    window.setTimeout(() => {
+    navThrottle(() => {
+      setOpen(false);
       try {
         appNavigate(to);
-        return;
-      } catch {
-        /* fall through */
-      }
-      try {
-        void navigate({ to: to as never });
       } catch {
         try {
-          window.location.assign(to);
+          void navigate({ to: to as never });
         } catch {
           window.location.href = to;
         }
       }
-    }, 80);
+    });
   }
 
   return (
@@ -118,31 +108,27 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </Button>
           </div>
 
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="d4-public-menu lg:hidden"
-                aria-label="Open menu"
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="w-[min(100%,20rem)] border-l border-slate-200 bg-white p-0"
-              // Ensure body scroll lock is released cleanly when we force-close via setOpen
-              onCloseAutoFocus={(e) => e.preventDefault()}
-            >
-              <SheetTitle className="sr-only">Menu</SheetTitle>
+          <Button
+            variant="outline"
+            size="icon"
+            className="d4-public-menu lg:hidden"
+            aria-label="Open menu"
+            onClick={() => tapThrottle(() => setOpen(true))}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          <LiteDrawer
+            open={open}
+            onClose={() => setOpen(false)}
+            side="right"
+            label="Menu"
+            className="w-[min(100%,20rem)] border-l border-slate-200 bg-white lg:hidden"
+          >
               <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
                 <Logo size="sm" />
-                <SheetClose asChild>
-                  <Button variant="ghost" size="icon" aria-label="Close menu">
-                    <X className="h-5 w-5" />
-                  </Button>
-                </SheetClose>
+                <Button variant="ghost" size="icon" aria-label="Close menu" onClick={() => setOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
               </div>
               <div className="flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto p-4">
                 {menuGroups.map((g) => (
@@ -187,8 +173,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               </div>
-            </SheetContent>
-          </Sheet>
+          </LiteDrawer>
         </div>
       </header>
       <div className="d4-public-header-spacer h-14 shrink-0 sm:h-[4.5rem]" aria-hidden />
