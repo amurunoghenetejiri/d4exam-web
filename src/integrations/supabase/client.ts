@@ -13,6 +13,21 @@ function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
 }
 
+function isApkOrLocalHost(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    if ((window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA) return true;
+    const host = (window.location.hostname || '').toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '') return true;
+    if (window.location.protocol === 'file:') return true;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    if (cap?.isNativePlatform?.()) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
     const headers = new Headers(
@@ -23,7 +38,6 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
       new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     }
 
-    // New Supabase API keys are opaque strings, not bearer JWTs.
     if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
       headers.delete('Authorization');
     }
@@ -46,7 +60,6 @@ function createSupabaseClient() {
       : undefined) ||
     '';
 
-  // Prefer env; fall back to known d4exam-platform project so APK login never hits empty keys.
   const SUPABASE_URL = (envUrl && String(envUrl).trim()) || FALLBACK_SUPABASE_URL;
   const SUPABASE_PUBLISHABLE_KEY =
     (envKey && String(envKey).trim()) || FALLBACK_PUBLISHABLE_KEY || FALLBACK_SUPABASE_ANON_KEY;
@@ -64,15 +77,22 @@ function createSupabaseClient() {
     FALLBACK_SUPABASE_ANON_KEY ||
     SUPABASE_PUBLISHABLE_KEY;
 
+  const apk = isApkOrLocalHost();
+  // APK: always localStorage (never Lovable preview broker). Website: broker when framed.
+  const storage = apk
+    ? (typeof window !== 'undefined' ? localStorage : undefined)
+    : brokeredPreviewStorage();
+
   return createClient<Database>(SUPABASE_URL, authKey, {
     global: {
       fetch: createSupabaseFetch(authKey),
     },
     auth: {
-      storage: brokeredPreviewStorage(),
+      storage,
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      // Hash SPA on localhost has no OAuth callback URL — skip URL session detection.
+      detectSessionInUrl: !apk,
       flowType: 'pkce',
     },
   });
