@@ -60,6 +60,66 @@ function isValidStudentContext(ctx: unknown): ctx is StudentContext {
   return Boolean(c.studentId && c.profileId);
 }
 
+function parseRpcStudentContext(raw: unknown, sessionSchoolName?: string | null): StudentContext | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!r.studentId || !r.profileId) return null;
+  const coursesRaw = Array.isArray(r.courses) ? r.courses : [];
+  const courses: StudentCourse[] = coursesRaw
+    .map((c) => {
+      const row = c as { id?: string; code?: string; name?: string };
+      if (!row?.id) return null;
+      return { id: String(row.id), code: String(row.code || ""), name: String(row.name || "") };
+    })
+    .filter(Boolean) as StudentCourse[];
+  const courseIds = Array.isArray(r.courseIds)
+    ? (r.courseIds as unknown[]).map(String)
+    : courses.map((c) => c.id);
+  return {
+    studentId: String(r.studentId),
+    matric: r.matric != null ? String(r.matric) : null,
+    schoolId: String(r.schoolId || ""),
+    profileId: String(r.profileId),
+    fullName: String(r.fullName || ""),
+    email: String(r.email || ""),
+    schoolName: (r.schoolName as string | null) ?? sessionSchoolName ?? null,
+    departmentId: r.departmentId ? String(r.departmentId) : null,
+    levelId: r.levelId ? String(r.levelId) : null,
+    facultyId: r.facultyId ? String(r.facultyId) : null,
+    departmentName: (r.departmentName as string | null) ?? null,
+    facultyName: (r.facultyName as string | null) ?? null,
+    levelName: (r.levelName as string | null) ?? null,
+    status: String(r.status || "active"),
+    isActive: Boolean(r.isActive ?? true),
+    sessionName: (r.sessionName as string | null) ?? null,
+    semesterName: (r.semesterName as string | null) ?? null,
+    semesterId: r.semesterId ? String(r.semesterId) : null,
+    courses,
+    courseIds,
+  };
+}
+
+async function loadStudentContextViaRpc(
+  sessionSchoolName?: string | null,
+): Promise<StudentContext | null> {
+  const { supabase } = await import("@/integrations/supabase/client");
+  // Ensure JWT is active for auth.uid() inside SECURITY DEFINER RPC
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session?.access_token) {
+      await supabase.auth.getUser();
+    }
+  } catch {
+    /* continue */
+  }
+  const { data, error } = await supabase.rpc("get_my_student_context" as never);
+  if (error) {
+    console.warn("[student-context] rpc", error.message);
+    return null;
+  }
+  return parseRpcStudentContext(data, sessionSchoolName);
+}
+
 async function loadStudentContextClient(
   uid: string,
   session: {
@@ -119,7 +179,6 @@ async function loadStudentContextClient(
 
   let student: Record<string, unknown> | null = null;
 
-  // 1) by profile_id
   try {
     const { data, error } = await supabase
       .from("students")
@@ -133,7 +192,6 @@ async function loadStudentContextClient(
     /* ignore */
   }
 
-  // 2) by auth uid if profile.id was wrong
   if (!student) {
     try {
       const { data: p2 } = await supabase
@@ -159,7 +217,6 @@ async function loadStudentContextClient(
     }
   }
 
-  // 3) school scan by profile id (RLS own-row still applies)
   if (!student && schoolId) {
     try {
       const { data: rows } = await supabase
@@ -201,7 +258,7 @@ async function loadStudentContextClient(
       levelName = data?.name ?? null;
     }
   } catch {
-    /* optional labels */
+    /* optional */
   }
 
   const status = String(student.status || "active");
@@ -226,25 +283,6 @@ async function loadStudentContextClient(
     courses = mapRows(sc ?? []);
   } catch {
     courses = [];
-  }
-
-  try {
-    const { data: cos } = await supabase
-      .from("course_carryovers")
-      .select("course_id, courses(id, code, name)")
-      .eq("student_id", studentId)
-      .eq("status", "active")
-      .limit(100);
-    const extra = mapRows(cos ?? []);
-    const seen = new Set(courses.map((c) => c.id));
-    for (const c of extra) {
-      if (!seen.has(c.id)) {
-        courses.push(c);
-        seen.add(c.id);
-      }
-    }
-  } catch {
-    /* optional */
   }
 
   if (!courses.length) {
@@ -310,7 +348,15 @@ export function useStudentContext() {
         uid,
         OfflineKeys.studentContext,
         async () => {
-          // APK: server fns are stubs — never use them as success.
+          // 1) SECURITY DEFINER RPC — works on APK even when table RLS is picky
+          try {
+            const viaRpc = await loadStudentContextViaRpc(session?.schoolName);
+            if (viaRpc) return viaRpc;
+          } catch (e) {
+            console.warn("[student-context] rpc path failed", e);
+          }
+
+          // 2) Website only: TanStack server fn
           if (!isCapSpa()) {
             try {
               const { getMyStudentContext } = await import("@/lib/student.server");
@@ -321,6 +367,7 @@ export function useStudentContext() {
             }
           }
 
+          // 3) Direct client table reads
           return loadStudentContextClient(uid, session);
         },
         { schoolId: session?.schoolId, fallback: null, localFirst: false },
