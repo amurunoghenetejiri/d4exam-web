@@ -5,20 +5,22 @@
  * Never permanently cache null for session/profile context.
  */
 import { useQuery, type UseQueryOptions, type QueryKey } from "@tanstack/react-query";
-import { offlineGet, offlineSet, offlineRemove } from "@/lib/offline-cache";
+import { offlineGet, offlineSet, offlineRemove, OfflineKeys } from "@/lib/offline-cache";
 import { isOnlineNow } from "@/lib/offline-sync";
 import { mirrorByOfflineKey, readOfflineBlob } from "@/lib/local-db/mirror";
 
 const LAST_USER_KEY = "d4exam.lastUserId";
 
 /** Keys where null must never stick in the offline store (forces retry online). */
-const NO_NULL_CACHE_KEYS = new Set([
-  "sessionUser",
-  "studentContext",
-  "teacherContext",
-  "officerContext",
-  "studentResults",
-  "studentExams",
+const NO_NULL_CACHE_KEYS = new Set<string>([
+  OfflineKeys.sessionUser,
+  OfflineKeys.studentContext,
+  OfflineKeys.teacherContext,
+  OfflineKeys.studentResults,
+  OfflineKeys.studentExams,
+  OfflineKeys.profile,
+  OfflineKeys.teacherWorkspace,
+  OfflineKeys.officerDashboard,
 ]);
 
 function shouldPersist(key: string, data: unknown): boolean {
@@ -148,8 +150,6 @@ export async function withOfflineCache<T>(
   try {
     const data = await fetcher();
     await persistCache(userId, key, data, opts?.schoolId);
-    // If live returned null but we had a previous good local, keep showing local
-    // only when offline-ish edge; while online prefer live null so UI can recover.
     return data;
   } catch (err) {
     console.warn("[offline-query] network failed, using cache", key, err);
