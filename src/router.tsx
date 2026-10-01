@@ -11,7 +11,7 @@ function isApkShell(): boolean {
     const ua = navigator.userAgent || "";
     return (
       Boolean(cap?.isNativePlatform?.()) ||
-      (ua.includes("; wv)") && /Android/i.test(ua)) ||
+      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
       /Capacitor/i.test(ua)
     );
   } catch {
@@ -19,12 +19,11 @@ function isApkShell(): boolean {
   }
 }
 
-/** Navy theme loading — matches app splash branding (no white flash). */
+/** APK: navy + animated D4EXAM text. Website: keep light spinner. */
 function DefaultPending() {
-  if (true) {
+  if (isApkShell()) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-[#0b1b3a] px-6 py-16">
-        <img src="/logo.png" alt="" className="mb-5 h-16 w-16 object-contain opacity-90" />
         <p
           className="select-none text-2xl font-extrabold tracking-[0.2em] text-white"
           style={{
@@ -38,7 +37,7 @@ function DefaultPending() {
         >
           D4EXAM
         </p>
-        <p className="mt-3 text-[10px] font-semibold tracking-[0.28em] text-slate-400">
+        <p className="mt-3 text-[10px] font-semibold tracking-[0.28em] text-slate-500">
           SMART. SECURE. SEAMLESS.
         </p>
         <style>{`@keyframes d4LoadShine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }`}</style>
@@ -46,27 +45,25 @@ function DefaultPending() {
     );
   }
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#0b1b3a] px-6 py-16">
-      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/20 border-t-blue-400" />
-      <p className="text-sm font-medium text-slate-300">Loading…</p>
+    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 bg-white py-12">
+      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600" />
+      <p className="text-sm font-medium text-slate-500">Loading…</p>
     </div>
   );
 }
 
 function recoverAppShell() {
   try {
-    // Prefer last known in-app path (set by NativeBootstrap / rememberLastPath)
     const last =
       (typeof sessionStorage !== "undefined" && sessionStorage.getItem("d4_last_path")) ||
       (typeof localStorage !== "undefined" && localStorage.getItem("d4_last_path")) ||
       "/";
     const path = last.startsWith("/") ? last : `/${last}`;
-    // Hash history on native APK; path history on web
     const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     const ua = navigator.userAgent || "";
     const native =
       Boolean(cap?.isNativePlatform?.()) ||
-      (ua.includes("; wv)") && /Android/i.test(ua)) ||
+      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
       /Capacitor/i.test(ua);
     if (native) {
       window.location.hash = path.startsWith("#") ? path : `#${path}`;
@@ -85,8 +82,6 @@ function recoverAppShell() {
 
 function DefaultError({ error }: { error: Error }) {
   const msg = String(error?.message ?? "").toLowerCase();
-  // Only show the hard offline wall when the device reports offline.
-  // Transient fetch failures after app-lock unlock must NOT block the real app UI.
   const deviceOffline = typeof navigator !== "undefined" && navigator.onLine === false;
   const networkMsg =
     msg.includes("failed to fetch") ||
@@ -98,58 +93,27 @@ function DefaultError({ error }: { error: Error }) {
   if (hardOffline) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-[#0a1a3a] px-6 py-16 text-center">
-        <div className="relative mb-7 grid h-[140px] w-[140px] place-items-center" aria-hidden>
-          <span className="absolute left-2.5 top-2.5 h-[120px] w-[120px] rounded-full bg-blue-600/20" />
-          <span className="absolute right-1.5 top-2 h-9 w-9 rounded-full bg-blue-500/25" />
-          <span className="absolute right-0 top-10 h-4.5 w-4.5 rounded-full bg-blue-400/30" />
-          <div className="relative z-10 grid h-24 w-24 place-items-center rounded-full bg-gradient-to-b from-[#1e3a6e] to-[#152a52] shadow-xl">
-            <svg width="52" height="52" viewBox="0 0 24 24" fill="none">
-              <path d="M5.07 11.05a9 9 0 0 1 13.86 0" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
-              <path d="M8.53 14.11a5 5 0 0 1 6.95 0" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
-              <circle cx="12" cy="18" r="1.35" fill="#93c5fd" />
-              <path d="M4.5 5.5 L19.5 18.5" stroke="#ef4444" strokeWidth="2.25" strokeLinecap="round" />
-            </svg>
-          </div>
-        </div>
         <h1 className="mb-3 text-2xl font-bold tracking-tight text-white">
           You're <span className="text-blue-500">Offline</span>
         </h1>
         <p className="mb-7 max-w-xs text-[0.95rem] leading-relaxed text-slate-400">
-          It looks like you're not connected to the internet.
-          Please check your network connection and try again.
+          It looks like you're not connected to the internet. Please check your network connection and try again.
         </p>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-7 py-3.5 text-[0.95rem] font-semibold text-white shadow-lg shadow-blue-600/35 transition active:scale-[0.98] active:bg-blue-700"
+          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-7 py-3.5 text-[0.95rem] font-semibold text-white"
           onClick={() => recoverAppShell()}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M21 12a9 9 0 1 1-2.6-6.3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M21 4v5h-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
           Try Again
         </button>
-        <div className="mt-9 flex max-w-[16rem] flex-col items-center gap-2 text-slate-500">
-          <p className="text-xs leading-relaxed">
-            D4EXAM will reconnect automatically
-            <br />
-            once you're back online.
-          </p>
-        </div>
       </div>
     );
   }
 
-  // Soft recovery for post-lock / transient errors — get user back into the app
   return (
     <div className="mx-auto flex min-h-[50vh] max-w-md flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-xl font-bold text-slate-500">
-        D4
-      </div>
       <h1 className="text-lg font-semibold text-slate-900">This page didn't load</h1>
-      <p className="text-sm text-slate-500">
-        Something went wrong. Try again or go back to your dashboard.
-      </p>
+      <p className="text-sm text-slate-500">Something went wrong. Try again or go back to your dashboard.</p>
       <div className="flex flex-wrap justify-center gap-2">
         <button
           type="button"
@@ -206,6 +170,7 @@ export const getRouter = () => {
   // Android Capacitor APK always uses hash history (local bundled shell at localhost).
   // Public website in Chrome keeps path history (browser history default).
   let history: ReturnType<typeof createBrowserHistory> | ReturnType<typeof createHashHistory> | undefined;
+  let clientOnly = false;
   try {
     if (typeof window !== "undefined") {
       const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
@@ -213,17 +178,19 @@ export const getRouter = () => {
       const host = (window.location.hostname || "").toLowerCase();
       const native =
         Boolean(cap?.isNativePlatform?.()) ||
-        (ua.includes("; wv)") && /Android/i.test(ua)) ||
+        (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
         /Capacitor/i.test(ua);
       const localHost =
         host === "localhost" ||
         host === "127.0.0.1" ||
         host === "" ||
         window.location.protocol === "file:";
+      const capSpa = Boolean((window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA);
       // Never use remote website hostname inside APK; always hash for native/local.
-      if (native || localHost) {
+      if (native || localHost || capSpa) {
         history = createHashHistory();
       }
+      clientOnly = capSpa || native;
     }
   } catch {
     /* default history for pure web */
@@ -233,11 +200,12 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     history,
-    scrollRestoration: true,
+    scrollRestoration: !clientOnly,
     defaultPreloadStaleTime: 5 * 60_000,
-    defaultPreload: "intent",
-    defaultPendingMs: 0,
-    defaultPendingMinMs: 120,
+    // APK: no hover/touch preloading — it raced taps and stalled the WebView.
+    defaultPreload: clientOnly ? false : "intent",
+    defaultPendingMs: clientOnly ? 150 : 0,
+    defaultPendingMinMs: clientOnly ? 0 : 120,
     defaultPendingComponent: DefaultPending,
     defaultErrorComponent: DefaultError as never,
   });
