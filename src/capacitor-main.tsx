@@ -23,6 +23,10 @@ function showBootError(message: string) {
 
 function main() {
   try {
+    // Pure client mode: tells the root route to skip the SSR <html>/<body>
+    // shell and the router to skip preloading/hydration behaviour.
+    (window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA = true;
+
     let rootEl = document.getElementById("root");
     if (!rootEl) {
       rootEl = document.createElement("div");
