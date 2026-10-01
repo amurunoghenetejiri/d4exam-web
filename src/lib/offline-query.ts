@@ -1,14 +1,31 @@
 /**
  * Offline-first reads + network refresh.
- * LOCAL FIRST → display → if online refresh → update local → update UI.
- * Never throws when a cached value exists. Soft empty when offline with no cache.
+ * Online: live request → update cache → render.
+ * Offline: restore cache → render (or soft empty).
+ * Never permanently cache null for session/profile context.
  */
 import { useQuery, type UseQueryOptions, type QueryKey } from "@tanstack/react-query";
-import { offlineGet, offlineSet } from "@/lib/offline-cache";
+import { offlineGet, offlineSet, offlineRemove } from "@/lib/offline-cache";
 import { isOnlineNow } from "@/lib/offline-sync";
 import { mirrorByOfflineKey, readOfflineBlob } from "@/lib/local-db/mirror";
 
 const LAST_USER_KEY = "d4exam.lastUserId";
+
+/** Keys where null must never stick in the offline store (forces retry online). */
+const NO_NULL_CACHE_KEYS = new Set([
+  "sessionUser",
+  "studentContext",
+  "teacherContext",
+  "officerContext",
+  "studentResults",
+  "studentExams",
+]);
+
+function shouldPersist(key: string, data: unknown): boolean {
+  if (data === undefined) return false;
+  if (data === null && NO_NULL_CACHE_KEYS.has(key)) return false;
+  return true;
+}
 
 export function rememberLastUserId(userId: string | null | undefined): void {
   if (typeof window === "undefined") return;
@@ -31,6 +48,16 @@ export function readLastUserId(): string | null {
 async function readAnyLocalCache<T>(userId: string | null | undefined, key: string): Promise<T | null> {
   const tryUser = async (uid: string) => {
     const cached = await offlineGet<T>(uid, key);
+    // Treat explicit null as cache miss for profile keys so online retry can recover
+    if (cached && cached.data !== undefined && cached.data !== null) return cached.data;
+    if (cached && cached.data === null && NO_NULL_CACHE_KEYS.has(key)) {
+      try {
+        await offlineRemove(uid, key);
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
     if (cached && cached.data !== undefined) return cached.data;
     const blob = await readOfflineBlob<T>(uid, key);
     if (blob !== null && blob !== undefined) return blob;
@@ -61,8 +88,24 @@ function isNetworkError(err: unknown): boolean {
   );
 }
 
+async function persistCache(
+  userId: string | null | undefined,
+  key: string,
+  data: unknown,
+  schoolId?: string | null,
+) {
+  if (!userId || !shouldPersist(key, data)) return;
+  try {
+    void offlineSet(userId, key, data, { schoolId });
+    void mirrorByOfflineKey(userId, key, data as never, { schoolId });
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * LOCAL-FIRST data access used by every offline-supported page.
+ * When localFirst is false (APK profile paths), always hit the network while online.
  */
 export async function withOfflineCache<T>(
   userId: string | null | undefined,
@@ -88,14 +131,12 @@ export async function withOfflineCache<T>(
     return null as T;
   }
 
+  // Online + localFirst: show cache immediately, refresh in background
   if (localFirst && local !== null) {
     void (async () => {
       try {
         const data = await fetcher();
-        if (userId) {
-          void offlineSet(userId, key, data, { schoolId: opts?.schoolId });
-          void mirrorByOfflineKey(userId, key, data as never, { schoolId: opts?.schoolId });
-        }
+        await persistCache(userId, key, data, opts?.schoolId);
       } catch (err) {
         console.warn("[offline-query] background refresh failed", key, err);
       }
@@ -103,12 +144,12 @@ export async function withOfflineCache<T>(
     return local;
   }
 
+  // Online + network-first (profile/session): live fetch, then cache only real data
   try {
     const data = await fetcher();
-    if (userId) {
-      void offlineSet(userId, key, data, { schoolId: opts?.schoolId });
-      void mirrorByOfflineKey(userId, key, data as never, { schoolId: opts?.schoolId });
-    }
+    await persistCache(userId, key, data, opts?.schoolId);
+    // If live returned null but we had a previous good local, keep showing local
+    // only when offline-ish edge; while online prefer live null so UI can recover.
     return data;
   } catch (err) {
     console.warn("[offline-query] network failed, using cache", key, err);
