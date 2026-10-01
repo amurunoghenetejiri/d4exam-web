@@ -31,17 +31,64 @@ type TeacherRow = {
   profile_id: string | null;
 };
 
-/**
- * Resolve the teachers row for the signed-in user.
- * Tries profile_id + school_id, then profile_id only, then auth_user_id → profiles → teachers.
- * No schema changes; pure lookup resilience.
- */
+function parseRpcTeacherContext(raw: unknown, session?: { fullName?: string; email?: string; schoolName?: string | null }): TeacherContext | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!r.teacherId || !r.profileId) return null;
+  const coursesRaw = Array.isArray(r.courses) ? r.courses : [];
+  const courses: TeacherCourse[] = coursesRaw
+    .map((c) => {
+      const row = c as { id?: string; code?: string; name?: string; credit_units?: number; status?: string };
+      if (!row?.id) return null;
+      return {
+        id: String(row.id),
+        code: String(row.code || ""),
+        name: String(row.name || ""),
+        credit_units: Number(row.credit_units ?? 0),
+        status: String(row.status || "active"),
+      };
+    })
+    .filter(Boolean) as TeacherCourse[];
+  const courseIds = Array.isArray(r.courseIds)
+    ? (r.courseIds as unknown[]).map(String)
+    : courses.map((c) => c.id);
+  return {
+    teacherId: String(r.teacherId),
+    staffId: String(r.staffId || ""),
+    schoolId: String(r.schoolId || ""),
+    profileId: String(r.profileId),
+    fullName: String(r.fullName || session?.fullName || ""),
+    email: String(r.email || session?.email || ""),
+    schoolName: (r.schoolName as string | null) ?? session?.schoolName ?? null,
+    courses,
+    courseIds,
+  };
+}
+
+async function loadTeacherContextViaRpc(
+  session?: { fullName?: string; email?: string; schoolName?: string | null },
+): Promise<TeacherContext | null> {
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session?.access_token) {
+      await supabase.auth.getUser();
+    }
+  } catch {
+    /* continue */
+  }
+  const { data, error } = await supabase.rpc("get_my_teacher_context" as never);
+  if (error) {
+    console.warn("[teacher-context] rpc", error.message);
+    return null;
+  }
+  return parseRpcTeacherContext(data, session);
+}
+
 async function resolveTeacherRow(
   profileId: string,
   schoolId: string | null,
   authUserId: string,
 ): Promise<TeacherRow | null> {
-  // 1) Exact match (preferred)
   if (profileId && schoolId) {
     const { data, error } = await supabase
       .from("teachers")
@@ -52,7 +99,6 @@ async function resolveTeacherRow(
     if (!error && data) return data as TeacherRow;
   }
 
-  // 2) By profile_id only (school may have been missing on session)
   if (profileId) {
     const { data, error } = await supabase
       .from("teachers")
@@ -62,7 +108,6 @@ async function resolveTeacherRow(
     if (!error && data) return data as TeacherRow;
   }
 
-  // 3) Session profileId may be auth uid — resolve real profiles.id via auth_user_id
   if (authUserId) {
     const { data: prof } = await supabase
       .from("profiles")
@@ -77,7 +122,6 @@ async function resolveTeacherRow(
       if (schoolId) q = q.eq("school_id", schoolId);
       const { data, error } = await q.maybeSingle();
       if (!error && data) return data as TeacherRow;
-      // last resort: any school for this profile
       if (schoolId) {
         const { data: anySchool } = await supabase
           .from("teachers")
@@ -105,23 +149,31 @@ export function useTeacherContext() {
 
   return useQuery({
     queryKey: ["teacher-context", session?.profileId, session?.schoolId, session?.userId],
-    // Allow load when we have a user + teacher role even if schoolId is still resolving
-    enabled: Boolean(session?.userId && session?.profileId && isTeacher),
+    enabled: Boolean(session?.userId && (session?.profileId || isTeacher)),
     staleTime: 10 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: true,
     networkMode: "offlineFirst",
     retry: 1,
     queryFn: async (): Promise<TeacherContext | null> => {
-      if (!session?.profileId || !session.userId) return null;
+      if (!session?.userId) return null;
       const uid = session.userId;
-      const profileId: string = session.profileId;
+      const profileId: string = session.profileId || uid;
       const schoolId: string | null = session.schoolId;
 
       return withOfflineCache(
         uid,
         OfflineKeys.teacherContext,
         async () => {
+          // 1) SECURITY DEFINER RPC (APK-safe)
+          try {
+            const viaRpc = await loadTeacherContextViaRpc(session);
+            if (viaRpc) return viaRpc;
+          } catch (e) {
+            console.warn("[teacher-context] rpc failed", e);
+          }
+
+          // 2) Direct table reads
           const teacher = await resolveTeacherRow(profileId, schoolId, uid);
           if (!teacher) return null;
 
@@ -159,7 +211,7 @@ export function useTeacherContext() {
             teacherId: teacher.id,
             staffId: teacher.staff_id,
             schoolId: effectiveSchoolId,
-            profileId: teacher.profile_id ?? session.profileId,
+            profileId: teacher.profile_id ?? profileId,
             fullName: session.fullName,
             email: session.email,
             schoolName: session.schoolName,
