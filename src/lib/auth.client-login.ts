@@ -25,6 +25,25 @@ export type ClientLoginResult =
       schoolCode?: string | null;
     };
 
+async function resolveSchoolId(schoolCode: string): Promise<string | null> {
+  const code = schoolCode.trim().toUpperCase();
+  if (!code) return null;
+  try {
+    const { data: rpcSchool, error: schoolErr } = await supabase.rpc(
+      "resolve_school_for_login",
+      { _school_code: code },
+    );
+    if (schoolErr) console.warn("[client-login] resolve_school", schoolErr.message);
+    const row = Array.isArray(rpcSchool) ? rpcSchool[0] : rpcSchool;
+    if (row && typeof row === "object" && (row as { id?: string }).id) {
+      return String((row as { id: string }).id);
+    }
+  } catch (e) {
+    console.warn("[client-login] school rpc", e);
+  }
+  return null;
+}
+
 export async function clientSignInWithSchoolCode(
   data: ClientLoginInput,
 ): Promise<ClientLoginResult> {
@@ -38,7 +57,7 @@ export async function clientSignInWithSchoolCode(
   const isSuperCode =
     schoolCode === "" || schoolCode === "SUPER" || schoolCode === "PLATFORM";
 
-  // Super admin / plain email path
+  // Super admin / plain email path (no school code required)
   if (looksLikeEmail(ident) && isSuperCode) {
     const { data: signIn, error } = await supabase.auth.signInWithPassword({
       email: ident.toLowerCase(),
@@ -61,27 +80,10 @@ export async function clientSignInWithSchoolCode(
     return { error: "Enter your school code." };
   }
 
-  // Resolve school via public RPC
-  let schoolId: string | null = null;
-  try {
-    const { data: rpcSchool, error: schoolErr } = await supabase.rpc(
-      "resolve_school_for_login",
-      { _school_code: schoolCode },
-    );
-    if (schoolErr) console.warn("[client-login] resolve_school", schoolErr.message);
-    const row = Array.isArray(rpcSchool) ? rpcSchool[0] : rpcSchool;
-    if (row && typeof row === "object" && (row as { id?: string }).id) {
-      schoolId = String((row as { id: string }).id);
-    }
-  } catch (e) {
-    console.warn("[client-login] school rpc", e);
-  }
+  let schoolId = await resolveSchoolId(schoolCode);
 
-  if (!schoolId) {
-    return { error: "School code not found. Check and try again." };
-  }
-
-  // Email login within school
+  // Email login within school — auth first even if school RPC is slow/missing;
+  // school context is repaired after session from profile.
   if (looksLikeEmail(ident)) {
     const { data: signIn, error } = await supabase.auth.signInWithPassword({
       email: ident.toLowerCase(),
@@ -89,6 +91,10 @@ export async function clientSignInWithSchoolCode(
     });
     if (error || !signIn?.session) {
       return { error: error?.message || "Invalid email or password." };
+    }
+    // Prefer resolved school; else try again after auth (profile may reveal school)
+    if (!schoolId) {
+      schoolId = await resolveSchoolId(schoolCode);
     }
     return {
       ok: true,
@@ -98,6 +104,11 @@ export async function clientSignInWithSchoolCode(
       schoolId,
       schoolCode,
     };
+  }
+
+  // Matric / staff ID path needs a school id to resolve email
+  if (!schoolId) {
+    return { error: "School code not found. Check and try again." };
   }
 
   // Matric / staff ID → resolve login email via RPC if available
