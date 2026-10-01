@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { clientSignInWithSchoolCode } from "@/lib/auth.client-login";
 import { isNativeShell } from "@/native/platform";
 import { offlineRemove, OfflineKeys } from "@/lib/offline-cache";
+import { clearPreferredRole, setPreferredRole, seedPendingLoginRole } from "@/lib/session";
 
 /** APK / Capacitor SPA: never rely on stubbed server functions for login. */
 export function shouldUseClientLoginOnly(): boolean {
@@ -155,7 +156,7 @@ export async function resolveRoleAfterSession(userId: string): Promise<{
   }
 
   const unique = [...new Set(roles.map((r) => r.toLowerCase()))];
-  const role = ROLE_PRIORITY.find((r) => unique.includes(r)) || unique[0] || "examination_officer";
+  const role = ROLE_PRIORITY.find((r) => unique.includes(r)) || unique[0] || "student";
   return { role, schoolId };
 }
 
@@ -223,10 +224,17 @@ export async function runApkClientLogin(input: {
     /* still return tokens */
   }
 
-  // Drop stale offline null student context so dashboard can refill from network
+  // Clear stale preferred role + offline caches so we do not land on teacher/student without records
+  try {
+    clearPreferredRole();
+  } catch {
+    /* ignore */
+  }
+
   if (userId) {
     try {
       await offlineRemove(userId, OfflineKeys.studentContext);
+      await offlineRemove(userId, OfflineKeys.teacherContext);
       await offlineRemove(userId, OfflineKeys.studentResults);
       await offlineRemove(userId, OfflineKeys.studentExams);
       await offlineRemove(userId, OfflineKeys.sessionUser);
@@ -247,7 +255,16 @@ export async function runApkClientLogin(input: {
       role = resolved.role;
       if (!schoolId && resolved.schoolId) schoolId = resolved.schoolId;
     } catch {
-      role = "student";
+      role = null;
+    }
+  }
+
+  if (role) {
+    try {
+      setPreferredRole(role);
+      seedPendingLoginRole(role);
+    } catch {
+      /* ignore */
     }
   }
 
