@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
 
+/** Public client keys for d4exam-platform (safe to embed in SPA). Used only if Vite env is blank. */
+const FALLBACK_SUPABASE_URL = 'https://rqjchjytqcqjmljahcdr.supabase.co';
+const FALLBACK_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxamNoanl0cWNxam1samFoY2RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMjAwMzMsImV4cCI6MjEwMjU5NjAzM30.JWffmq5TIUnizWR-DIhwLylmHPmuuks2kUuEDEidlE8';
+const FALLBACK_PUBLISHABLE_KEY = 'sb_publishable_VQOWXfgqJsrehi2sJGkdig_Gr8Zilr2';
+
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
 }
@@ -28,22 +34,39 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 function createSupabaseClient() {
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+  const envUrl =
+    (import.meta.env['VITE_SUPABASE_URL'] as string | undefined) ||
+    (typeof process !== 'undefined' ? process.env?.['SUPABASE_URL'] : undefined) ||
+    '';
+  const envKey =
+    (import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] as string | undefined) ||
+    (import.meta.env['VITE_SUPABASE_ANON_KEY'] as string | undefined) ||
+    (typeof process !== 'undefined'
+      ? process.env?.['SUPABASE_PUBLISHABLE_KEY'] || process.env?.['SUPABASE_ANON_KEY']
+      : undefined) ||
+    '';
+
+  // Prefer env; fall back to known d4exam-platform project so APK login never hits empty keys.
+  const SUPABASE_URL = (envUrl && String(envUrl).trim()) || FALLBACK_SUPABASE_URL;
+  const SUPABASE_PUBLISHABLE_KEY =
+    (envKey && String(envKey).trim()) || FALLBACK_PUBLISHABLE_KEY || FALLBACK_SUPABASE_ANON_KEY;
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    const message =
+      'Missing Supabase environment variable(s). Connect Supabase in Lovable Cloud.';
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  // Prefer classic JWT anon key for Auth password grant compatibility in WebView.
+  const authKey =
+    (import.meta.env['VITE_SUPABASE_ANON_KEY'] as string | undefined) ||
+    FALLBACK_SUPABASE_ANON_KEY ||
+    SUPABASE_PUBLISHABLE_KEY;
+
+  return createClient<Database>(SUPABASE_URL, authKey, {
     global: {
-      fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
+      fetch: createSupabaseFetch(authKey),
     },
     auth: {
       storage: brokeredPreviewStorage(),
