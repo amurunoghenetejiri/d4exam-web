@@ -17,6 +17,7 @@ type CapWindow = Window & {
   };
   android?: unknown;
   webkit?: { messageHandlers?: unknown };
+  __D4_CAP_SPA?: boolean;
 };
 
 const NATIVE_FLAG_KEY = "d4exam_native_shell_v1";
@@ -49,6 +50,19 @@ function readCapacitor(): CapWindow["Capacitor"] | undefined {
   } catch {
     return undefined;
   }
+}
+
+function isCapSpaShell(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    if ((window as CapWindow).__D4_CAP_SPA) return true;
+    const host = (window.location.hostname || "").toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "") return true;
+    if (window.location.protocol === "file:") return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 /** Synchronous detection — may be false before Capacitor bridge injects. */
@@ -99,6 +113,11 @@ export function getRuntimePlatform(): RuntimePlatform {
   } catch {
     /* ignore */
   }
+  // Bundled local SPA (no remote server.url)
+  if (isCapSpaShell()) {
+    persistNativeFlag("android");
+    return "android";
+  }
   // Plugins object present ⇒ Capacitor injected even if isNativePlatform lags
   try {
     if (Cap?.Plugins && typeof Cap.Plugins === "object") {
@@ -113,6 +132,7 @@ export function getRuntimePlatform(): RuntimePlatform {
 
 export function isNativeShell(): boolean {
   if (typeof window === "undefined") return false;
+  if (isCapSpaShell()) return true;
   const p = getRuntimePlatform();
   if (p === "android" || p === "ios") return true;
   // Soft: Android WebView UA even without Capacitor yet
