@@ -9,28 +9,13 @@ import {
   setPreferredRole,
   seedLoginSchoolContext,
   rememberLastPath,
-  readPreferredRole,
-  readPendingLoginRole,
-  readLastPath,
   type AppRole,
 } from "@/lib/session";
 import { signInWithSchoolCode } from "@/lib/auth.functions";
-import { clientSignInWithSchoolCode } from "@/lib/auth.client-login";
-import { isNativeShell } from "@/native/platform";
 import { runApkClientLogin, shouldUseClientLoginOnly } from "@/lib/apk-login";
-import { ensureLoginAccount } from "@/lib/ensure-login.functions";
-import { saveCurrentAccountToVault, consumeAddAccountFlow, listSavedAccounts } from "@/lib/account-switcher";
 import { appReplace } from "@/lib/app-navigate";
 
-import {
-  Eye,
-  EyeOff,
-  ShieldCheck,
-  Zap,
-  Users,
-  Cloud,
-  ArrowRight,
-} from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,7 +44,7 @@ export const Route = createFileRoute("/login")({
     try {
       const user = await Promise.race([
         fetchSessionUser(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_500)),
       ]);
       if (user?.role && user.role in roleHome) {
         throw redirect({ to: roleHome[user.role] as never });
@@ -100,17 +85,13 @@ function friendlyLoginError(err: unknown): string {
   return cleaned || "Unable to sign in. Please try again.";
 }
 
-function readQueryPrefill(): { email: string; isSwitch: boolean; isAdd: boolean } {
-  if (typeof window === "undefined") return { email: "", isSwitch: false, isAdd: false };
+function readQueryPrefill(): { email: string } {
+  if (typeof window === "undefined") return { email: "" };
   try {
     const q = new URLSearchParams(window.location.search);
-    return {
-      email: (q.get("email") || "").trim(),
-      isSwitch: q.get("switch") === "1",
-      isAdd: q.get("addAccount") === "1",
-    };
+    return { email: (q.get("email") || "").trim() };
   } catch {
-    return { email: "", isSwitch: false, isAdd: false };
+    return { email: "" };
   }
 }
 
@@ -136,57 +117,52 @@ async function seedSchoolFromCode(schoolCode: string | null | undefined) {
   return null;
 }
 
-async function goToRoleHome(
-  role: string,
-  rememberDevice = true,
-  loginSchool?: { schoolId?: string | null; schoolCode?: string | null },
-) {
+/** Force leave /login → role dashboard (hash-aware for APK). */
+function hardNavigateToRole(role: string) {
+  const r = (role in roleHome ? role : "examination_officer") as AppRole;
+  const path = roleHome[r];
   try {
-    if (loginSchool?.schoolId) seedLoginSchoolContext(loginSchool.schoolId, loginSchool.schoolCode || null);
+    seedPendingLoginRole(r);
+    setPreferredRole(r);
+    rememberLastPath(path, r);
   } catch {
     /* ignore */
   }
-  const home = roleHome[role as AppRole];
-  try {
-    setPreferredRole(role as AppRole);
-    rememberLastPath(home, role);
-  } catch {
-    /* ignore */
-  }
-  if (!home) return false;
-  const last = readLastPath();
-  const path = last && last.startsWith(home) ? last : home;
-  try {
-    seedPendingLoginRole(role);
-  } catch {
-    /* ignore */
-  }
-  try {
-    await supabase.auth.getSession();
-    if (!loginSchool?.schoolId && loginSchool?.schoolCode) {
-      await seedSchoolFromCode(loginSchool.schoolCode);
-    }
-  } catch {
-    /* ignore */
-  }
-  try {
-    const addFlow = consumeAddAccountFlow();
-    if (rememberDevice || addFlow || listSavedAccounts().length > 0) {
-      await saveCurrentAccountToVault();
-    }
-  } catch {
-    /* ignore */
-  }
+
+  // Prefer SPA router if bound
   try {
     appReplace(path);
   } catch {
+    /* fall through */
+  }
+
+  // APK uses hash history — always set hash so WebView leaves /login
+  try {
+    const host = (window.location.hostname || "").toLowerCase();
+    const isLocal =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "" ||
+      window.location.protocol === "file:" ||
+      Boolean((window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA);
+    if (isLocal || window.location.hash.startsWith("#")) {
+      const next = `${window.location.pathname}${window.location.search}#${path}`;
+      window.location.replace(next);
+      return;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    window.location.replace(path);
+  } catch {
     try {
-      window.location.replace(path);
-    } catch {
       window.location.href = path;
+    } catch {
+      /* ignore */
     }
   }
-  return true;
 }
 
 function LoginPage() {
@@ -204,73 +180,6 @@ function LoginPage() {
   useEffect(() => {
     if (prefill.email && !identifier) setIdentifier(prefill.email);
   }, [prefill.email]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function resolveRoleAndGoHome(): Promise<boolean> {
-    const priority = [
-      "super_admin",
-      "school_admin",
-      "examination_officer",
-      "teacher",
-      "student",
-    ] as const;
-    try {
-      await new Promise((r) => setTimeout(r, 150));
-      const user = await Promise.race([
-        fetchSessionUser(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
-      ]);
-      if (user?.role && user.role in roleHome) {
-        return await goToRoleHome(user.role, remember);
-      }
-      if (user?.roles?.length) {
-        const found = priority.find((r) =>
-          user.roles.map((x) => String(x).toLowerCase()).includes(r),
-        );
-        if (found) return await goToRoleHome(found, remember);
-      }
-    } catch {
-      /* continue */
-    }
-    try {
-      const { data: myRoles } = await supabase.rpc("get_my_roles");
-      const list = Array.isArray(myRoles)
-        ? myRoles.map((r: { role?: string } | string) =>
-            typeof r === "string" ? r : String((r as { role?: string }).role || ""),
-          )
-        : [];
-      const found = priority.find((r) => list.map((x) => x.toLowerCase()).includes(r));
-      if (found) return await goToRoleHome(found, remember);
-    } catch {
-      /* ignore */
-    }
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user?.id) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .or(`user_id.eq.${user.id}`)
-          .limit(20);
-        const list = (roles ?? []).map((r) => String(r.role).toLowerCase());
-        const found = priority.find((r) => list.includes(r));
-        if (found) return await goToRoleHome(found, remember);
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      if (sess.session?.user) {
-        const pref = readPreferredRole() || readPendingLoginRole();
-        if (pref && pref in roleHome) return await goToRoleHome(pref, remember);
-      }
-    } catch {
-      /* ignore */
-    }
-    return false;
-  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -299,25 +208,29 @@ function LoginPage() {
       setLoading(false);
       inFlight.current = false;
       setError("Sign-in is taking longer than usual. Please try again.");
-    }, 15_000);
+    }, 20_000);
 
     try {
       const schoolCode = code.trim().toUpperCase();
       const ident = identifier.trim();
       const pass = password;
 
-      // ALWAYS pure client Supabase first (APK has no working server fns)
+      // Pure client Supabase (APK has no server functions)
       const apk = await runApkClientLogin({
         schoolCode: schoolCode || "",
         identifier: ident,
         password: pass,
       });
+
       if (apk.ok && apk.accessToken) {
+        // setSession already done inside runApkClientLogin; reinforce
         const { error: sessErr } = await supabase.auth.setSession({
           access_token: apk.accessToken,
           refresh_token: apk.refreshToken || "",
         });
-        if (!sessErr) {
+        if (sessErr) {
+          lastServerMsg = sessErr.message || "Could not save session.";
+        } else {
           try {
             if (apk.schoolId) {
               seedLoginSchoolContext(apk.schoolId, apk.schoolCode || schoolCode);
@@ -327,21 +240,28 @@ function LoginPage() {
           } catch {
             /* ignore */
           }
-          await seedSchoolFromCode(schoolCode);
-          if (await resolveRoleAndGoHome()) {
-            navigated = true;
-            return;
+
+          const role =
+            (apk.role && apk.role in roleHome ? apk.role : null) ||
+            "examination_officer";
+
+          try {
+            seedPendingLoginRole(role);
+            setPreferredRole(role as AppRole);
+            rememberLastPath(roleHome[role as AppRole], role);
+          } catch {
+            /* ignore */
           }
+
           navigated = true;
-          await goToRoleHome(readPreferredRole() || "examination_officer", remember);
+          hardNavigateToRole(role);
           return;
         }
-        lastServerMsg = sessErr?.message || "Could not save session.";
       } else if (!apk.ok && apk.error) {
         lastServerMsg = String(apk.error);
       }
 
-      // Website SSR only — skip on APK (stubs return fake errors)
+      // Website SSR only
       if (!shouldUseClientLoginOnly()) {
         try {
           const result = await Promise.race([
@@ -351,23 +271,17 @@ function LoginPage() {
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
           ]);
           if (result && "session" in result && result.session?.access_token) {
-            const loginSchool = {
-              schoolId: (result as { schoolId?: string | null }).schoolId || null,
-              schoolCode: (result as { schoolCode?: string | null }).schoolCode || schoolCode || null,
-            };
             await supabase.auth.setSession({
               access_token: result.session.access_token,
               refresh_token: result.session.refresh_token,
             });
-            if (result.role && result.role in roleHome) {
-              navigated = true;
-              await goToRoleHome(String(result.role), remember, loginSchool);
-              return;
-            }
-            if (await resolveRoleAndGoHome()) {
-              navigated = true;
-              return;
-            }
+            const role =
+              result.role && String(result.role) in roleHome
+                ? String(result.role)
+                : "student";
+            navigated = true;
+            hardNavigateToRole(role);
+            return;
           }
           if (result && "error" in result && result.error) {
             lastServerMsg = String(result.error);
@@ -386,12 +300,8 @@ function LoginPage() {
         });
         if (!de && d?.session) {
           await seedSchoolFromCode(schoolCode);
-          if (await resolveRoleAndGoHome()) {
-            navigated = true;
-            return;
-          }
           navigated = true;
-          await goToRoleHome(readPreferredRole() || "examination_officer", remember);
+          hardNavigateToRole("examination_officer");
           return;
         }
         if (de?.message) lastServerMsg = de.message;
