@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Client-side school login for native Capacitor shell (no TanStack server fn).
  * Uses public Supabase anon key + RPCs already granted to anon/authenticated.

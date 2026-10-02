@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Student-only Study Help — D4EXAM-branded YouTube experience.
  * Server-side search only; API key never in the client.

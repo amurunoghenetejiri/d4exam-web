@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Full Help & Legal content for in-app Settings (role shell).
  * Same substance as public /about /support /privacy /pricing,

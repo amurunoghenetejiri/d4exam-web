@@ -51,7 +51,23 @@ function Page() {
     refetchOnWindowFocus: true,
     queryFn: async () => {
       if (!schoolId) return { students: 0, teachers: 0, courses: 0, examinations: 0 };
-      return getSchoolDashboardCounts({ data: { schoolId } });
+      try {
+        const r = (await getSchoolDashboardCounts({ data: { schoolId } })) as Record<string, unknown> | null;
+        if (r && typeof r.students === "number") {
+          return r as { students: number; teachers: number; courses: number; examinations: number };
+        }
+      } catch {
+        /* fall through to direct counts (APK shell) */
+      }
+      const { supabase } = await import("@/integrations/supabase/client");
+      const count = async (t: "students" | "teachers" | "courses" | "examinations") => {
+        const { count: c } = await supabase.from(t).select("id", { count: "exact", head: true }).eq("school_id", schoolId);
+        return c ?? 0;
+      };
+      const [students, teachers, courses, examinations] = await Promise.all([
+        count("students"), count("teachers"), count("courses"), count("examinations"),
+      ]);
+      return { students, teachers, courses, examinations };
     },
   });
   const students = { isLoading: countsQ.isLoading, data: countsQ.data?.students };

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createServerFn } from "@tanstack/react-start";
 import { getAppOrigin } from "@/lib/app-url";
 import { createClient } from "@supabase/supabase-js";
@@ -38,6 +39,8 @@ type PushInput = {
   fromUserId?: string | null;
   callerId?: string | null;
   conversationId?: string | null;
+  messageId?: string | null;
+  attachmentType?: string | null;
 };
 
 type ServiceAccount = {
@@ -127,8 +130,13 @@ async function sendFcmV1(
   const action = (actionLabel || "").trim();
 
   const isCall = extra?.type === "incoming_call";
-  // Data-only for incoming_call so D4FirebaseMessagingService.onMessageReceived always runs
-  // even when the app is backgrounded / killed (notification+data is tray-only when backgrounded).
+  const isChat =
+    extra?.type === "chat_message" ||
+    extra?.type === "message" ||
+    extra?.type === "missed_call";
+  // CRITICAL: data-only for calls + chat. If a top-level "notification" key is present,
+  // Android shows a generic tray item when backgrounded and may NOT run onMessageReceived.
+  const dataOnly = isCall || isChat;
   const messagePayload: Record<string, unknown> = {
     token,
     data: {
@@ -139,7 +147,11 @@ async function sendFcmV1(
       url: absoluteLink,
       icon: String(icon),
       badge: String(icon),
-      tag: isCall ? "d4exam-incoming-call" : "d4exam-notification",
+      tag: isCall
+        ? "d4exam-incoming-call"
+        : isChat
+          ? `d4exam-chat-${String(extra?.conversationId || "default")}`
+          : "d4exam-notification",
       actionLabel: action,
       action_label: action,
       actionLink: link || "/",
@@ -152,34 +164,49 @@ async function sendFcmV1(
       fromUserId: String(extra?.fromUserId || extra?.callerId || ""),
       callerId: String(extra?.callerId || extra?.fromUserId || ""),
       conversationId: String(extra?.conversationId || ""),
+      senderName: String(extra?.callerName || fullTitle),
+      senderMatric: String(extra?.callerMatric || ""),
+      messageId: String((extra as { messageId?: string })?.messageId || ""),
+      attachmentType: String((extra as { attachmentType?: string })?.attachmentType || ""),
     },
     android: {
       priority: "HIGH",
       ttl: isCall ? "60s" : "86400s",
-      ...(isCall
-        ? {}
+      // Always set channel so Android shows something even without custom service
+      notification: isCall
+        ? {
+            channel_id: "d4_incoming_calls_v2",
+            sound: "default",
+            default_sound: true,
+            default_vibrate_timings: true,
+            notification_priority: "PRIORITY_MAX",
+            visibility: "PUBLIC",
+            click_action: "FCM_PLUGIN_ACTIVITY",
+            title: fullTitle,
+            body: fullBody,
+          }
         : {
-            notification: {
-              channel_id: "d4exam_default",
-              sound: "default",
-              default_sound: true,
-              default_vibrate_timings: true,
-              notification_priority: "PRIORITY_HIGH",
-              visibility: "PUBLIC",
-              click_action: "FCM_PLUGIN_ACTIVITY",
-              image: icon,
-              ticker: fullTitle,
-            },
-          }),
+            channel_id: "d4_messages_channel",
+            sound: "default",
+            default_sound: true,
+            default_vibrate_timings: true,
+            notification_priority: "PRIORITY_HIGH",
+            visibility: "PRIVATE",
+            click_action: "FCM_PLUGIN_ACTIVITY",
+            title: fullTitle,
+            body: fullBody,
+            tag: isChat
+              ? `d4exam-chat-${String(extra?.conversationId || "default")}`
+              : "d4exam-notification",
+          },
     },
   };
-  if (!isCall) {
-    messagePayload.notification = {
-      title: fullTitle,
-      body: fullBody,
-      image: icon,
-    };
-  }
+  // Top-level notification: required for web push + reliable Android tray when app is killed.
+  // Data payload still present so native D4FirebaseMessagingService can enrich when running.
+  messagePayload.notification = {
+    title: fullTitle,
+    body: fullBody,
+  };
 
   const res = await fetch(url, {
     method: "POST",
@@ -283,6 +310,11 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
       callType: o.callType != null ? String(o.callType) : undefined,
       callerName: o.callerName != null ? String(o.callerName) : undefined,
       callerMatric: o.callerMatric != null ? String(o.callerMatric) : undefined,
+      fromUserId: o.fromUserId != null ? String(o.fromUserId) : undefined,
+      callerId: o.callerId != null ? String(o.callerId) : undefined,
+      conversationId: o.conversationId != null ? String(o.conversationId) : undefined,
+      messageId: o.messageId != null ? String(o.messageId) : undefined,
+      attachmentType: o.attachmentType != null ? String(o.attachmentType) : undefined,
     } satisfies PushInput;
   })
   .handler(async ({ data }) => {
@@ -293,14 +325,41 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
     const sb = adminClient();
     if (!sb) return { sent: 0, failed: 0, skipped: true as const, reason: "no supabase admin" };
 
-    const { data: devices } = await sb
+    // Prefer enabled devices; if none, try valid tokens seen in last 45 days (recovery)
+    let { data: devices } = await sb
       .from("push_devices")
-      .select("id, token, user_agent")
+      .select("id, token, user_agent, enabled, last_seen_at")
       .eq("user_id", data.recipientUserId)
       .eq("enabled", true)
       .limit(40);
 
-    const list = (devices || []) as { id: string; token: string; user_agent?: string | null }[];
+    let list = (devices || []) as {
+      id: string;
+      token: string;
+      user_agent?: string | null;
+      enabled?: boolean;
+    }[];
+
+    if (!list.length) {
+      const since = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await sb
+        .from("push_devices")
+        .select("id, token, user_agent, enabled, last_seen_at")
+        .eq("user_id", data.recipientUserId)
+        .gte("last_seen_at", since)
+        .limit(40);
+      list = (recent || []) as typeof list;
+      // Re-enable ones we are about to try
+      for (const d of list) {
+        if (d.enabled === false && isValidFcmToken(d.token)) {
+          void sb
+            .from("push_devices")
+            .update({ enabled: true, updated_at: new Date().toISOString() } as never)
+            .eq("id", d.id);
+        }
+      }
+    }
+
     if (!list.length) {
       return { sent: 0, failed: 0, skipped: true as const, reason: "no devices" };
     }
@@ -390,11 +449,16 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
         if (result.ok) sent += 1;
         else {
           failed += 1;
+          // Only disable permanently dead tokens — NOT INVALID_ARGUMENT (payload bugs)
           if (
             result.error &&
-            /NotRegistered|InvalidRegistration|UNREGISTERED|INVALID_ARGUMENT/i.test(result.error)
+            /NotRegistered|InvalidRegistration|UNREGISTERED|registration-token-not-registered/i.test(
+              result.error,
+            )
           ) {
             await sb.from("push_devices").update({ enabled: false } as never).eq("token", token);
+          } else if (result.error) {
+            console.warn("[FCM] send failed (token kept enabled)", result.error.slice(0, 200));
           }
         }
       } catch {

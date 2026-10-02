@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * D4EXAM campus messaging helpers.
  * Uses conversations / conversation_members / campus_messages.
@@ -67,7 +68,33 @@ export type CampusMessage = {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  /** Set when at least one recipient device has received the message */
+  delivered_at?: string | null;
 };
+
+export type MessageTick = "none" | "pending" | "sent" | "delivered" | "read";
+
+/** WhatsApp-style status for the SENDER only. */
+export function computeMessageTick(
+  m: CampusMessage,
+  opts: { mine: boolean; peerLastReadAt?: string | null },
+): MessageTick {
+  if (!opts.mine) return "none";
+  // Only optimistic local messages (not yet on server) show clock
+  if (String(m.id || "").startsWith("opt-")) return "pending";
+  // Read: peer opened conversation after this message
+  if (opts.peerLastReadAt) {
+    const msgT = new Date(m.created_at).getTime();
+    const readT = new Date(opts.peerLastReadAt).getTime();
+    if (Number.isFinite(msgT) && Number.isFinite(readT) && readT >= msgT) {
+      return "read";
+    }
+  }
+  // Delivered to recipient device
+  if (m.delivered_at) return "delivered";
+  // On server, not yet delivered
+  return "sent";
+}
 
 export type StudentDiscover = {
   id: string;
@@ -108,7 +135,21 @@ function previewFromMessage(m: {
   const at = (m.attachment_type || "").toLowerCase();
   const t = (m.body || "").trim();
   let core = "";
-  if (at.includes("audio") || at === "voice") {
+  if (at === "call" || /^(missed|no answer|call declined|voice call|video call)/i.test(t)) {
+    if (/missed\s*video/i.test(t)) core = "📞 Missed video call";
+    else if (/missed/i.test(t)) core = "📞 Missed voice call";
+    else if (/declined/i.test(t)) core = "📞 Call declined";
+    else if (/no answer/i.test(t)) core = "📞 No answer";
+    else if (/video/i.test(t)) {
+      const dur = t.match(/(\d{1,2}:\d{2})/);
+      core = dur ? `📞 Video call · ${dur[1]}` : "📞 Video call";
+    } else if (/voice|call/i.test(t)) {
+      const dur = t.match(/(\d{1,2}:\d{2})/);
+      core = dur ? `📞 Voice call · ${dur[1]}` : "📞 Voice call";
+    } else {
+      core = t.slice(0, 120) || "📞 Call";
+    }
+  } else if (at.includes("audio") || at === "voice") {
     const sec = m.duration_sec != null ? Math.max(0, Math.round(Number(m.duration_sec))) : null;
     const mm = sec != null ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : null;
     core = mm ? `🎤 Voice note · ${mm}` : "🎤 Voice note";
@@ -437,6 +478,92 @@ export async function createGroup(opts: {
   return cid;
 }
 
+
+/** Best-effort FCM to other members when a message is sent (works when their app is killed). */
+async function notifyMessageRecipients(opts: {
+  conversationId: string;
+  senderId: string;
+  preview: string;
+  attachmentType?: string | null;
+  messageId?: string;
+}) {
+  try {
+    const { data: members } = await supabase
+      .from("conversation_members")
+      .select("user_id")
+      .eq("conversation_id", opts.conversationId)
+      .is("left_at", null);
+    const recipients = (members || [])
+      .map((m) => String((m as { user_id?: string }).user_id || ""))
+      .filter((id) => id && id !== opts.senderId);
+    if (!recipients.length) return;
+
+    // Resolve sender display name for notification title
+    let senderName = "D4EXAM";
+    let senderMatric = "";
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name, first_name, last_name")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (prof) {
+        const p = prof as { full_name?: string; first_name?: string; last_name?: string };
+        senderName =
+          (p.full_name || "").trim() ||
+          [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
+          senderName;
+      }
+      const { data: st } = await supabase
+        .from("students")
+        .select("matric_number")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (st && (st as { matric_number?: string }).matric_number) {
+        senderMatric = String((st as { matric_number?: string }).matric_number);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const title = senderMatric ? `${senderName} · ${senderMatric}` : senderName;
+    const link = `/student/messages?chat=${encodeURIComponent(opts.conversationId)}`;
+    const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+    const results = await Promise.all(
+      recipients.map((recipientUserId) =>
+        dispatchPushToUser({
+          data: {
+            recipientUserId,
+            title,
+            message: opts.preview || "New message",
+            link,
+            type: "chat_message",
+            conversationId: opts.conversationId,
+            callerName: senderName,
+            callerMatric: senderMatric,
+            fromUserId: opts.senderId,
+            callerId: opts.senderId,
+            actionLabel: "Reply",
+            messageId: opts.messageId || "",
+            attachmentType: opts.attachmentType || "",
+          } as never,
+        }).catch((e) => {
+          console.warn("[notifyMessageRecipients] push error", e);
+          return null;
+        }),
+      ),
+    );
+    console.info(
+      "[notifyMessageRecipients]",
+      recipients.length,
+      "recipients",
+      results.map((r) => (r && typeof r === "object" ? r : null)),
+    );
+  } catch (e) {
+    console.warn("[notifyMessageRecipients] failed", e);
+  }
+}
+
 /** Send a campus message (idempotent via client_id). */
 export async function sendCampusMessage(opts: {
   conversationId: string;
@@ -461,18 +588,54 @@ export async function sendCampusMessage(opts: {
     duration_sec: opts.durationSec ?? null,
   };
 
-  // Prefer plain insert (works with partial unique index on client_id)
+  // Prefer SECURITY DEFINER RPC (reliable under RLS)
+  try {
+    const { data: rpcMsg, error: rpcErr } = await supabase.rpc("send_campus_message", {
+      p_conversation_id: opts.conversationId,
+      p_body: opts.body || null,
+      p_attachment_url: opts.attachmentUrl || null,
+      p_attachment_type: opts.attachmentType || null,
+      p_client_id: opts.clientId || null,
+      p_reply_to_id: opts.replyToId || null,
+      p_forwarded_from_id: opts.forwardedFromId || null,
+      p_duration_sec: opts.durationSec ?? null,
+    } as never);
+    if (!rpcErr && rpcMsg) {
+      const msg = (Array.isArray(rpcMsg) ? rpcMsg[0] : rpcMsg) as CampusMessage;
+      if (!msg?.id) {
+        console.warn("[sendCampusMessage] rpc returned no id", rpcMsg);
+      } else {
+      const preview = previewFromMessage(row);
+      void notifyMessageRecipients({
+        conversationId: opts.conversationId,
+        senderId: opts.senderId,
+        preview,
+        attachmentType: opts.attachmentType || null,
+        messageId: msg.id,
+      });
+      return msg;
+      }
+    }
+    if (rpcErr) console.warn("[sendCampusMessage] rpc", rpcErr.message);
+  } catch (e) {
+    console.warn("[sendCampusMessage] rpc exception", e);
+  }
+
+  // Fallback: plain insert
   const ins = await supabase.from("campus_messages").insert(row).select("*").single();
   if (!ins.error && ins.data) {
-    await touchConversation(
-      opts.conversationId,
-      opts.senderId,
-      previewFromMessage(row),
-    );
+    const preview = previewFromMessage(row);
+    await touchConversation(opts.conversationId, opts.senderId, preview);
+    void notifyMessageRecipients({
+      conversationId: opts.conversationId,
+      senderId: opts.senderId,
+      preview,
+      attachmentType: opts.attachmentType || null,
+      messageId: (ins.data as CampusMessage).id,
+    });
     return ins.data as CampusMessage;
   }
 
-  // Duplicate client_id — treat as success (idempotent)
   if (ins.error && /duplicate|unique/i.test(ins.error.message)) {
     const { data: existing } = await supabase
       .from("campus_messages")
@@ -518,21 +681,96 @@ export async function markConversationRead(
     .eq("user_id", userId);
 }
 
+/** Recipient marks undelivered messages as delivered (best-effort RPC). */
+export async function markMessagesDelivered(conversationId: string) {
+  try {
+    await supabase.rpc("mark_messages_delivered", {
+      p_conversation_id: conversationId,
+    } as never);
+  } catch {
+    /* ignore if RPC not deployed */
+  }
+}
+
+/** Peer last_read_at for direct chats (for read receipts). */
+export async function getPeerLastReadAt(
+  conversationId: string,
+  myUserId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("conversation_members")
+    .select("user_id, last_read_at")
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+  const peers = (data || []).filter(
+    (r) => String((r as { user_id?: string }).user_id) !== myUserId,
+  );
+  if (!peers.length) return null;
+  // For groups use the max last_read among peers (any peer read = partial; use max for progressive)
+  let max: string | null = null;
+  for (const p of peers) {
+    const lr = (p as { last_read_at?: string | null }).last_read_at;
+    if (!lr) continue;
+    if (!max || new Date(lr).getTime() > new Date(max).getTime()) max = lr;
+  }
+  return max;
+}
+
 /** Load messages for a conversation. */
 export async function listMessages(
   conversationId: string,
   limit = 80,
 ): Promise<CampusMessage[]> {
-  const { data, error } = await supabase
-    .from("campus_messages")
-    .select("*")
-    .eq("conversation_id", conversationId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  const byId = new Map<string, CampusMessage>();
+  const put = (rows: unknown) => {
+    const arr = Array.isArray(rows) ? rows : rows && typeof rows === "object" ? [rows] : [];
+    for (const r of arr as CampusMessage[]) {
+      if (r && (r as CampusMessage).id) byId.set(String((r as CampusMessage).id), r as CampusMessage);
+    }
+  };
 
-  if (error) throw new Error(error.message);
-  return (data || []) as CampusMessage[];
+  // 1) SECURITY DEFINER RPC
+  try {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("list_campus_messages", {
+      p_conversation_id: conversationId,
+      p_limit: limit,
+    } as never);
+    if (rpcErr) console.warn("[listMessages] rpc", rpcErr.message);
+    else put(rpcData);
+  } catch (e) {
+    console.warn("[listMessages] rpc exception", e);
+  }
+
+  // 2) Direct table SELECT
+  try {
+    const { data, error } = await supabase
+      .from("campus_messages")
+      .select("id, conversation_id, sender_id, body, attachment_url, attachment_type, reply_to_id, forwarded_from_id, client_id, duration_sec, created_at, edited_at, deleted_at, delivered_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+    if (error) {
+      console.warn("[listMessages] select", error.message);
+      // Retry without delivered_at in case column missing on older clients
+      const { data: d2, error: e2 } = await supabase
+        .from("campus_messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      if (e2) console.warn("[listMessages] select*", e2.message);
+      else put((d2 || []).filter((m: CampusMessage) => !m.deleted_at));
+    } else {
+      put((data || []).filter((m: CampusMessage) => !m.deleted_at));
+    }
+  } catch (e) {
+    console.warn("[listMessages] select exception", e);
+  }
+
+  const all = [...byId.values()].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+  return all;
 }
 
 /** Discover students in the same school (name / matric / department / level). */

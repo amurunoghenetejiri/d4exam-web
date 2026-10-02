@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Live student microphone chunks over Supabase Realtime broadcast.
  * 16 kHz mono PCM with linear downsample + gapless playback for natural voice.

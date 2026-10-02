@@ -65,6 +65,60 @@ export function GlobalCallHost() {
     return () => window.removeEventListener("d4-native-call", onNative);
   }, [myUserId]);
 
+  // Deep-link from native message / missed-call notifications
+  useEffect(() => {
+    const onNav = (ev: Event) => {
+      const detail = (ev as CustomEvent<{
+        path?: string;
+        conversationId?: string;
+        markRead?: boolean;
+        reply?: string | null;
+      }>).detail;
+      if (!detail?.path) return;
+      try {
+        void import("@/lib/app-navigate").then((m) => m.appNavigate(detail.path!));
+      } catch {
+        try {
+          window.location.assign(detail.path);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (detail.markRead && detail.conversationId) {
+        void (async () => {
+          try {
+            const { markConversationRead } = await import("@/lib/messaging");
+            const { data: { user } } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
+            if (user?.id) await markConversationRead(detail.conversationId!, user.id);
+          } catch {
+            /* ignore */
+          }
+        })();
+      }
+      // Inline reply from notification
+      if (detail.reply && detail.conversationId) {
+        void (async () => {
+          try {
+            const { sendCampusMessage } = await import("@/lib/messaging");
+            const { data: { user } } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
+            if (!user?.id) return;
+            const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            await sendCampusMessage({
+              conversationId: detail.conversationId!,
+              senderId: user.id,
+              body: detail.reply!,
+              clientId,
+            });
+          } catch {
+            /* ignore */
+          }
+        })();
+      }
+    };
+    window.addEventListener("d4-native-nav", onNav);
+    return () => window.removeEventListener("d4-native-nav", onNav);
+  }, []);
+
 
   // Mirror global session into ActiveCall so overlay stays mounted
   useEffect(() => {

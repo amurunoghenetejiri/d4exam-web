@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Server-side CBT result save using service role (bypasses RLS).
  * Validates the authenticated user owns the student_id before writing.

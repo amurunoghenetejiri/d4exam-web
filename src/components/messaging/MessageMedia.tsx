@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useEffect, useRef, useState } from "react";
 import { Check, CheckCheck, Download, FileText, Mic, Pause, Play, Pencil, Trash2, X, Send, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";

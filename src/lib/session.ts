@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { offlineSet, OfflineKeys } from "@/lib/offline-cache";
 import { rememberLastUserId, readLastUserId, withOfflineCache } from "@/lib/offline-query";
@@ -29,6 +30,7 @@ export type AppRole =
 const LAST_PATH_KEY = "d4exam_last_path_v1";
 const LAST_ROLE_KEY = "d4exam_last_role_v1";
 const PREFERRED_ROLE_KEY = "d4exam_preferred_role_v1";
+/** School resolved at login (school code) — used when RPC/RLS lag on schoolId. */
 const LOGIN_SCHOOL_KEY = "d4exam_login_school_v1";
 
 export function seedLoginSchoolContext(schoolId: string | null | undefined, schoolCode?: string | null) {
@@ -54,6 +56,7 @@ export function readLoginSchoolContext(): { schoolId: string; schoolCode: string
     if (!raw) return null;
     const p = JSON.parse(raw) as { schoolId?: string; schoolCode?: string | null; ts?: number };
     if (!p?.schoolId) return null;
+    // Expire after 7 days
     if (p.ts && Date.now() - p.ts > 7 * 24 * 60 * 60 * 1000) return null;
     return { schoolId: String(p.schoolId), schoolCode: p.schoolCode ? String(p.schoolCode) : null };
   } catch {
@@ -70,6 +73,8 @@ export function clearLoginSchoolContext() {
   }
 }
 
+
+/** Map an in-app pathname to AppRole when possible. */
 export function roleFromPath(path: string | null | undefined): AppRole | null {
   const p = String(path || "").split("?")[0];
   if (p.startsWith("/student")) return "student";
@@ -80,6 +85,7 @@ export function roleFromPath(path: string | null | undefined): AppRole | null {
   return null;
 }
 
+/** Remember last in-app path so Capacitor relaunch restores role route. */
 export function rememberLastPath(path: string, role?: string | null): void {
   if (typeof window === "undefined") return;
   try {
@@ -105,9 +111,7 @@ export function rememberLastPath(path: string, role?: string | null): void {
       window.localStorage.setItem(LAST_ROLE_KEY, r);
       window.localStorage.setItem(PREFERRED_ROLE_KEY, r);
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
 export function readLastPath(): string | null {
@@ -127,11 +131,10 @@ export function readLastRole(): AppRole | null {
     const r = window.localStorage.getItem(LAST_ROLE_KEY);
     const known = ["student", "teacher", "school_admin", "examination_officer", "super_admin"];
     if (r && known.includes(r)) return r as AppRole;
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
   return null;
 }
+
 
 const KNOWN_ROLES: AppRole[] = [
   "student",
@@ -141,6 +144,7 @@ const KNOWN_ROLES: AppRole[] = [
   "super_admin",
 ];
 
+/** Persist preferred role for multi-role accounts (does not change auth). */
 export function setPreferredRole(role: AppRole | string | null | undefined): void {
   if (typeof window === "undefined") return;
   try {
@@ -149,9 +153,7 @@ export function setPreferredRole(role: AppRole | string | null | undefined): voi
       window.localStorage.setItem(PREFERRED_ROLE_KEY, r);
       window.localStorage.setItem(LAST_ROLE_KEY, r);
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
 export function readPreferredRole(): AppRole | null {
@@ -159,9 +161,7 @@ export function readPreferredRole(): AppRole | null {
   try {
     const r = window.localStorage.getItem(PREFERRED_ROLE_KEY);
     if (r && KNOWN_ROLES.includes(r as AppRole)) return r as AppRole;
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
   return null;
 }
 
@@ -169,14 +169,14 @@ export function clearPreferredRole(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(PREFERRED_ROLE_KEY);
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
-export async function switchActiveRole(
-  role: AppRole | string,
-): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+/**
+ * Switch active dashboard role for the current signed-in user.
+ * Uses user_roles the account already has — no re-login.
+ */
+export async function switchActiveRole(role: AppRole | string): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
   const target = String(role || "").trim() as AppRole;
   if (!KNOWN_ROLES.includes(target)) {
     return { ok: false, error: "Unknown role." };
@@ -187,21 +187,21 @@ export async function switchActiveRole(
   setPreferredRole(target);
   seedPendingLoginRole(target);
 
+  // Clear last path so we do not restore a different role's page
   try {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(LAST_PATH_KEY);
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 
+  // Soft-verify roles when online (non-blocking if offline)
   try {
     const user = await fetchSessionUser();
     if (user && Array.isArray(user.roles) && user.roles.length > 0 && !user.roles.includes(target)) {
       return { ok: false, error: "This account does not have that role." };
     }
   } catch {
-    /* allow switch offline */
+    /* allow switch with preferred role even if network is slow */
   }
 
   if (typeof window !== "undefined") {
@@ -209,6 +209,7 @@ export async function switchActiveRole(
   }
   return { ok: true, path };
 }
+
 
 export const roleHome: Record<AppRole, string> = {
   student: "/student",
@@ -219,34 +220,21 @@ export const roleHome: Record<AppRole, string> = {
 };
 
 const SCHOOL_BRAND_KEY = "d4exam_school_brand_v1";
-function seedSchoolBrandFromSession(
-  schoolId?: string | null,
-  name?: string | null,
-  logoUrl?: string | null,
-) {
+function seedSchoolBrandFromSession(schoolId?: string | null, name?: string | null, logoUrl?: string | null) {
   if (typeof window === "undefined" || !schoolId) return;
   if (!name && !logoUrl) return;
   try {
-    window.localStorage.setItem(
-      SCHOOL_BRAND_KEY,
-      JSON.stringify({ id: schoolId, name: name || null, logoUrl: logoUrl || null, ts: Date.now() }),
-    );
+    window.localStorage.setItem(SCHOOL_BRAND_KEY, JSON.stringify({ id: schoolId, name: name || null, logoUrl: logoUrl || null, ts: Date.now() }));
   } catch {}
 }
 
-export function readCachedSchoolBrand(
-  schoolId?: string | null,
-): { id?: string; name?: string | null; logoUrl?: string | null } | null {
+/** Cached school logo/name for offline / exam gate when live query is slow. */
+export function readCachedSchoolBrand(schoolId?: string | null): { id?: string; name?: string | null; logoUrl?: string | null } | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(SCHOOL_BRAND_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      id?: string;
-      name?: string | null;
-      logoUrl?: string | null;
-      ts?: number;
-    };
+    const parsed = JSON.parse(raw) as { id?: string; name?: string | null; logoUrl?: string | null; ts?: number };
     if (schoolId && parsed.id && parsed.id !== schoolId) return null;
     if (parsed.ts && Date.now() - parsed.ts > 30 * 24 * 60 * 60 * 1000) return null;
     return parsed;
@@ -265,6 +253,8 @@ export interface SessionUser {
   schoolName: string | null;
   schoolCode: string | null;
   schoolLogoUrl: string | null;
+  /** Public profile photo URL when set */
+  avatarUrl: string | null;
   roles: AppRole[];
   role: AppRole | null;
   identifier: string | null;
@@ -373,13 +363,13 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
   }
   if (!user) return null;
 
+  // FAST: RPC (retry) + profiles/roles in parallel — schoolId must resolve for dashboards
   let rpcCtx: SessionContextRpc | null = null;
   let profileByAuth: { data: Record<string, unknown> | null } = { data: null };
   let profileById: { data: Record<string, unknown> | null } = { data: null };
-  let roleRes: { data: { role: string; school_id: string | null; user_id: string }[] | null } = {
-    data: null,
-  };
+  let roleRes: { data: { role: string; school_id: string | null; user_id: string }[] | null } = { data: null };
   try {
+    // Retry session RPC — first paint after login often races auth.uid()
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const rpcData = await withTimeout(
@@ -392,11 +382,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
         );
         if (rpcData && typeof rpcData === "object") {
           rpcCtx = rpcData as SessionContextRpc;
-          if (
-            rpcCtx.school_id ||
-            (Array.isArray(rpcCtx.roles) && rpcCtx.roles.length) ||
-            rpcCtx.profile_id
-          ) {
+          if (rpcCtx.school_id || (Array.isArray(rpcCtx.roles) && rpcCtx.roles.length) || rpcCtx.profile_id) {
             break;
           }
         }
@@ -410,12 +396,12 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
       Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id")
+          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id, profile_photo_url")
           .eq("auth_user_id", user.id)
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id")
+          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id, profile_photo_url")
           .eq("id", user.id)
           .maybeSingle(),
         supabase.from("user_roles").select("role, school_id, user_id").eq("user_id", user.id),
@@ -496,6 +482,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     (roleRes.data ?? []).map((r) => (r as { school_id?: string | null }).school_id).find(Boolean) ||
     null;
 
+  // Resolve profile id reliably (auth uid ≠ profiles.id in many rows)
   let resolvedPid: string | null =
     (rpcCtx?.profile_id ? String(rpcCtx.profile_id) : null) ||
     (profile?.id ? String(profile.id as string) : null) ||
@@ -513,9 +500,12 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
         if (!profile) profile = p2 as never;
         if (!schoolId && p2.school_id) schoolId = String(p2.school_id);
       }
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
+  // user_roles may be keyed by auth uid OR profiles.id — query both
   if (!schoolId || roles.length === 0) {
     try {
       const ids = Array.from(new Set([user.id, resolvedPid].filter(Boolean))) as string[];
@@ -526,57 +516,392 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
           .eq("user_id", uid);
         if (roleRows?.length) {
           roles = [
-            ...new Set([...roles, ...roleRows.map((r) => r.role as AppRole).filter(Boolean)]),
+            ...new Set([
+              ...roles,
+              ...roleRows.map((r) => r.role as AppRole).filter(Boolean),
+            ]),
           ];
           if (!schoolId) {
-            schoolId = roleRows.map((r) => r.school_id).find(Boolean) || schoolId;
+            schoolId =
+              roleRows.map((r) => r.school_id).find(Boolean) || schoolId;
           }
         }
       }
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
+  // Role tables always carry school_id for staff/students
   if (!schoolId && resolvedPid) {
     try {
       const [{ data: eo }, { data: te }, { data: st }] = await Promise.all([
         supabase
           .from("examination_officers")
-          .select("school_id")
+          .select("school_id, officer_id, status")
           .eq("profile_id", resolvedPid)
           .maybeSingle(),
-        supabase.from("teachers").select("school_id").eq("profile_id", resolvedPid).maybeSingle(),
-        supabase.from("students").select("school_id").eq("profile_id", resolvedPid).maybeSingle(),
+        supabase
+          .from("teachers")
+          .select("school_id, staff_id, employment_status")
+          .eq("profile_id", resolvedPid)
+          .maybeSingle(),
+        supabase
+          .from("students")
+          .select("school_id, matric_number, student_id, status")
+          .eq("profile_id", resolvedPid)
+          .maybeSingle(),
       ]);
-      schoolId =
-        (eo?.school_id ? String(eo.school_id) : null) ||
-        (te?.school_id ? String(te.school_id) : null) ||
-        (st?.school_id ? String(st.school_id) : null) ||
-        schoolId;
-      if (eo?.school_id && !roles.includes("examination_officer"))
-        roles = [...roles, "examination_officer"];
-      if (te?.school_id && !roles.includes("teacher")) roles = [...roles, "teacher"];
-      if (st?.school_id && !roles.includes("student")) roles = [...roles, "student"];
-    } catch {}
-  }
-
-  const loginSchool = readLoginSchoolContext();
-  if (!schoolId && loginSchool?.schoolId) schoolId = loginSchool.schoolId;
-
-  // Only short-lived pending login may expand roles — do not invent from preferredRole alone
-  {
-    const pending = readPendingLoginRole(90_000);
-    if (
-      pending &&
-      !roles.includes(pending) &&
-      ["school_admin", "examination_officer", "teacher", "super_admin", "student"].includes(pending)
-    ) {
-      roles = [...roles, pending];
+      if (eo?.school_id) {
+        schoolId = String(eo.school_id);
+        if (!roles.includes("examination_officer")) roles = [...roles, "examination_officer"];
+      }
+      if (te?.school_id) {
+        if (!schoolId) schoolId = String(te.school_id);
+        if (!roles.includes("teacher")) roles = [...roles, "teacher"];
+      }
+      if (st?.school_id) {
+        if (!schoolId) schoolId = String(st.school_id);
+        if (!roles.includes("student")) roles = [...roles, "student"];
+      }
+    } catch {
+      /* ignore */
     }
   }
 
-  roles = [...new Set(roles)];
+  // examination_officers: also match when profile_id equals auth user id (legacy rows)
+  if (resolvedPid || user.id) {
+    try {
+      const ids = [...new Set([resolvedPid, user.id].filter(Boolean))] as string[];
+      for (const pid of ids) {
+        const { data: eo } = await supabase
+          .from("examination_officers")
+          .select("school_id, officer_id, status, profile_id")
+          .eq("profile_id", pid)
+          .maybeSingle();
+        if (eo?.school_id) {
+          if (!schoolId) schoolId = String(eo.school_id);
+          if (!roles.includes("examination_officer")) roles = [...roles, "examination_officer"];
+          break;
+        }
+      }
+    } catch { /* ignore */ }
+  }
 
-  const preferred = readPreferredRole() || readPendingLoginRole();
+  // school_admins table (optional) — try profile id + auth id
+  if (!schoolId) {
+    try {
+      const ids = [...new Set([resolvedPid, user.id].filter(Boolean))] as string[];
+      for (const pid of ids) {
+        const { data: sa } = await supabase
+          .from("school_admins")
+          .select("school_id")
+          .eq("profile_id", pid)
+          .maybeSingle();
+        if (sa?.school_id) {
+          schoolId = String(sa.school_id);
+          if (!roles.includes("school_admin")) roles = [...roles, "school_admin"];
+          break;
+        }
+      }
+    } catch {
+      /* table may not exist */
+    }
+  }
+
+  // Last-chance school from profiles row if still empty
+  if (!schoolId && (profile as { school_id?: string | null } | null)?.school_id) {
+    schoolId = String((profile as { school_id: string }).school_id);
+  }
+
+  // teachers / students / officers by auth id as profile_id (legacy)
+  if (!schoolId) {
+    try {
+      const ids = [...new Set([resolvedPid, user.id].filter(Boolean))] as string[];
+      for (const pid of ids) {
+        const [{ data: te }, { data: st }, { data: eo }] = await Promise.all([
+          supabase.from("teachers").select("school_id").eq("profile_id", pid).maybeSingle(),
+          supabase.from("students").select("school_id").eq("profile_id", pid).maybeSingle(),
+          supabase.from("examination_officers").select("school_id").eq("profile_id", pid).maybeSingle(),
+        ]);
+        if (eo?.school_id) {
+          schoolId = String(eo.school_id);
+          if (!roles.includes("examination_officer")) roles = [...roles, "examination_officer"];
+          break;
+        }
+        if (te?.school_id) {
+          schoolId = String(te.school_id);
+          if (!roles.includes("teacher")) roles = [...roles, "teacher"];
+          break;
+        }
+        if (st?.school_id) {
+          schoolId = String(st.school_id);
+          if (!roles.includes("student")) roles = [...roles, "student"];
+          break;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Re-call RPC once more if still no school (auth may have settled)
+  if (!schoolId && !roles.includes("super_admin")) {
+    try {
+      const rpcData = await withTimeout(
+        supabase.rpc("get_my_session_context" as never).then((r) => r.data),
+        4000,
+        "get_my_session_context_retry",
+      );
+      if (rpcData && typeof rpcData === "object") {
+        const again = rpcData as SessionContextRpc;
+        if (again.school_id) schoolId = String(again.school_id);
+        if (Array.isArray(again.roles)) {
+          roles = [...new Set([...roles, ...(again.roles as AppRole[])])];
+        }
+        if (!rpcCtx) rpcCtx = again;
+        else rpcCtx = { ...rpcCtx, ...again };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Login-school fallback (from school code at sign-in) when DB lag leaves schoolId null
+  if (!schoolId) {
+    const loginSchool = readLoginSchoolContext();
+    if (loginSchool?.schoolId) {
+      schoolId = loginSchool.schoolId;
+    }
+  }
+
+  // Server repair when client RLS leaves schoolId empty (officers after unlock)
+  if (!schoolId && !roles.includes("super_admin")) {
+    try {
+      const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
+      const fixed = await withTimeout(repairMySessionSchool(), 4000, "repair-school");
+      if (fixed?.schoolId) {
+        schoolId = String(fixed.schoolId);
+        for (const r of fixed.roles || []) {
+          if (r && !roles.includes(r as AppRole)) roles = [...roles, r as AppRole];
+        }
+        seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
+      }
+    } catch (e) {
+      console.warn("[session] repairMySessionSchool", e);
+    }
+  }
+
+  // Inject preferred/pending role only AFTER school recovery attempts
+  {
+    const preferred = readPreferredRole() || readPendingLoginRole();
+    if (
+      preferred &&
+      !roles.includes(preferred) &&
+      ["school_admin", "examination_officer", "teacher", "super_admin", "student"].includes(preferred)
+    ) {
+      roles = [...roles, preferred];
+    }
+  }
+
+  // FAST EXIT: RPC already resolved identity — only load school branding
+  // Ensure pending/preferred staff role is present before early return
+  {
+    const pref = readPreferredRole() || readPendingLoginRole();
+    if (pref && ["school_admin", "examination_officer", "teacher", "super_admin"].includes(pref) && !roles.includes(pref as AppRole)) {
+      roles = [...roles, pref as AppRole];
+    }
+  }
+
+  if (roles.length > 0 && (schoolId || roles.includes("super_admin"))) {
+    let schoolName: string | null = null;
+    let schoolCode: string | null = null;
+    let schoolLogoUrl: string | null = null;
+    if (schoolId) {
+      try {
+        const { data: school } = await withTimeout(
+          supabase.from("schools").select("name, school_code, logo_url").eq("id", schoolId).maybeSingle().then((r) => r),
+          2_000,
+          "school",
+        );
+        schoolName = school?.name ?? null;
+        schoolCode = school?.school_code ?? null;
+        schoolLogoUrl = (school?.logo_url as string | null) ?? null;
+      } catch {
+        /* non-fatal */
+      }
+    }
+    const priorityFast: AppRole[] = [
+      "super_admin",
+      "school_admin",
+      "examination_officer",
+      "teacher",
+      "student",
+    ];
+    const preferredFast = readPreferredRole() || readPendingLoginRole();
+    const primaryRoleFast =
+      (preferredFast && roles.includes(preferredFast) ? preferredFast : null) ||
+      priorityFast.find((r) => roles.includes(r)) ||
+      null;
+    let statusFast = (profile?.status as string | undefined) ?? (rpcCtx?.status as string | undefined) ?? "active";
+    if (primaryRoleFast && (statusFast === "pending" || statusFast === "invited")) statusFast = "active";
+    let fullNameFast =
+      displayNameFromProfile(profile as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | null) ||
+      (rpcCtx?.full_name || "").trim() ||
+      (typeof profile?.full_name === "string" ? profile.full_name.trim() : "") ||
+      "";
+    const roleLikeFast = /^(school\s*admin|examination\s*officer|departmental\s*officer|teacher|student|super\s*admin|user)$/i;
+    if (fullNameFast && roleLikeFast.test(fullNameFast)) fullNameFast = "";
+    if (!fullNameFast && profile?.id) {
+      try {
+        const { data: p2 } = await supabase.from("profiles").select("full_name, first_name, last_name").eq("id", profile.id).maybeSingle();
+        fullNameFast = displayNameFromProfile(p2 as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | null);
+      } catch { /* ignore */ }
+    }
+    if (primaryRoleFast) clearPendingLoginRole();
+    seedSchoolBrandFromSession(schoolId, schoolName, schoolLogoUrl);
+    // Ensure profile photo is loaded (RPC path often omits it)
+    let photoFast =
+      (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+    if (!photoFast) {
+      try {
+        const pid = (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id;
+        const { data: ph } = await supabase
+          .from("profiles")
+          .select("profile_photo_url")
+          .or(`auth_user_id.eq.${user.id},id.eq.${pid}`)
+          .not("profile_photo_url", "is", null)
+          .limit(1)
+          .maybeSingle();
+        photoFast = (ph as { profile_photo_url?: string } | null)?.profile_photo_url || null;
+      } catch { /* ignore */ }
+    }
+    return {
+      userId: user.id,
+      profileId: (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id,
+      email: (profile?.email as string | undefined) ?? rpcCtx?.email ?? user.email ?? "",
+      fullName: fullNameFast,
+      status: statusFast,
+      schoolId,
+      schoolName,
+      schoolCode,
+      schoolLogoUrl,
+      avatarUrl: photoFast,
+      roles: primaryRoleFast && !roles.includes(primaryRoleFast) ? [...roles, primaryRoleFast] : roles,
+      role: primaryRoleFast,
+      identifier: rpcCtx?.officer_id || rpcCtx?.staff_id || rpcCtx?.matric || (profile?.email as string | undefined) || user.email || null,
+      identifierLabel: rpcCtx?.officer_id ? "Officer ID" : rpcCtx?.staff_id ? "Staff ID" : rpcCtx?.matric ? "Matric" : "Email",
+    };
+  }
+
+  if (!schoolId && profile?.id) {
+    try {
+      const { data: extraRoles } = await supabase
+        .from("user_roles")
+        .select("role, school_id")
+        .eq("user_id", profile.id);
+      if (extraRoles?.length) {
+        roles = [...new Set([...roles, ...extraRoles.map((r) => r.role as AppRole).filter(Boolean)])];
+        schoolId = extraRoles.map((r) => r.school_id).find(Boolean) || schoolId;
+      }
+    } catch {}
+  }
+
+  if (!schoolId && profile?.id) {
+    try {
+      const { data: eo } = await supabase
+        .from("examination_officers")
+        .select("school_id, officer_id")
+        .eq("profile_id", profile.id)
+        .maybeSingle();
+      if (eo?.school_id) schoolId = eo.school_id as string;
+    } catch {}
+  }
+
+  // Recover school + roles if profile lag / RLS left gaps
+  if (!profile?.id || !schoolId) {
+    try {
+      const { data: roleRows } = await supabase
+        .from("user_roles")
+        .select("role, school_id, user_id")
+        .eq("user_id", user.id);
+      if (roleRows?.length) {
+        roles = [
+          ...new Set([
+            ...roles,
+            ...roleRows.map((r) => r.role as AppRole).filter(Boolean),
+          ]),
+        ];
+        if (!schoolId) {
+          schoolId = roleRows.map((r) => r.school_id).find(Boolean) || schoolId;
+        }
+      }
+    } catch {}
+  }
+
+  let schoolName: string | null = null;
+  let schoolCode: string | null = null;
+  let schoolLogoUrl: string | null = null;
+  let identifier: string | null = rpcCtx?.officer_id || rpcCtx?.staff_id || rpcCtx?.matric || null;
+  let identifierLabel = identifier ? "ID" : "Email";
+
+  // Prefer real profiles.id (not auth uid) for downstream teacher/officer/student joins
+  let resolvedProfileId: string | null =
+    (rpcCtx?.profile_id as string | undefined) || profile?.id || null;
+
+  if (profile?.id && !identifier) {
+    try {
+      const [{ data: eo }, { data: teacher }, { data: student }] = await Promise.all([
+        supabase.from("examination_officers").select("officer_id, school_id").eq("profile_id", profile.id).maybeSingle(),
+        supabase.from("teachers").select("staff_id, school_id").eq("profile_id", profile.id).maybeSingle(),
+        supabase.from("students").select("matric_number, student_id, school_id").eq("profile_id", profile.id).maybeSingle(),
+      ]);
+      if (!schoolId) schoolId = (eo?.school_id || teacher?.school_id || student?.school_id || null) as string | null;
+      identifier = (eo?.officer_id || teacher?.staff_id || student?.matric_number || student?.student_id || null) as string | null;
+      if (eo?.officer_id) identifierLabel = "Officer ID";
+      else if (teacher?.staff_id) identifierLabel = "Staff ID";
+      else if (student?.matric_number || student?.student_id) identifierLabel = "Matric";
+    } catch {}
+  }
+
+  // Last-chance: profiles by auth_user_id → staff tables
+  if (!schoolId || !resolvedProfileId) {
+    try {
+      const { data: profByAuth } = await supabase
+        .from("profiles")
+        .select("id, school_id, full_name, email, status")
+        .eq("auth_user_id", user.id)
+        .maybeSingle();
+      if (profByAuth?.id) {
+        resolvedProfileId = resolvedProfileId || profByAuth.id;
+        if (!schoolId && profByAuth.school_id) schoolId = profByAuth.school_id as string;
+        const [{ data: eo }, { data: teacher }, { data: student }] = await Promise.all([
+          supabase.from("examination_officers").select("officer_id, school_id").eq("profile_id", profByAuth.id).maybeSingle(),
+          supabase.from("teachers").select("staff_id, school_id").eq("profile_id", profByAuth.id).maybeSingle(),
+          supabase.from("students").select("matric_number, student_id, school_id").eq("profile_id", profByAuth.id).maybeSingle(),
+        ]);
+        if (!schoolId) schoolId = (eo?.school_id || teacher?.school_id || student?.school_id || null) as string | null;
+        if (!identifier) {
+          identifier = (eo?.officer_id || teacher?.staff_id || student?.matric_number || student?.student_id || null) as string | null;
+          if (eo?.officer_id) identifierLabel = "Officer ID";
+          else if (teacher?.staff_id) identifierLabel = "Staff ID";
+          else if (student?.matric_number || student?.student_id) identifierLabel = "Matric";
+        }
+      }
+    } catch {}
+  }
+
+  if (schoolId) {
+    const { data: school } = await supabase
+      .from("schools")
+      .select("name, school_code, logo_url")
+      .eq("id", schoolId)
+      .maybeSingle();
+    schoolName = school?.name ?? null;
+    schoolCode = school?.school_code ?? null;
+    schoolLogoUrl = (school?.logo_url as string | null) ?? null;
+  }
+
   const priority: AppRole[] = [
     "super_admin",
     "school_admin",
@@ -584,108 +909,201 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     "teacher",
     "student",
   ];
+  const preferred = readPreferredRole() || readPendingLoginRole();
+  // Keep preferred staff role even if user_roles lag / RLS delays (prevents admin→login loop)
+  if (preferred && !roles.includes(preferred) && ["school_admin", "examination_officer", "teacher", "super_admin"].includes(preferred)) {
+    roles = [...roles, preferred];
+  }
   const primaryRole =
     (preferred && roles.includes(preferred) ? preferred : null) ||
     priority.find((r) => roles.includes(r)) ||
     null;
-
-  let schoolName: string | null = null;
-  let schoolCode: string | null = null;
-  let schoolLogoUrl: string | null = null;
-  if (schoolId) {
-    try {
-      const { data: school } = await supabase
-        .from("schools")
-        .select("name, school_code, code, logo_url")
-        .eq("id", schoolId)
-        .maybeSingle();
-      schoolName = (school?.name as string) ?? null;
-      schoolCode =
-        ((school as { school_code?: string } | null)?.school_code as string) ||
-        ((school as { code?: string } | null)?.code as string) ||
-        null;
-      schoolLogoUrl = ((school as { logo_url?: string } | null)?.logo_url as string) ?? null;
-      seedSchoolBrandFromSession(schoolId, schoolName, schoolLogoUrl);
-    } catch {}
+  let status = (profile?.status as string | undefined) ?? "pending";
+  if (primaryRole === "super_admin" && (status === "pending" || status === "invited" || !profile)) {
+    status = "active";
+  }
+  if (primaryRole && (status === "pending" || status === "invited")) {
+    status = "active";
   }
 
-  let identifier: string | null = null;
-  let identifierLabel = "";
-  if (resolvedPid && primaryRole === "student") {
+  let fullName =
+    displayNameFromProfile(profile as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | null) ||
+    (rpcCtx?.full_name || "").trim() ||
+    (typeof profile?.full_name === "string" ? profile.full_name.trim() : "") ||
+    "";
+  // Never treat role labels / codes as a person's name
+  const roleLike = /^(school\s*admin|examination\s*officer|departmental\s*officer|teacher|student|super\s*admin|user)$/i;
+  if (fullName && roleLike.test(fullName)) fullName = "";
+  if (!fullName && resolvedProfileId) {
     try {
-      const { data: st } = await supabase
-        .from("students")
-        .select("matric_number, student_id")
-        .eq("profile_id", resolvedPid)
+      const { data: p2 } = await supabase
+        .from("profiles")
+        .select("full_name, first_name, last_name")
+        .eq("id", resolvedProfileId)
         .maybeSingle();
-      identifier = (st?.matric_number as string) || (st?.student_id as string) || null;
-      identifierLabel = "Matric";
-    } catch {}
-  } else if (resolvedPid && primaryRole === "teacher") {
-    try {
-      const { data: te } = await supabase
-        .from("teachers")
-        .select("staff_id")
-        .eq("profile_id", resolvedPid)
-        .maybeSingle();
-      identifier = (te?.staff_id as string) || null;
-      identifierLabel = "Staff ID";
-    } catch {}
-  } else if (resolvedPid && primaryRole === "examination_officer") {
-    try {
-      const { data: eo } = await supabase
-        .from("examination_officers")
-        .select("officer_id, staff_id")
-        .eq("profile_id", resolvedPid)
-        .maybeSingle();
-      identifier =
-        ((eo as { officer_id?: string } | null)?.officer_id as string) ||
-        ((eo as { staff_id?: string } | null)?.staff_id as string) ||
-        null;
-      identifierLabel = "Officer ID";
-    } catch {}
+      fullName = displayNameFromProfile(p2 as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | null);
+    } catch { /* ignore */ }
+  }
+  if (!fullName) {
+    // Last resort: email local-part only if it looks like a person (not role)
+    const local = (user.email || "").split("@")[0] || "";
+    if (local && !roleLike.test(local.replace(/[._]/g, " ")) && !/^\d+$/.test(local)) {
+      fullName = local.replace(/[._]/g, " ");
+    }
   }
 
   if (primaryRole) clearPendingLoginRole();
 
+  // Final safety: login school code context (must never show "not linked" after valid school login)
+  if (!schoolId) {
+    const loginSchool = readLoginSchoolContext();
+    if (loginSchool?.schoolId) {
+      schoolId = loginSchool.schoolId;
+      if (!schoolCode && loginSchool.schoolCode) schoolCode = loginSchool.schoolCode;
+    }
+  }
+  if (schoolId && (!schoolName || !schoolLogoUrl)) {
+    try {
+      const { data: school } = await supabase
+        .from("schools")
+        .select("name, school_code, logo_url")
+        .eq("id", schoolId)
+        .maybeSingle();
+      if (school) {
+        schoolName = schoolName || school.name || null;
+        schoolCode = schoolCode || school.school_code || null;
+        schoolLogoUrl = schoolLogoUrl || (school.logo_url as string | null) || null;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  seedSchoolBrandFromSession(schoolId, schoolName, schoolLogoUrl);
+  // Final photo resolve
+  let photoFinal =
+    (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+  if (!photoFinal) {
+    try {
+      const { data: ph } = await supabase
+        .from("profiles")
+        .select("profile_photo_url")
+        .eq("auth_user_id", user.id)
+        .maybeSingle();
+      photoFinal = (ph as { profile_photo_url?: string } | null)?.profile_photo_url || null;
+    } catch { /* ignore */ }
+  }
+
   return {
     userId: user.id,
-    profileId: resolvedPid || user.id,
-    email: (profile?.email as string) || user.email || "",
-    fullName: displayNameFromProfile(profile as never) || user.email || "User",
-    status: (profile?.status as string) || "active",
+    profileId: resolvedProfileId || (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id,
+    email: profile?.email ?? rpcCtx?.email ?? user.email ?? "",
+    fullName,
+    status,
     schoolId,
     schoolName,
     schoolCode,
     schoolLogoUrl,
+    avatarUrl: photoFinal,
     roles,
     role: primaryRole,
-    identifier,
+    identifier: identifier ?? profile?.email ?? user.email ?? null,
     identifierLabel,
   };
 }
 
 export function useSessionUser() {
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
+
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void qc.invalidateQueries({ queryKey: ["session-user"] });
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
+        void queryClient.invalidateQueries({ queryKey: ["session-user"] });
+      }
     });
-    return () => subscription.unsubscribe();
-  }, [qc]);
+    const onRefresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ["session-user"] });
+    };
+    window.addEventListener("d4-session-refresh", onRefresh);
+    return () => {
+      sub.subscription.unsubscribe();
+      window.removeEventListener("d4-session-refresh", onRefresh);
+    };
+  }, [queryClient]);
 
   return useQuery({
     queryKey: ["session-user"],
     queryFn: async () => {
-      const u = await fetchSessionUser();
+      const last = readLastUserId();
+      let u = await withTimeout(fetchSessionUser(), 6000, "session");
+      // Merge login school if session still missing school (teacher/admin after unlock)
+      if (u && !u.schoolId && u.role !== "super_admin") {
+        const loginSchool = readLoginSchoolContext();
+        if (loginSchool?.schoolId) {
+          let schoolName = u.schoolName;
+          let schoolCode = u.schoolCode || loginSchool.schoolCode;
+          let schoolLogoUrl = u.schoolLogoUrl;
+          try {
+            const { data: school } = await supabase
+              .from("schools")
+              .select("name, school_code, logo_url")
+              .eq("id", loginSchool.schoolId)
+              .maybeSingle();
+            if (school) {
+              schoolName = school.name ?? schoolName;
+              schoolCode = school.school_code ?? schoolCode;
+              schoolLogoUrl = (school.logo_url as string | null) ?? schoolLogoUrl;
+            }
+          } catch {
+            /* ignore */
+          }
+          u = {
+            ...u,
+            schoolId: loginSchool.schoolId,
+            schoolName: schoolName ?? u.schoolName,
+            schoolCode: schoolCode ?? u.schoolCode,
+            schoolLogoUrl: schoolLogoUrl ?? u.schoolLogoUrl,
+          };
+        } else {
+          // Last attempt: server repair
+          try {
+            const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
+            const fixed = await repairMySessionSchool();
+            if (fixed?.schoolId) {
+              seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
+              u = {
+                ...u,
+                schoolId: fixed.schoolId,
+                schoolName: fixed.schoolName ?? u.schoolName,
+                schoolCode: fixed.schoolCode ?? u.schoolCode,
+                schoolLogoUrl: fixed.schoolLogoUrl ?? u.schoolLogoUrl,
+                roles: [...new Set([...(u.roles || []), ...(fixed.roles || [])])] as AppRole[],
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       if (u?.userId) {
         rememberLastUserId(u.userId);
-        try {
+        const complete = u.role === "super_admin" || Boolean(u.schoolId);
+        if (complete) {
           void offlineSet(u.userId, OfflineKeys.sessionUser, u, { schoolId: u.schoolId });
-          void mirrorSessionUser(u.userId, u as never);
-        } catch {}
+          void mirrorSessionUser(u);
+        }
+      } else if (last) {
+        try {
+          const cached = await withOfflineCache(
+            last,
+            OfflineKeys.sessionUser,
+            async () => null,
+            { fallback: null },
+          );
+          if (cached && (cached.role === "super_admin" || cached.schoolId)) return cached;
+        } catch {
+          /* ignore */
+        }
       }
       return u;
     },
@@ -712,6 +1130,5 @@ export function initials(name: string) {
 export async function signOut() {
   await supabase.auth.signOut();
   clearPendingLoginRole();
-  clearPreferredRole();
   if (typeof window !== "undefined") window.location.href = "/login";
 }

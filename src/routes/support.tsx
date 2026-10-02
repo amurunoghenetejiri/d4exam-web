@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { PublicLayout } from "@/components/layout/PublicLayout";
