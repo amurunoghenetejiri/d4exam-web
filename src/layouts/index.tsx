@@ -22,7 +22,6 @@ function RoleShell({ config, children }: { config: RoleConfig; children: ReactNo
       user={{
         name: user?.fullName ?? "…",
         avatar: initials(user?.fullName ?? ""),
-        avatarUrl: user?.avatarUrl ?? null,
         subtitle: user?.identifier ?? user?.schoolName ?? "",
       }}
     >

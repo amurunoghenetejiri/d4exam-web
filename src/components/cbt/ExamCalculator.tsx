@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * D4EXAM full-viewport scientific calculator.
  * Natural-entry math structures + UI matching D4EXAM design reference.

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { supabase } from "@/integrations/supabase/client";
 
 export type PublicUserProfile = {
@@ -8,9 +7,7 @@ export type PublicUserProfile = {
   avatarUrl: string | null;
   phone: string | null;
   schoolId: string | null;
-  schoolName: string | null;
   matricNumber: string | null;
-  bio?: string | null;
   departmentId: string | null;
   departmentName: string | null;
   levelId: string | null;
@@ -42,16 +39,7 @@ function mapRow(
       null,
     phone: (row.phone as string) || null,
     schoolId: (row.school_id as string) || null,
-    schoolName: (row.school_name as string) || null,
     matricNumber: (row.matric_number as string) || null,
-    bio: (() => {
-      const s = row.settings;
-      if (s && typeof s === "object" && typeof (s as Record<string, unknown>).bio === "string") {
-        const b = String((s as Record<string, unknown>).bio).trim();
-        return b || null;
-      }
-      return (row.bio as string) || null;
-    })(),
     departmentId: (row.department_id as string) || null,
     departmentName:
       extras?.departmentName ??
@@ -99,7 +87,7 @@ async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile>
     }
   }
 
-  if (departmentName && levelName && matricNumber && p.schoolName) {
+  if (departmentName && levelName && matricNumber) {
     return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
   }
 
@@ -127,18 +115,7 @@ async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile>
       /* ignore */
     }
   }
-  let schoolName = p.schoolName;
-  if (!schoolName && p.schoolId) {
-    try {
-      const { data: sch } = await supabase
-        .from("schools")
-        .select("name")
-        .eq("id", p.schoolId)
-        .maybeSingle();
-      schoolName = (sch as { name?: string } | null)?.name || null;
-    } catch { /* ignore */ }
-  }
-  return { ...p, departmentName, levelName, matricNumber, departmentId, levelId, schoolName };
+  return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
 }
 
 async function attachBlocks(
@@ -173,7 +150,7 @@ async function fetchProfileFallback(
   const byAuth = await supabase
     .from("profiles")
     .select(
-      "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status, settings",
+      "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
     )
     .eq("auth_user_id", targetUserId)
     .maybeSingle();
@@ -184,7 +161,7 @@ async function fetchProfileFallback(
     const byId = await supabase
       .from("profiles")
       .select(
-        "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status, settings",
+        "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
       )
       .eq("id", targetUserId)
       .maybeSingle();
@@ -322,7 +299,7 @@ export async function fetchPublicProfile(
       const { data: p } = await supabase
         .from("profiles")
         .select(
-          "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone, settings",
+          "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone",
         )
         .or(`auth_user_id.eq.${id},id.eq.${id}`)
         .limit(1)
@@ -459,91 +436,27 @@ export async function listBlockedUsers(myUserId: string) {
   return profiles;
 }
 
-const MAX_PROFILE_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB
-
 export async function updateMyProfilePhoto(profileId: string, file: File) {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Please choose an image file.");
-  }
-  if (file.size > MAX_PROFILE_IMAGE_BYTES) {
-    throw new Error("Image must be 3 MB or smaller.");
-  }
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-  const objectPath = `profiles/${profileId}/${Date.now()}.${ext}`;
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `profiles/${profileId}/${Date.now()}.${ext}`;
   const buckets = ["avatars", "profile-photos", "public", "media"];
   let publicUrl: string | null = null;
-  let lastErr = "";
   for (const bucket of buckets) {
-    const { error } = await supabase.storage.from(bucket).upload(objectPath, file, {
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
       upsert: true,
       contentType: file.type || "image/jpeg",
     });
     if (!error) {
-      const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       publicUrl = data.publicUrl;
       break;
     }
-    lastErr = error.message || String(error);
   }
-  if (!publicUrl) {
-    throw new Error(lastErr || "Upload failed — storage bucket not available");
-  }
-
-  // Prefer SECURITY DEFINER RPC (avoids profiles RLS recursion)
-  const { error: rpcErr } = await supabase.rpc("update_my_profile_photo", {
-    p_url: publicUrl,
-  } as never);
-  if (!rpcErr) return publicUrl;
-
-  // Fallback: direct update by auth_user_id
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) throw new Error(rpcErr.message || "Not signed in");
+  if (!publicUrl) throw new Error("Upload failed");
   const { error: updErr } = await supabase
     .from("profiles")
     .update({ profile_photo_url: publicUrl } as never)
-    .eq("auth_user_id", uid);
-  if (updErr) {
-    // Last try: by profile id
-    const { error: upd2 } = await supabase
-      .from("profiles")
-      .update({ profile_photo_url: publicUrl } as never)
-      .eq("id", profileId);
-    if (upd2) throw new Error(upd2.message || rpcErr.message || "Could not save photo");
-  }
+    .eq("id", profileId);
+  if (updErr) throw new Error(updErr.message);
   return publicUrl;
-}
-
-/** Bio is stored in profiles.settings.bio (jsonb). Uses RPC to avoid RLS recursion. */
-export async function updateMyBio(_profileId: string, bio: string) {
-  const trimmed = bio.trim().slice(0, 280);
-  const { data, error: rpcErr } = await supabase.rpc("update_my_bio", {
-    p_bio: trimmed,
-  } as never);
-  if (!rpcErr) return (typeof data === "string" ? data : trimmed) as string;
-
-  // Fallback if RPC not deployed yet
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) throw new Error(rpcErr.message || "Not signed in");
-  const { data: row, error: rErr } = await supabase
-    .from("profiles")
-    .select("settings")
-    .eq("auth_user_id", uid)
-    .maybeSingle();
-  if (rErr) throw new Error(rErr.message || rpcErr.message);
-  const settings = (row?.settings && typeof row.settings === "object" ? row.settings : {}) as Record<string, unknown>;
-  const next = { ...settings, bio: trimmed };
-  const { error } = await supabase
-    .from("profiles")
-    .update({ settings: next } as never)
-    .eq("auth_user_id", uid);
-  if (error) throw new Error(error.message || rpcErr.message);
-  return trimmed;
-}
-
-export function bioFromSettings(settings: unknown): string | null {
-  if (!settings || typeof settings !== "object") return null;
-  const b = (settings as Record<string, unknown>).bio;
-  return typeof b === "string" && b.trim() ? b.trim() : null;
 }

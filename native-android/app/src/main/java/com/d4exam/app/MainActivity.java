@@ -44,40 +44,9 @@ public class MainActivity extends BridgeActivity {
     deliverCallIntent(intent);
   }
 
-  /** Forward full-screen / notification call & message intents into the WebView. */
+  /** Forward full-screen / notification call intents into the WebView. */
   private void deliverCallIntent(Intent intent) {
     if (intent == null) return;
-
-    // Deep-link from message / missed-call notification
-    String openPath = intent.getStringExtra("d4_open_path");
-    String conversationId = intent.getStringExtra("d4_conversation_id");
-    if (conversationId == null) conversationId = "";
-    if ((openPath == null || openPath.isEmpty()) && !conversationId.isEmpty()) {
-      openPath = "/student/messages?chat=" + conversationId;
-    }
-    if (openPath != null && !openPath.isEmpty()) {
-      boolean markRead = intent.getBooleanExtra("d4_mark_read", false);
-      boolean replyAction = intent.getBooleanExtra("d4_reply_action", false);
-      String replyText = null;
-      if (replyAction) {
-        try {
-          android.os.Bundle remote = androidx.core.app.RemoteInput.getResultsFromIntent(intent);
-          if (remote != null) {
-            CharSequence cs = remote.getCharSequence("d4_reply_text");
-            if (cs != null) replyText = cs.toString();
-          }
-        } catch (Throwable ignored) {}
-      }
-      final String navJs =
-          "window.dispatchEvent(new CustomEvent('d4-native-nav',{detail:{"
-              + "path:" + jsonStr(openPath) + ","
-              + "conversationId:" + jsonStr(conversationId) + ","
-              + "markRead:" + (markRead ? "true" : "false") + ","
-              + "reply:" + (replyText != null ? jsonStr(replyText) : "null")
-              + "}}));";
-      evalJs(navJs);
-    }
-
     String action = intent.getStringExtra("d4_call_action");
     if (action == null || action.isEmpty()) return;
     String callId = intent.getStringExtra("d4_call_id");
@@ -90,10 +59,6 @@ public class MainActivity extends BridgeActivity {
             + "callId:" + jsonStr(callId) + ","
             + "callType:" + jsonStr(callType)
             + "}}));";
-    evalJs(js);
-  }
-
-  private void evalJs(final String js) {
     try {
       Bridge bridge = getBridge();
       if (bridge != null && bridge.getWebView() != null) {
@@ -210,6 +175,4 @@ public class MainActivity extends BridgeActivity {
     } catch (Exception ignored) {
     }
   }
-
-
 }

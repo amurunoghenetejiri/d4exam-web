@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Repair missing school_id on the signed-in user's profile using service role.
  * Fixes officer/teacher/admin "not linked to a school" after unlock.

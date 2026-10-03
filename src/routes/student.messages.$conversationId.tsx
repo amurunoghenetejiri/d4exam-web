@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
 import { startDirectCall, notifyCalleeOfIncomingCall, inviteCalleeOnPersonalChannel } from "@/lib/calls";
@@ -17,7 +16,6 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
-  Clock,
   Mic,
   Paperclip,
   Send,
@@ -44,12 +42,8 @@ import { cn } from "@/lib/utils";
 import {
   listMessages,
   markConversationRead,
-  markMessagesDelivered,
-  getPeerLastReadAt,
   sendCampusMessage,
-  computeMessageTick,
   type CampusMessage,
-  type MessageTick,
 } from "@/lib/messaging";
 import { uploadMessageMedia } from "@/lib/message-media";
 import {
@@ -66,7 +60,6 @@ import {
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
 import { joinMessagingPresence } from "@/lib/messaging-presence";
-import { globalAudio } from "@/lib/global-audio";
 import {
   enqueueOutbox,
   listOutbox,
@@ -318,7 +311,6 @@ export function ConversationChat({
   const [peerOnline, setPeerOnline] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const [peerRecording, setPeerRecording] = useState(false);
-  const [peerLastReadAt, setPeerLastReadAt] = useState<string | null>(null);
   const [peerLastAt, setPeerLastAt] = useState<number | null>(null);
   const [localTitle, setLocalTitle] = useState<string | null>(null);
   const presenceApi = useRef<ReturnType<typeof joinMessagingPresence> | null>(null);
@@ -413,19 +405,8 @@ export function ConversationChat({
   const msgQuery = useQuery({
     queryKey: ["campus-messages", conversationId],
     enabled: Boolean(conversationId),
-    staleTime: 10_000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    placeholderData: (prev) => prev,
-    queryFn: async () => {
-      const rows = await listMessages(conversationId, 200);
-      // Never replace non-empty cache with empty result (network/RLS glitch)
-      if (!rows.length) {
-        const cached = qc.getQueryData<CampusMessage[]>(["campus-messages", conversationId]);
-        if (Array.isArray(cached) && cached.length) return cached;
-      }
-      return rows;
-    },
+    staleTime: 5_000,
+    queryFn: () => listMessages(conversationId, 120),
   });
 
   useEffect(() => {
@@ -447,21 +428,9 @@ export function ConversationChat({
           table: "campus_messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async () => {
-          try {
-            const rows = await listMessages(conversationId, 200);
-            if (rows.length) {
-              qc.setQueryData(["campus-messages", conversationId], rows);
-            } else {
-              // keep existing cache if refetch empty
-              const cached = qc.getQueryData(["campus-messages", conversationId]);
-              if (!Array.isArray(cached) || !cached.length) {
-                qc.setQueryData(["campus-messages", conversationId], rows);
-              }
-            }
-          } catch { /* ignore */ }
+        () => {
+          void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
           void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-          void markMessagesDelivered(conversationId);
         },
       );
       ch.subscribe();
@@ -478,77 +447,6 @@ export function ConversationChat({
       }
     };
   }, [conversationId, qc]);
-
-  // Delivery ACK + peer read receipts
-  useEffect(() => {
-    if (!conversationId || !userId) return;
-    void markMessagesDelivered(conversationId);
-    void getPeerLastReadAt(conversationId, userId).then(setPeerLastReadAt).catch(() => {});
-    // Subscribe to peer last_read_at changes
-    const topic = `campus-members-${conversationId}`;
-    let ch: ReturnType<typeof supabase.channel> | null = null;
-    try {
-      ch = supabase.channel(topic);
-      ch.on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "conversation_members",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const row = payload.new as { user_id?: string; last_read_at?: string | null };
-          if (row?.user_id && row.user_id !== userId && row.last_read_at) {
-            setPeerLastReadAt((prev) => {
-              if (!prev) return row.last_read_at || null;
-              return new Date(row.last_read_at!).getTime() > new Date(prev).getTime()
-                ? row.last_read_at!
-                : prev;
-            });
-          }
-        },
-      );
-      ch.subscribe();
-    } catch { /* ignore */ }
-    return () => {
-      if (ch) {
-        try { void supabase.removeChannel(ch); } catch { /* ignore */ }
-      }
-    };
-  }, [conversationId, userId]);
-
-
-
-  // Rehydrate pending outbox into optimistic UI (survives leave/re-enter)
-  useEffect(() => {
-    if (!userId || !conversationId) return;
-    const pending = listOutbox("student").filter(
-      (x) => x.conversationId === conversationId && (x.kind === "campus_text" || x.kind === "campus_audio"),
-    );
-    if (!pending.length) return;
-    setOptimistic((prev) => {
-      const have = new Set(prev.map((m) => m.client_id).filter(Boolean));
-      const add = pending
-        .filter((x) => x.clientId && !have.has(x.clientId))
-        .map((x) => ({
-          id: x.clientId,
-          conversation_id: conversationId,
-          sender_id: userId,
-          body: x.kind === "campus_text" ? x.text || null : null,
-          attachment_url: x.blobDataUrl || null,
-          attachment_type: x.kind === "campus_audio" ? "audio" : x.mediaType || null,
-          reply_to_id: (x as { replyToId?: string }).replyToId || null,
-          forwarded_from_id: null,
-          client_id: x.clientId,
-          duration_sec: x.durationSec ?? null,
-          created_at: new Date(x.createdAt || Date.now()).toISOString(),
-          edited_at: null,
-          deleted_at: null,
-        }));
-      return add.length ? [...prev, ...add] : prev;
-    });
-  }, [userId, conversationId]);
 
   // Flush campus outbox when back online
   useEffect(() => {
@@ -727,37 +625,15 @@ export function ConversationChat({
 
   const pauseRecording = () => {
     try {
-      const rec = mediaRec.current;
-      if (rec && rec.state === "recording") {
-        try {
-          rec.requestData();
-        } catch {
-          /* ignore */
-        }
-        rec.pause();
-      }
+      mediaRec.current?.pause();
     } catch {
       /* ignore */
     }
     stopRecTimer();
-    try {
-      if (chunks.current.length > 0) {
-        const blob = new Blob(chunks.current, { type: "audio/webm" });
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        setPreviewUrl(URL.createObjectURL(blob));
-      }
-    } catch {
-      /* ignore */
-    }
     setRecPaused(true);
   };
 
   const continueRecording = () => {
-    try {
-      stopAllVoices();
-    } catch {
-      /* ignore */
-    }
     try {
       mediaRec.current?.resume();
     } catch {
@@ -765,20 +641,6 @@ export function ConversationChat({
     }
     setRecPaused(false);
     recTimer.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
-  };
-
-  const playRecordingPreview = () => {
-    if (!previewUrl) return;
-    try {
-      globalAudio.playVoice("rec-preview", previewUrl, "Preview", 1);
-    } catch {
-      try {
-        const a = new Audio(previewUrl);
-        void a.play();
-      } catch {
-        /* ignore */
-      }
-    }
   };
 
   const finishAndSendVoice = async () => {
@@ -896,53 +758,30 @@ export function ConversationChat({
     setReplyTo(null);
     scrollToEnd();
     sendLock.current = true;
-    // Always persist to outbox until server confirms — survives leave/reopen
-    enqueueOutbox({
-      clientId,
-      kind: "campus_text",
-      text: t,
-      role: "student",
-      userId,
-      conversationId,
-      replyToId: replyId || undefined,
-    });
     try {
       if (!isOnlineNow()) {
+        enqueueOutbox({
+          clientId,
+          kind: "campus_text",
+          text: t,
+          role: "student",
+          userId,
+          conversationId,
+        });
         toast.message("Waiting for connection — queued");
         return;
       }
-      const sent = await sendCampusMessage({
+      await sendCampusMessage({
         conversationId,
         senderId: userId,
         body: t,
         clientId,
         replyToId: replyId,
       });
-      removeOutbox(clientId);
-      // Keep message visible: replace optimistic with server row (real UUID → tick)
-      setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId));
-      qc.setQueryData<CampusMessage[]>(
-        ["campus-messages", conversationId],
-        (old) => {
-          const list = Array.isArray(old) ? old.slice() : [];
-          const idx = list.findIndex(
-            (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
-          );
-          if (idx >= 0) list[idx] = sent;
-          else list.push(sent);
-          return list.sort(
-            (a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-          );
-        },
-      );
-      // Only refresh conversation list preview — do NOT invalidate messages
-      // (a failed/empty refetch was wiping the chat after a successful send)
+      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
       void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
     } catch (e) {
-      // Keep in outbox + optimistic; will retry on reconnect
-      markOutboxFailed(clientId, e instanceof Error ? e.message : "Send failed");
-      toast.error(e instanceof Error ? e.message : "Send failed — will retry");
+      toast.error(e instanceof Error ? e.message : "Send failed");
     } finally {
       sendLock.current = false;
     }
@@ -1291,13 +1130,7 @@ export function ConversationChat({
         className="relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-3"
       >
         <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-2">
-          {msgQuery.isError ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-              <p className="text-sm font-semibold text-rose-600">Could not load messages</p>
-              <p className="text-xs text-slate-500">{(msgQuery.error as Error)?.message || "Try again"}</p>
-              <button type="button" className="mt-2 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-bold text-white" onClick={() => void msgQuery.refetch()}>Retry</button>
-            </div>
-          ) : merged.length === 0 ? (
+          {merged.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
               <p className="text-sm font-semibold text-slate-600">
                 No messages yet
@@ -1317,12 +1150,10 @@ export function ConversationChat({
             const isVideo = !isCall && att.includes("video") && !att.includes("call");
             const isFile =
               Boolean(m.attachment_url) && !isVoice && !isImage && !isVideo && !isCall;
+            const pending =
+              m.id.startsWith("opt-") || Boolean(m.client_id?.startsWith("opt-"));
             const timeLabel = formatTime(m.created_at);
-            const tick: MessageTick = computeMessageTick(m, {
-              mine,
-              peerLastReadAt,
-            });
-            const pending = tick === "pending";
+            const tick = pending ? "pending" : "delivered";
 
             return (
               <div
@@ -1499,7 +1330,7 @@ export function ConversationChat({
                       src={m.attachment_url}
                       mine={mine}
                       timeLabel={timeLabel}
-                      tick={mine ? tick : "none"}
+                      tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
                       durationSec={m.duration_sec}
                     />
                   </div>
@@ -1510,7 +1341,7 @@ export function ConversationChat({
                     count={Math.max(urls.length, 1)}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={mine ? tick : "none"}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
                     onOpen={() => {
                       setLightboxUrls(urls.length ? urls : [urls[0] || m.attachment_url!]);
                       setLightboxIndex(0);
@@ -1521,7 +1352,7 @@ export function ConversationChat({
                     src={m.attachment_url}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={mine ? tick : "none"}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
                     onOpen={() => setVideoSrc(m.attachment_url!)}
                     durationSec={m.duration_sec}
                     forwarded={Boolean(m.forwarded_from_id)}
@@ -1531,7 +1362,7 @@ export function ConversationChat({
                     src={m.attachment_url}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={mine ? tick : "none"}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
                   />
                 ) : (
                   <div
@@ -1581,15 +1412,11 @@ export function ConversationChat({
                     >
                       <span className="shrink-0">{timeLabel}</span>
                       {mine ? (
-                        tick === "pending" ? (
-                          <Clock className="h-3 w-3 shrink-0 opacity-70" />
-                        ) : tick === "sent" ? (
+                        pending ? (
                           <Check className="h-3 w-3 shrink-0 opacity-70" />
-                        ) : tick === "delivered" ? (
-                          <CheckCheck className="h-3 w-3 shrink-0 opacity-70" />
-                        ) : tick === "read" ? (
-                          <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb]" />
-                        ) : null
+                        ) : (
+                          <CheckCheck className="h-3 w-3 shrink-0" />
+                        )
                       ) : null}
                     </div>
                   </div>
@@ -1599,49 +1426,7 @@ export function ConversationChat({
               </div>
             );
           })}
-          {(peerTyping || peerRecording) && !meta?.isGroup ? (
-            <div className="flex w-full justify-start">
-              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-white px-3 py-2 shadow-sm border border-slate-100">
-                {peerRecording ? (
-                  <>
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
-                    </span>
-                    <span className="text-[12px] font-medium text-slate-500">Recording voice note…</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex items-end gap-0.5 h-3.5" aria-label="Typing">
-                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "0ms" }} />
-                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "150ms" }} />
-                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "300ms" }} />
-                    </span>
-                    <span className="text-[12px] font-medium text-slate-500">typing…</span>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : peerTyping && meta?.isGroup ? (
-            <div className="flex w-full justify-start">
-              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-white px-3 py-2 shadow-sm border border-slate-100">
-                <span className="flex items-end gap-0.5 h-3.5" aria-label="Typing">
-                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "0ms" }} />
-                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "150ms" }} />
-                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "300ms" }} />
-                </span>
-                <span className="text-[12px] font-medium text-slate-500">Someone is typing…</span>
-              </div>
-            </div>
-          ) : null}
           <div ref={endRef} />
-          <style>{`
-            @keyframes d4TypingBounce {
-              0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
-              30% { transform: translateY(-3px); opacity: 1; }
-            }
-            .d4-typing-dot { animation: d4TypingBounce 1.2s ease-in-out infinite; display: inline-block; }
-          `}</style>
         </div>
 
         {showScroll ? (
@@ -1667,11 +1452,11 @@ export function ConversationChat({
             recording={recording}
             paused={recPaused}
             seconds={recSecs}
-            previewUrl={previewUrl}
+            previewUrl={null}
             onCancel={cancelRecording}
             onPause={pauseRecording}
             onContinue={continueRecording}
-            onPreviewPlay={playRecordingPreview}
+            onPreviewPlay={() => {}}
             onSend={() => void finishAndSendVoice()}
           />
         ) : (
@@ -1756,20 +1541,12 @@ export function ConversationChat({
             <div className="flex min-w-0 flex-1 items-end rounded-full border border-white/20 bg-white px-3">
               <textarea
                 value={text}
-                onChange={(e) => {
-                  setText(e.target.value);
-                  const el = e.target;
-                  el.style.height = "auto";
-                  const max = 120;
-                  el.style.height = Math.min(el.scrollHeight, max) + "px";
-                  el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
-                }}
+                onChange={(e) => setText(e.target.value)}
                 rows={1}
                 placeholder="Type your message…"
-                className="max-h-[120px] min-h-[36px] w-full resize-none overflow-hidden bg-transparent py-2 text-[15px] font-medium leading-snug text-slate-900 outline-none placeholder:text-slate-400"
+                className="max-h-24 min-h-[36px] w-full resize-none bg-transparent py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
                 onKeyDown={(e) => {
-                  // Enter inserts a new line; only the Send button sends
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     void doSendText();
                   }
@@ -2254,7 +2031,7 @@ function LinkMessageBody({
   }
 
   return (
-    <p className="break-words whitespace-pre-wrap text-[15px] font-medium leading-[1.45] tracking-[-0.01em]">
+    <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
       {linkifyText(body, mine)}
     </p>
   );

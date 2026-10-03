@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Client-side push registration.
  *
@@ -263,11 +262,7 @@ async function bindNativePushListeners(userId: string, role?: string | null): Pr
     const { PushNotifications } = await import("@capacitor/push-notifications");
 
     await PushNotifications.addListener("registration", (token) => {
-      console.info("[D4EXAM] FCM registration token received", String(token?.value || "").slice(0, 12));
-      void saveDeviceToken(userId, token.value, role).then((r) => {
-        if (!r.ok) console.warn("[D4EXAM] saveDeviceToken failed", r.error);
-        else console.info("[D4EXAM] FCM token saved for user", userId.slice(0, 8));
-      });
+      void saveDeviceToken(userId, token.value, role);
     });
 
     await PushNotifications.addListener("registrationError", (err) => {

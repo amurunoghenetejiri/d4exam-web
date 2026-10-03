@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Full-screen role-aware D4EXAM search.
  * White content surface (native chrome stays navy). Live results as you type.

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Resolve student display names for staff (bypasses client RLS gaps).
  * Matches by students.id, profile_id, student_id text, or matric.

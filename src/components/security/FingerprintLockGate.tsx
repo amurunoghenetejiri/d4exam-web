@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Full-screen fingerprint unlock gate for the native D4EXAM shell.
  *

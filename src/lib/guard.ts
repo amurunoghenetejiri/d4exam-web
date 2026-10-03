@@ -178,7 +178,6 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
           schoolName: null,
           schoolCode: null,
           schoolLogoUrl: null,
-          avatarUrl: null,
           roles: [pending],
           role: pending,
           identifier: sess.session.user.email || null,

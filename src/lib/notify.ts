@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * D4EXAM notification helpers — DB-backed inserts + push.
  * recipient_user_id MUST be auth.users id (auth.uid()), never profiles.id.

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { BookOpen, CheckCircle2, Loader2 } from "lucide-react";

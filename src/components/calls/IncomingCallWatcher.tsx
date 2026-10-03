@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSessionUser } from "@/lib/session";

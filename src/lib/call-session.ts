@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Global call session — owns WebRTC + signaling outside React lifecycle.
  */
@@ -119,21 +118,6 @@ async function postSystemMessage(
       attachment_type: "call",
       attachment_url: null,
     } as never);
-    const now = new Date().toISOString();
-    let preview = body.slice(0, 140);
-    if (/missed\s*video/i.test(body)) preview = "📞 Missed video call";
-    else if (/missed/i.test(body)) preview = "📞 Missed voice call";
-    else if (/declined/i.test(body)) preview = "📞 Call declined";
-    else if (/no answer/i.test(body)) preview = "📞 No answer";
-    await supabase
-      .from("conversations")
-      .update({
-        updated_at: now,
-        last_message_at: now,
-        last_message_preview: preview,
-        last_message_sender_id: myUserId,
-      } as never)
-      .eq("id", conversationId);
   } catch {
     /* ignore */
   }
@@ -317,33 +301,21 @@ export async function startOutgoingCall(opts: {
 
     // Pulse invite on personal channel until answered.
     // Offer is created only after callee sends "ready".
-    const pulseInvite = async () => {
+    const pulseInvite = () => {
       if (!state || state.phase !== "calling") return;
-      // Resolve *caller* display name (not peer — peer is the callee)
-      let myName = "D4EXAM";
-      let myMatric = "";
-      try {
-        const { fetchPublicProfile } = await import("@/lib/user-profile");
-        const me = await fetchPublicProfile(opts.myUserId, opts.myUserId);
-        if (me?.fullName) myName = me.fullName;
-        if (me?.matricNumber) myMatric = me.matricNumber;
-      } catch {
-        /* ignore */
-      }
       void inviteCalleeOnPersonalChannel({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
         conversationId: opts.conversationId,
-        callerName: myName,
+        callerName: opts.peerName || "D4EXAM",
         fromUserId: opts.myUserId,
       });
       void notifyCalleeOfIncomingCall({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
-        callerName: myName,
-        callerMatric: myMatric,
+        callerName: opts.peerName || "D4EXAM",
         fromUserId: opts.myUserId,
         conversationId: opts.conversationId,
       });
@@ -783,14 +755,6 @@ export async function endCall(
       snap.myUserId,
       snap.callType === "video" ? "Video call declined" : "Voice call declined",
     );
-  } else if (snap && snap.seconds > 0 && reason !== "missed" && reason !== "rejected") {
-    const mm = String(Math.floor(snap.seconds / 60)).padStart(2, "0");
-    const ss = String(snap.seconds % 60).padStart(2, "0");
-    const label =
-      snap.callType === "video"
-        ? `Video call · ${mm}:${ss}`
-        : `Voice call · ${mm}:${ss}`;
-    await postSystemMessage(snap.conversationId, snap.myUserId, label);
   }
   await hardTeardown();
   try {

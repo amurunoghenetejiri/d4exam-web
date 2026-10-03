@@ -203,7 +203,7 @@ export function MessagingProfileSheet({
     <>
       {/* Dim overlay only — no heavy blur wash */}
       <div
-        className="fixed inset-0 z-[120] flex h-[100dvh] w-screen items-center justify-center bg-black/55 p-4 backdrop-blur-md"
+        className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-5"
         role="dialog"
         aria-modal="true"
         aria-label="Profile preview"
@@ -211,8 +211,8 @@ export function MessagingProfileSheet({
       >
         <div
           className={cn(
-            "relative mx-auto flex max-h-[min(92dvh,640px)] w-full max-w-[22rem] flex-col overflow-y-auto",
-            "rounded-[1.5rem] bg-[#0b1b3a] shadow-2xl ring-1 ring-white/10",
+            "relative w-full max-w-[20.5rem] overflow-hidden rounded-[1.5rem]",
+            "bg-[#0d213f] shadow-2xl ring-1 ring-white/10",
           )}
           onClick={(e) => e.stopPropagation()}
         >
@@ -262,7 +262,7 @@ export function MessagingProfileSheet({
                   className="relative mt-1"
                   aria-label="View photo"
                 >
-                  <span className="relative grid h-32 w-32 place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90">
+                  <span className="relative grid h-[6.5rem] w-[6.5rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90">
                     {displayAvatar ? (
                       <img src={displayAvatar} alt="" className="h-full w-full object-cover" />
                     ) : (

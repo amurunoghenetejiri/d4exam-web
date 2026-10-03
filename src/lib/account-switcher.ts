@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Multi-account switcher for D4EXAM.
  * Tokens only (never passwords). Instant switch — no refresh-login screen.

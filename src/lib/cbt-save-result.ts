@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { supabase } from "@/integrations/supabase/client";
 import { scoreObjectiveAnswers, resolveCorrectOptionText } from "@/lib/cbt-security";
 import { friendlyError } from "@/lib/friendly-error";
