@@ -501,7 +501,7 @@ export function AppShell({
         )}
         style={{ position: "fixed", paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="mx-auto grid h-12 max-w-[1400px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2.5 sm:h-16 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-3 sm:px-6 lg:px-8">
+        <div className="mx-auto grid h-12 max-w-[1400px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2.5 sm:h-16 sm:gap-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <Sheet open={open} onOpenChange={setOpen} modal>
               <SheetTrigger asChild>
@@ -592,8 +592,8 @@ export function AppShell({
             </Link>
           </div>
 
-          <div className="hidden min-w-0 md:block">
-            <div className="relative max-w-md flex-1">
+          <div className="flex min-w-0 justify-center px-1 sm:px-2">
+            <div className="relative w-full max-w-xl">
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}

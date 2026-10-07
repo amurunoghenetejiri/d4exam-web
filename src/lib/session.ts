@@ -1117,14 +1117,23 @@ export function useSessionUser() {
 }
 
 export function initials(name: string) {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((n) => n[0]?.toUpperCase() ?? "")
-      .join("") || "D4"
-  );
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+  if (parts.length === 1) {
+    const s = parts[0];
+    // email-like local part → first 2 chars
+    if (s.includes("@")) {
+      const local = s.split("@")[0] || s;
+      return local.slice(0, 2).toUpperCase() || "U";
+    }
+    return s.slice(0, 2).toUpperCase() || "U";
+  }
+  return "U";
 }
 
 export async function signOut() {

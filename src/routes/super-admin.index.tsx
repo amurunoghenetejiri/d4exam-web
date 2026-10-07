@@ -52,7 +52,18 @@ function formatNum(n: number) {
 
 function Page() {
   const { data: user } = useSessionUser();
-  const firstName = (user?.fullName || "Admin").split(" ")[0];
+  const welcomeName = (() => {
+    const full = (user?.fullName || "").trim();
+    if (full) return full.split(" ")[0];
+    const email = (user?.email || "").trim();
+    if (email) {
+      const local = email.split("@")[0] || email;
+      const pretty = local.replace(/[._-]+/g, " ").trim();
+      const first = pretty.split(/\s+/)[0] || local;
+      return first ? first[0].toUpperCase() + first.slice(1) : "there";
+    }
+    return "there";
+  })();
 
   useRealtimeInvalidate(
     "sa-overview",
@@ -347,7 +358,7 @@ function Page() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 sm:text-2xl">
-            Welcome back, {firstName}! 👋
+            Welcome back, {welcomeName}! 👋
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Here&apos;s what&apos;s happening across your platform today.

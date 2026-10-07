@@ -13,17 +13,35 @@ import {
 import type { RoleConfig } from "@/components/navigation/navConfig";
 import { initials, useSessionUser } from "@/lib/session";
 
+function displayName(user: { fullName?: string | null; email?: string | null } | null | undefined): string {
+  const full = (user?.fullName || "").trim();
+  if (full) return full;
+  const email = (user?.email || "").trim();
+  if (email) {
+    const local = email.split("@")[0] || email;
+    // amurundestiny → Amurundestiny-ish; prefer spaced tokens if underscore
+    const pretty = local.replace(/[._-]+/g, " ").trim();
+    return pretty
+      .split(/\s+/)
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+      .join(" ")
+      .trim() || email;
+  }
+  return "User";
+}
+
 function RoleShell({ config, children }: { config: RoleConfig; children: ReactNode }) {
   const { data: user } = useSessionUser();
+  const name = displayName(user);
 
   return (
     <AppShell
       config={config}
       user={{
-        name: user?.fullName ?? "…",
-        avatar: initials(user?.fullName ?? ""),
+        name,
+        avatar: initials(name),
         avatarUrl: user?.avatarUrl ?? null,
-        subtitle: user?.identifier ?? user?.schoolName ?? "",
+        subtitle: user?.identifier ?? user?.schoolName ?? user?.email ?? "",
       }}
     >
       {children}
