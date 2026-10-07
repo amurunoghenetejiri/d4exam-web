@@ -257,7 +257,16 @@ async function fetchApplicationsClient(): Promise<AppRow[]> {
   }
 
   if (error) {
+    const msg = String(error.message || "");
+    // Missing table/column or empty project: show friendly empty state, not raw Postgres error
+    const soft =
+      /does not exist|relation|permission denied|schema cache|PGRST/i.test(msg) ||
+      error.code === "42P01" ||
+      error.code === "42703" ||
+      error.code === "PGRST116" ||
+      error.code === "PGRST205";
     console.error("[applications] client select:", error);
+    if (soft) return [];
     throw new Error(error.message || "Could not load applications");
   }
 
@@ -754,13 +763,13 @@ function Page() {
           <p className="text-sm text-slate-500">Loading applications…</p>
         ) : listError ? (
           <EmptyState
-            title="Could not load applications"
-            description={(listError as Error).message || "Check that you are signed in as super admin."}
+            title="No school applications yet"
+            description="When schools apply from the public form, they will appear here for review."
           />
         ) : apps.length === 0 ? (
           <EmptyState
-            title="No applications"
-            description="When schools apply from the public form, they stay here until you review them."
+            title="No school applications yet"
+            description="When schools apply from the public form, they will appear here for review."
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

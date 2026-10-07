@@ -537,7 +537,14 @@ export const listSchoolApplications = createServerFn({ method: "POST" })
     }
 
     if (error) {
+      const msg = String(error.message || "");
+      const soft =
+        /does not exist|relation|permission denied|schema cache|PGRST/i.test(msg) ||
+        (error as { code?: string }).code === "42P01" ||
+        (error as { code?: string }).code === "42703" ||
+        (error as { code?: string }).code === "PGRST205";
       console.error("[listSchoolApplications]", error);
+      if (soft) return [] as Array<Record<string, unknown>>;
       throw new Error(error.message || "Could not load applications");
     }
     return (data ?? []) as Array<Record<string, unknown>>;
