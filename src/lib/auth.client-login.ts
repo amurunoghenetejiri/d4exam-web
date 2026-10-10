@@ -9,6 +9,55 @@ function looksLikeEmail(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
+/** After auth, user must belong to the resolved school (or be super admin). */
+async function assertSchoolMembership(
+  userId: string,
+  schoolId: string,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, school_id")
+      .eq("auth_user_id", userId)
+      .maybeSingle();
+
+    if (profile?.school_id && String(profile.school_id) === String(schoolId)) {
+      return { ok: true };
+    }
+
+    const profileId = profile?.id ? String(profile.id) : null;
+    const { data: roles } = await supabase
+      .from("user_roles")
+      .select("id, school_id, role")
+      .or(
+        profileId
+          ? `user_id.eq.${userId},user_id.eq.${profileId}`
+          : `user_id.eq.${userId}`,
+      )
+      .limit(20);
+
+    const match = (roles || []).some(
+      (r) => r.school_id && String(r.school_id) === String(schoolId),
+    );
+    if (match) return { ok: true };
+  } catch (e) {
+    console.warn("[client-login] membership check", e);
+  }
+
+  // Not a member of this school — reject
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    /* ignore */
+  }
+  return {
+    error:
+      "Invalid login details for this school. Check school code, email / ID, and password.",
+  };
+}
+
+
+
 export type ClientLoginInput = {
   schoolCode: string;
   identifier: string;
@@ -126,9 +175,11 @@ export async function clientSignInWithSchoolCode(
       email: ident.toLowerCase(),
       password,
     });
-    if (error || !signIn?.session) {
+    if (error || !signIn?.session || !signIn.user) {
       return { error: error?.message || "Invalid email or password." };
     }
+    const member = await assertSchoolMembership(signIn.user.id, schoolId);
+    if ("error" in member) return member;
     return {
       ok: true,
       accessToken: signIn.session.access_token,
@@ -157,9 +208,11 @@ export async function clientSignInWithSchoolCode(
           email: email.toLowerCase(),
           password,
         });
-        if (error || !signIn?.session) {
+        if (error || !signIn?.session || !signIn.user) {
           return { error: error?.message || "Invalid credentials." };
         }
+        const member = await assertSchoolMembership(signIn.user.id, schoolId);
+        if ("error" in member) return member;
         return {
           ok: true,
           accessToken: signIn.session.access_token,
@@ -182,13 +235,15 @@ export async function clientSignInWithSchoolCode(
     email: synthetic,
     password,
   });
-  if (error || !signIn?.session) {
+  if (error || !signIn?.session || !signIn.user) {
     return {
       error:
         error?.message ||
         "Invalid credentials. If this is your first login, ask your school to provision your account online first.",
     };
   }
+  const member = await assertSchoolMembership(signIn.user.id, schoolId);
+  if ("error" in member) return member;
   return {
     ok: true,
     accessToken: signIn.session.access_token,

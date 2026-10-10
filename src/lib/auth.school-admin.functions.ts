@@ -132,12 +132,13 @@ export const reviewSchoolApplication = createServerFn({ method: "POST" })
       throw new Error("Application is missing a valid applicant email");
     }
 
-    const base =
-      schoolName.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase() || "SCHOOL";
+    // School code format: 4 letters + 3 digits (e.g. FUPR482)
+    const lettersRaw = schoolName.replace(/[^a-zA-Z]/g, "").toUpperCase();
+    let letters = (lettersRaw.slice(0, 4) || "SCHL").padEnd(4, "X").slice(0, 4);
     let schoolCode = "";
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const suffix = Math.floor(1000 + Math.random() * 9000);
-      const candidate = `${base}${suffix}`.slice(0, 12);
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const digits = String(Math.floor(100 + Math.random() * 900)); // 100–999
+      const candidate = `${letters}${digits}`;
       const { data: existing } = await supabaseAdmin
         .from("schools")
         .select("id")
@@ -153,6 +154,19 @@ export const reviewSchoolApplication = createServerFn({ method: "POST" })
     const adminPassword = generateTempPassword();
     const adminEmail = applicantEmail;
 
+    let logoUrl: string | null = null;
+    try {
+      const docs = app.documents as { logo_url?: string | null } | null;
+      if (docs && typeof docs === "object" && docs.logo_url) {
+        logoUrl = String(docs.logo_url);
+      } else if (typeof app.documents === "string") {
+        const parsed = JSON.parse(app.documents as string) as { logo_url?: string };
+        logoUrl = parsed?.logo_url ? String(parsed.logo_url) : null;
+      }
+    } catch {
+      logoUrl = null;
+    }
+
     const { data: school, error: schoolErr } = await supabaseAdmin
       .from("schools")
       .insert({
@@ -165,6 +179,7 @@ export const reviewSchoolApplication = createServerFn({ method: "POST" })
         state: app.state || null,
         country: app.country || null,
         school_type: app.school_type || null,
+        logo_url: logoUrl,
         status: "active",
         subscription_plan: "standard",
         subscription_status: "active",

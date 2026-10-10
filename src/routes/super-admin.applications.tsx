@@ -562,6 +562,9 @@ function Page() {
       }
 
       await qc.invalidateQueries({ queryKey: ["super-admin", "school_applications"] });
+      await qc.invalidateQueries({ queryKey: ["sa-schools-list"] });
+      await qc.invalidateQueries({ queryKey: ["sa-schools-counts"] });
+      await qc.invalidateQueries({ queryKey: ["super-admin"] });
       await refetch();
     } catch (e) {
       toast.error((e as Error).message || "Could not update application");

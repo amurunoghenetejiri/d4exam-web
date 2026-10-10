@@ -98,6 +98,11 @@ function Page() {
   const [pwdBusy, setPwdBusy] = useState(false);
   const [pwdError, setPwdError] = useState("");
   const [pwdOk, setPwdOk] = useState<{ schoolCode: string; adminEmail: string } | null>(null);
+  const [setupDone, setSetupDone] = useState<{
+    schoolCode: string;
+    adminEmail: string;
+    schoolName?: string;
+  } | null>(null);
 
   useEffect(() => {
     try {
@@ -344,13 +349,70 @@ function Page() {
       }
 
       setPwdOk({ schoolCode, adminEmail });
+      setSetupDone({
+        schoolCode,
+        adminEmail,
+        schoolName: app.school_name,
+      });
       setPwd("");
       setPwd2("");
+      // Close the application-status flow — no longer needed after password is set
+      try {
+        localStorage.removeItem(TRACK_KEY);
+        localStorage.setItem(
+          "d4exam_application_setup_done",
+          JSON.stringify({
+            schoolCode,
+            adminEmail,
+            schoolName: app.school_name,
+            at: Date.now(),
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+      setRows(null);
+      setRefId("");
+      setError("");
     } catch (err) {
       setPwdError(err instanceof Error ? err.message : "Could not save password.");
     } finally {
       setPwdBusy(false);
     }
+  }
+
+  if (setupDone || pwdOk) {
+    const done = setupDone || pwdOk;
+    return (
+      <PublicLayout>
+        <div className="mx-auto max-w-lg space-y-6 px-4 py-10">
+          <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-emerald-700" />
+              <div>
+                <h1 className="text-xl font-extrabold">School portal is ready</h1>
+                <p className="mt-1 text-sm opacity-90">
+                  Your password is set. Application status is closed — sign in to your school admin panel.
+                </p>
+              </div>
+            </div>
+            <ul className="space-y-1 rounded-xl border border-emerald-200 bg-white/70 px-4 py-3 font-mono text-sm">
+              <li>
+                <span className="font-sans font-semibold text-slate-600">School code:</span>{" "}
+                {done?.schoolCode}
+              </li>
+              <li>
+                <span className="font-sans font-semibold text-slate-600">Admin email:</span>{" "}
+                {done?.adminEmail}
+              </li>
+            </ul>
+            <Button asChild className="h-11 w-full font-semibold">
+              <Link to="/login">Go to login</Link>
+            </Button>
+          </div>
+        </div>
+      </PublicLayout>
+    );
   }
 
   return (
