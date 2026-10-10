@@ -13,6 +13,81 @@ function generateTempPassword() {
   return out;
 }
 
+/** Resolve school context + manage permission for school admin actions. */
+async function requireSchoolManager(context: {
+  userId: string;
+  supabase: { from: Function; rpc: Function };
+}) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // Profile school_id first
+  const { data: profileRow } = await context.supabase
+    .from("profiles")
+    .select("school_id")
+    .eq("auth_user_id", context.userId)
+    .maybeSingle();
+  let schoolId = (profileRow as { school_id?: string | null } | null)?.school_id || null;
+
+  // Fallback: user_roles.school_id for school_admin
+  if (!schoolId) {
+    const { data: roleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("school_id")
+      .eq("user_id", context.userId)
+      .eq("role", "school_admin")
+      .not("school_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    schoolId = (roleRow as { school_id?: string } | null)?.school_id || null;
+    if (schoolId) {
+      // Backfill profile so future calls have context
+      try {
+        await supabaseAdmin
+          .from("profiles")
+          .update({ school_id: schoolId, updated_at: new Date().toISOString() } as never)
+          .eq("auth_user_id", context.userId);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  if (!schoolId) throw new Error("No school context. Sign out and sign in again with your school code.");
+
+  // Prefer RPC when available
+  try {
+    const { data: canManage } = await context.supabase.rpc("can_manage_school", {
+      _school: schoolId,
+    });
+    if (canManage) return { schoolId };
+  } catch {
+    /* fall through */
+  }
+
+  // Direct role check (service role) — covers missing RPC / RLS edge cases
+  const { data: roles } = await supabaseAdmin
+    .from("user_roles")
+    .select("role, school_id")
+    .eq("user_id", context.userId)
+    .limit(20);
+  const ok = (roles || []).some(
+    (r) =>
+      String((r as { school_id?: string }).school_id || "") === String(schoolId) &&
+      ["school_admin", "super_admin"].includes(String((r as { role?: string }).role || "")),
+  );
+  // Also accept super_admin platform role
+  const { data: isSuper } = await supabaseAdmin
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", context.userId)
+    .eq("role", "super_admin")
+    .limit(1)
+    .maybeSingle();
+  if (!ok && !isSuper) throw new Error("Forbidden");
+  return { schoolId };
+}
+
+
 export const reviewSchoolApplication = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
@@ -341,18 +416,7 @@ export const createSchoolUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => personSchema.parse(data))
   .handler(async ({ data, context }) => {
-    const { data: profileRow } = await context.supabase
-      .from("profiles")
-      .select("school_id")
-      .eq("auth_user_id", context.userId)
-      .maybeSingle();
-    const schoolId = profileRow?.school_id;
-    if (!schoolId) throw new Error("No school context");
-
-    const { data: canManage } = await context.supabase.rpc("can_manage_school", {
-      _school: schoolId,
-    });
-    if (!canManage) throw new Error("Forbidden");
+    const { schoolId } = await requireSchoolManager(context);
 
     const { createPerson } = await import("@/lib/users.server");
     const result = await createPerson(schoolId, data as unknown as Parameters<typeof createPerson>[1], { db: context.supabase as never });
@@ -421,18 +485,7 @@ export const importStudentsBulk = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
-    const { data: profileRow } = await context.supabase
-      .from("profiles")
-      .select("school_id")
-      .eq("auth_user_id", context.userId)
-      .maybeSingle();
-    const schoolId = profileRow?.school_id;
-    if (!schoolId) throw new Error("No school context");
-
-    const { data: canManage } = await context.supabase.rpc("can_manage_school", {
-      _school: schoolId,
-    });
-    if (!canManage) throw new Error("Forbidden");
+    const { schoolId } = await requireSchoolManager(context);
 
     const { upsertStudent } = await import("@/lib/users.server");
 
