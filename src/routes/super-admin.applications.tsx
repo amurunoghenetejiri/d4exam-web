@@ -10,7 +10,7 @@ import {
   reviewSchoolApplication,
 } from "@/lib/auth.school-admin.functions";
 import { toast } from "sonner";
-import { ArrowLeft, Building2, Copy, Loader2, MapPin, Phone, Mail, User, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, Copy, Download, Loader2, MapPin, Phone, Mail, User, Trash2, ZoomIn, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -50,14 +50,21 @@ type Creds = {
   emailError?: string | null;
 };
 
+/** Checkerboard so transparent PNG logos are visible (not black/white solid). */
+const LOGO_CHECKER =
+  "bg-[length:12px_12px] bg-[linear-gradient(45deg,#e2e8f0_25%,transparent_25%,transparent_75%,#e2e8f0_75%,#e2e8f0),linear-gradient(45deg,#e2e8f0_25%,#f8fafc_25%,#f8fafc_75%,#e2e8f0_75%,#e2e8f0)] bg-[position:0_0,6px_6px]";
+
 function SchoolLogo({
   url,
   name,
   size = "md",
+  onOpen,
 }: {
   url?: string | null;
   name: string;
   size?: "sm" | "md" | "lg" | "xl";
+  /** When set, logo is clickable (zoom / download). */
+  onOpen?: (url: string, name: string) => void;
 }) {
   const [failed, setFailed] = useState(false);
   const dim =
@@ -70,13 +77,37 @@ function SchoolLogo({
           : "h-12 w-12";
   const src = url && !failed ? url : null;
   if (src) {
+    const clickable = Boolean(onOpen);
     return (
-      <img
-        src={src}
-        alt={`${name} logo`}
-        className={cn(dim, "shrink-0 rounded-xl border border-slate-200 bg-white object-contain p-1 shadow-sm")}
-        onError={() => setFailed(true)}
-      />
+      <button
+        type="button"
+        disabled={!clickable}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen?.(src, name);
+        }}
+        className={cn(
+          dim,
+          "group relative shrink-0 overflow-hidden rounded-xl border border-slate-200 object-contain shadow-sm",
+          LOGO_CHECKER,
+          clickable && "cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+          !clickable && "cursor-default",
+        )}
+        aria-label={clickable ? `View ${name} logo` : `${name} logo`}
+      >
+        <img
+          src={src}
+          alt={`${name} logo`}
+          className="h-full w-full object-contain p-1"
+          style={{ backgroundColor: "transparent" }}
+          onError={() => setFailed(true)}
+        />
+        {clickable ? (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-900/0 transition group-hover:bg-slate-900/25">
+            <ZoomIn className="h-5 w-5 text-white opacity-0 drop-shadow transition group-hover:opacity-100" />
+          </span>
+        ) : null}
+      </button>
     );
   }
   return (
@@ -89,6 +120,131 @@ function SchoolLogo({
     >
       <Building2 className={size === "sm" ? "h-4 w-4" : "h-6 w-6"} />
     </span>
+  );
+}
+
+function LogoLightbox({
+  url,
+  name,
+  onClose,
+}: {
+  url: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function download() {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      const href = URL.createObjectURL(blob);
+      a.href = href;
+      const ext =
+        blob.type.includes("png")
+          ? "png"
+          : blob.type.includes("webp")
+            ? "webp"
+            : blob.type.includes("jpeg") || blob.type.includes("jpg")
+              ? "jpg"
+              : url.startsWith("data:image/png")
+                ? "png"
+                : "png";
+      a.download = `${(name || "school-logo").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-logo.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch {
+      // data URL or CORS — open in new tab as fallback
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/85 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${name} logo`}
+      onClick={onClose}
+    >
+      <div
+        className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="min-w-0 truncate text-sm font-semibold text-white">{name} — logo</p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+            onClick={() => setScale((s) => Math.max(0.5, Number((s - 0.25).toFixed(2))))}
+          >
+            −
+          </Button>
+          <span className="min-w-[3rem] text-center text-xs font-semibold text-white/80">{Math.round(scale * 100)}%</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+            onClick={() => setScale((s) => Math.min(4, Number((s + 0.25).toFixed(2))))}
+          >
+            +
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="bg-white font-semibold text-slate-900 hover:bg-slate-100"
+            onClick={() => void download()}
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            Download
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="text-white hover:bg-white/15 hover:text-white"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <XIcon className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 items-center justify-center overflow-auto p-4",
+          LOGO_CHECKER,
+        )}
+        onClick={onClose}
+      >
+        <img
+          src={url}
+          alt={`${name} logo`}
+          className="max-h-[min(85vh,900px)] max-w-[min(95vw,900px)] object-contain shadow-2xl transition-transform"
+          style={{
+            backgroundColor: "transparent",
+            transform: `scale(${scale})`,
+            transformOrigin: "center center",
+          }}
+          onClick={(e) => e.stopPropagation()}
+          draggable={false}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -337,6 +493,7 @@ function Page() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [creds, setCreds] = useState<Creds | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [logoViewer, setLogoViewer] = useState<{ url: string; name: string } | null>(null);
 
   const apps = data ?? [];
   const selected = useMemo(
@@ -439,6 +596,13 @@ function Page() {
 
     return (
       <>
+        {logoViewer ? (
+          <LogoLightbox
+            url={logoViewer.url}
+            name={logoViewer.name}
+            onClose={() => setLogoViewer(null)}
+          />
+        ) : null}
         <PageHeader
           title={selected.school_name}
           description="Full application details submitted by the school"
@@ -452,7 +616,7 @@ function Page() {
         </div>
 
         <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <SchoolLogo url={logo} name={selected.school_name} size="xl" />
+          <SchoolLogo url={logo} name={selected.school_name} size="xl" onOpen={(url, n) => setLogoViewer({ url, name: n })} />
           <div className="min-w-0 flex-1">
             <p className="text-lg font-extrabold text-slate-900">{selected.school_name}</p>
             <p className="mt-0.5 text-sm text-slate-500">
@@ -642,7 +806,7 @@ function Page() {
 <div className="mt-4">
           <SectionCard title="School logo">
             <div className="flex items-center gap-4">
-              <SchoolLogo url={logo} name={selected.school_name} size="xl" />
+              <SchoolLogo url={logo} name={selected.school_name} size="xl" onOpen={(url, n) => setLogoViewer({ url, name: n })} />
               <p className="text-sm text-slate-500">
                 {logo
                   ? "Official logo uploaded with the application."
@@ -726,6 +890,13 @@ function Page() {
 
   return (
     <>
+      {logoViewer ? (
+        <LogoLightbox
+          url={logoViewer.url}
+          name={logoViewer.name}
+          onClose={() => setLogoViewer(null)}
+        />
+      ) : null}
       <PageHeader
         title="School Applications"
         description="Pending applications appear as cards. Click a school to open full details. Approve creates the school and login credentials."
@@ -794,7 +965,7 @@ function Page() {
                   }}
                 >
                   <div className="flex w-full items-start gap-3">
-                    <SchoolLogo url={logo} name={app.school_name} size="lg" />
+                    <SchoolLogo url={logo} name={app.school_name} size="lg" onOpen={(url, n) => setLogoViewer({ url, name: n })} />
                     <div className="min-w-0 flex-1">
                       <h2 className="truncate text-base font-bold text-slate-900">{app.school_name}</h2>
                       <p className="mt-0.5 truncate text-xs text-slate-500">

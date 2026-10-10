@@ -137,10 +137,19 @@ function guessExt(file: File): string {
  * 2) Else FileReader data URL (no image decode)
  * Never throws cannot-read/decode — returns best-effort URL or empty string.
  */
-/** Resize/compress logo client-side so storage + DB stay under limits. */
+/** Resize/compress logo client-side so storage + DB stay under limits.
+ * PNG/WebP with transparency stay PNG so alpha is not flattened to black JPEG. */
 async function compressLogoFile(file: File, maxPx = 512, quality = 0.82): Promise<File> {
   try {
     if (!file.type.startsWith("image/") || file.type === "image/svg+xml") return file;
+    const keepAlpha =
+      file.type === "image/png" ||
+      file.type === "image/webp" ||
+      /\.png$/i.test(file.name) ||
+      /\.webp$/i.test(file.name);
+    // Small enough already — skip re-encode (preserves original transparency)
+    if (keepAlpha && file.size <= 400_000) return file;
+
     const bmp = await createImageBitmap(file);
     const scale = Math.min(1, maxPx / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale));
@@ -148,17 +157,26 @@ async function compressLogoFile(file: File, maxPx = 512, quality = 0.82): Promis
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return file;
+    // Clear to transparent — never fill black (JPEG alpha would become solid black)
+    ctx.clearRect(0, 0, w, h);
+    if (!keepAlpha) {
+      // Opaque formats: white backing so transparent edges do not become black
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+    }
     ctx.drawImage(bmp, 0, 0, w, h);
     bmp.close?.();
+
+    const mime = keepAlpha ? "image/png" : "image/jpeg";
     const blob: Blob | null = await new Promise((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", quality),
+      canvas.toBlob((b) => resolve(b), mime, keepAlpha ? undefined : quality),
     );
     if (!blob) return file;
-    return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg") || "logo.jpg", {
-      type: "image/jpeg",
-    });
+    const base = (file.name || "logo").replace(/\.[^.]+$/, "") || "logo";
+    const ext = keepAlpha ? "png" : "jpg";
+    return new File([blob], `${base}.${ext}`, { type: mime });
   } catch {
     return file;
   }
