@@ -175,17 +175,46 @@ function Page() {
         return;
       }
 
-      const { data, error: qErr } = await supabase
-        .from("school_applications")
-        .select(
-          "id, school_name, status, created_at, reviewed_at, review_notes, applicant_email, tracking_code, issued_school_code, issued_admin_email, issued_admin_password",
-        )
-        .ilike("applicant_email", em)
-        .ilike("tracking_code", code)
-        .order("created_at", { ascending: false })
-        .limit(5);
+      const fullCols =
+        "id, school_name, status, created_at, reviewed_at, review_notes, applicant_email, tracking_code, issued_school_code, issued_admin_email, issued_admin_password";
+      const coreCols =
+        "id, school_name, status, created_at, reviewed_at, review_notes, applicant_email, tracking_code";
+
+      let data: unknown[] | null = null;
+      let qErr: { message?: string } | null = null;
+
+      {
+        const res = await supabase
+          .from("school_applications")
+          .select(fullCols)
+          .ilike("applicant_email", em)
+          .ilike("tracking_code", code)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        data = res.data as unknown[] | null;
+        qErr = res.error;
+      }
+
+      // Older DBs may lack issued_* columns — retry with core fields only
+      if (qErr && /issued_|column|schema cache/i.test(String(qErr.message || ""))) {
+        const res = await supabase
+          .from("school_applications")
+          .select(coreCols)
+          .ilike("applicant_email", em)
+          .ilike("tracking_code", code)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        data = (res.data as unknown[] | null)?.map((r) => ({
+          ...(r as object),
+          issued_school_code: null,
+          issued_admin_email: null,
+          issued_admin_password: null,
+        })) ?? null;
+        qErr = res.error;
+      }
 
       if (qErr) {
+        console.warn("[application-status] lookup", qErr);
         setError("We could not look up your application right now. Please try again shortly.");
         return;
       }
