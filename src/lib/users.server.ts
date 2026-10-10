@@ -433,10 +433,15 @@ export async function upsertStudent(
 
   const fullName = `${data.firstName} ${data.lastName}`.trim();
   const emailRaw = (data.email || "").trim().toLowerCase();
-  const email =
-    emailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)
-      ? emailRaw
-      : studentSyntheticEmail(schoolId, matric);
+  const hasRealEmail =
+    Boolean(emailRaw) &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw) &&
+    !emailRaw.endsWith(".local") &&
+    !emailRaw.includes("placeholder");
+  // Auth still needs an address; profile.email stays empty until the student adds one
+  const authEmail = hasRealEmail ? emailRaw : studentSyntheticEmail(schoolId, matric);
+  const profileEmail: string | null = hasRealEmail ? emailRaw : null;
+  const email = hasRealEmail ? emailRaw : ""; // returned to UI — never show .local placeholders
 
   const { data: existingList, error: findErr } = await supabaseAdmin
     .from("students")
@@ -473,14 +478,16 @@ export async function upsertStudent(
     if (upStu) throw new Error(upStu.message);
 
     if (existing.profile_id) {
+      const profilePatch: Record<string, unknown> = {
+        first_name: data.firstName,
+        last_name: data.lastName,
+        full_name: fullName,
+        updated_at: new Date().toISOString(),
+      };
+      if (hasRealEmail) profilePatch.email = profileEmail;
       await supabaseAdmin
         .from("profiles")
-        .update({
-          first_name: data.firstName,
-          last_name: data.lastName,
-          full_name: fullName,
-          updated_at: new Date().toISOString(),
-        } as never)
+        .update(profilePatch as never)
         .eq("id", existing.profile_id);
     }
 
@@ -496,7 +503,7 @@ export async function upsertStudent(
   }
 
   const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-    email,
+    email: authEmail,
     password: matric,
     email_confirm: true,
     user_metadata: { full_name: fullName, role: "student" },
@@ -505,7 +512,7 @@ export async function upsertStudent(
   let authUserId: string | null = created?.user?.id ?? null;
   if (createError || !authUserId) {
     const { data: listed } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    const found = (listed?.users ?? []).find((u) => (u.email || "").toLowerCase() === email.toLowerCase());
+    const found = (listed?.users ?? []).find((u) => (u.email || "").toLowerCase() === authEmail.toLowerCase());
     if (found) {
       authUserId = found.id;
       try {
@@ -534,7 +541,7 @@ export async function upsertStudent(
         first_name: data.firstName,
         last_name: data.lastName,
         full_name: fullName,
-        email,
+        email: profileEmail,
         status: "active",
       })
       .select("id")

@@ -2,7 +2,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Eye } from "lucide-react";
+import { Search, Eye, Building2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader, SectionCard, StatusBadge, EmptyState } from "@/components/dashboard/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +65,12 @@ function Page() {
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortKey>("name");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkFaculty, setBulkFaculty] = useState<string>("");
+  const [bulkDept, setBulkDept] = useState<string>("");
+  const [bulkLevel, setBulkLevel] = useState<string>("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const qc = useQueryClient();
 
   const listQ = useQuery({
     queryKey: ["admin-all-students", schoolId],
@@ -215,11 +223,89 @@ function Page() {
     return list;
   }, [listQ.data, search, facultyFilter, deptFilter, levelFilter, statusFilter, sortBy]);
 
+  const allVisibleSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const someSelected = selected.size > 0;
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      if (rows.length && rows.every((r) => prev.has(r.id))) {
+        const next = new Set(prev);
+        for (const r of rows) next.delete(r.id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const r of rows) next.add(r.id);
+      return next;
+    });
+  }
+
+  async function assignToDepartment() {
+    if (!schoolId) {
+      toast.error("Your account is not linked to a school.");
+      return;
+    }
+    if (!selected.size) {
+      toast.error("Select at least one student first.");
+      return;
+    }
+    if (!bulkDept && !bulkFaculty && !bulkLevel) {
+      toast.error("Choose a faculty, department, or level to assign.");
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const ids = [...selected];
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (bulkFaculty) patch.faculty_id = bulkFaculty;
+      if (bulkDept) patch.department_id = bulkDept;
+      if (bulkLevel) patch.level_id = bulkLevel;
+      // batch in chunks
+      for (let i = 0; i < ids.length; i += 80) {
+        const chunk = ids.slice(i, i + 80);
+        const { error } = await supabase
+          .from("students")
+          .update(patch as never)
+          .eq("school_id", schoolId)
+          .in("id", chunk);
+        if (error) throw error;
+      }
+      toast.success(`Updated ${ids.length} student${ids.length === 1 ? "" : "s"}`);
+      setSelected(new Set());
+      await qc.invalidateQueries({ queryKey: ["admin-all-students", schoolId] });
+      await listQ.refetch();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (/row-level security|42501/i.test(m)) {
+        toast.error("Permission denied. Sign in again as school admin.");
+      } else {
+        toast.error(m || "Could not assign students");
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Departments filtered by selected faculty when bulk assigning
+  const bulkDepts = useMemo(() => {
+    const all = deptsQ.data ?? [];
+    if (!bulkFaculty) return all;
+    return all.filter((d: { faculty_id?: string | null }) => !d.faculty_id || d.faculty_id === bulkFaculty);
+  }, [deptsQ.data, bulkFaculty]);
+
   return (
     <>
       <PageHeader
         title="Students"
-        description="All students in your school. Import CSV or add one at a time."
+        description="Import students first, then select them and assign to a department. Students add their own email later — no placeholder emails."
         actions={
           <Button asChild className="font-semibold">
             <Link to="/admin/student-import">Import students</Link>
@@ -303,6 +389,57 @@ function Page() {
           </Select>
         </div>
 
+        {someSelected ? (
+          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-primary/25 bg-primary/5 p-3">
+            <p className="w-full text-xs font-semibold text-slate-700">
+              {selected.size} selected · Assign to department
+            </p>
+            <Select value={bulkFaculty || undefined} onValueChange={(v) => { setBulkFaculty(v); setBulkDept(""); }}>
+              <SelectTrigger className="h-9 w-[160px]">
+                <SelectValue placeholder="Faculty / College" />
+              </SelectTrigger>
+              <SelectContent>
+                {(facultiesQ.data ?? []).map((f) => (
+                  <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={bulkDept || undefined} onValueChange={setBulkDept}>
+              <SelectTrigger className="h-9 w-[160px]">
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
+              <SelectContent>
+                {bulkDepts.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={bulkLevel || undefined} onValueChange={setBulkLevel}>
+              <SelectTrigger className="h-9 w-[140px]">
+                <SelectValue placeholder="Level" />
+              </SelectTrigger>
+              <SelectContent>
+                {(levelsQ.data ?? []).map((l) => (
+                  <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 gap-1.5 font-semibold"
+              disabled={bulkBusy}
+              onClick={() => void assignToDepartment()}
+            >
+              {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
+              Add to department
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="h-9" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          </div>
+        ) : null}
+
         {listQ.isLoading ? (
           <p className="text-sm text-slate-500">Loading students…</p>
         ) : rows.length === 0 ? (
@@ -316,6 +453,13 @@ function Page() {
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pr-2 w-10">
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      onCheckedChange={() => toggleAllVisible()}
+                      aria-label="Select all visible"
+                    />
+                  </th>
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Full name</th>
                   <th className="py-2 pr-3">Matric</th>
@@ -328,14 +472,31 @@ function Page() {
               </thead>
               <tbody>
                 {rows.map((s, i) => {
+                  const isOn = selected.has(s.id);
                   return (
-                    <tr key={s.id} className="border-b border-slate-50">
+                    <tr
+                      key={s.id}
+                      className={"border-b border-slate-50 " + (isOn ? "bg-primary/5" : "hover:bg-slate-50/80")}
+                      onClick={(e) => {
+                        const tag = (e.target as HTMLElement).tagName;
+                        if (tag === "A" || tag === "BUTTON" || (e.target as HTMLElement).closest("a,button,input")) return;
+                        toggleOne(s.id);
+                      }}
+                    >
+                      <td className="py-2.5 pr-2" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={isOn}
+                          onCheckedChange={() => toggleOne(s.id)}
+                          aria-label={"Select " + displayName(s)}
+                        />
+                      </td>
                       <td className="py-2.5 pr-3 text-slate-500">{i + 1}</td>
                       <td className="py-2.5 pr-3 font-semibold text-slate-900">
                         <Link
                           to="/admin/student/$id"
                           params={{ id: s.id }}
                           className="text-slate-900 hover:text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {displayName(s)}
                         </Link>

@@ -198,7 +198,7 @@ function Page() {
       await teachersQ.refetch();
       await linksQ.refetch();
     } catch (err) {
-      toast.error((err as Error).message || "Could not create teacher");
+      toast.error(friendlyErr(err, "Could not create teacher"));
     } finally {
       setBusy(false);
     }
