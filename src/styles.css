@@ -183,6 +183,15 @@ button:not(:disabled):active,
   }
 }
 
+/* Kill double-tap zoom app-wide — a double tap previously zoomed the
+   Android WebView and left the app looking frozen / unresponsive. */
+html,
+body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;

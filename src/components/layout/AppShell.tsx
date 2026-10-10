@@ -510,7 +510,6 @@ export function AppShell({
                   variant="outline"
                   size="icon"
                   className="sa-mobile-menu h-9 w-9 shrink-0 border-white/25 bg-white/5 text-white hover:bg-white/10 hover:text-white lg:hidden"
-                  onClick={() => setOpen(true)}
                   aria-label="Open menu"
                 >
                   <Menu className="h-5 w-5" />

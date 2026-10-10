@@ -117,6 +117,12 @@ public class MainActivity extends BridgeActivity {
       Bridge bridge = getBridge();
       if (bridge != null && bridge.getWebView() != null) {
         bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+        // Disable pinch/double-tap zoom — double-tap zoom locks the WebView
+        // UI and makes the app feel frozen after two quick taps.
+        bridge.getWebView().getSettings().setSupportZoom(false);
+        bridge.getWebView().getSettings().setBuiltInZoomControls(false);
+        bridge.getWebView().getSettings().setDisplayZoomControls(false);
+        bridge.getWebView().getSettings().setTextZoom(100);
       }
     } catch (Throwable ignored) {}
   }
