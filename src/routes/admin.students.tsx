@@ -2,9 +2,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Eye, Building2, Loader2 } from "lucide-react";
+import { Search, Eye, Building2, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader, SectionCard, StatusBadge, EmptyState } from "@/components/dashboard/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -243,6 +242,7 @@ function Page() {
     if (deptFilter !== "all") list = list.filter((s) => s.department_id === deptFilter);
     if (levelFilter !== "all") list = list.filter((s) => s.level_id === levelFilter);
     if (statusFilter !== "all") list = list.filter((s) => s.status === statusFilter);
+    else list = list.filter((s) => String(s.status || "").toLowerCase() !== "deleted");
     list.sort((a, b) => {
       if (sortBy === "matric") {
         return (a.matric_number || a.student_id || "").localeCompare(
@@ -333,7 +333,63 @@ function Page() {
     }
   }
 
-  // Departments filtered by selected faculty when bulk assigning
+
+  async function deleteSelected() {
+    if (!schoolId) {
+      toast.error("Your account is not linked to a school.");
+      return;
+    }
+    if (!selected.size) {
+      toast.error("Select at least one student first.");
+      return;
+    }
+    const n = selected.size;
+    if (
+      !confirm(
+        `Remove ${n} student${n === 1 ? "" : "s"}?\n\nThey will no longer be able to sign in with these details.`,
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const ids = [...selected];
+      // Soft-delete: mark students + profiles so login is blocked
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const { data: rows } = await supabase
+          .from("students")
+          .select("id, profile_id")
+          .eq("school_id", schoolId)
+          .in("id", chunk);
+        const { error } = await supabase
+          .from("students")
+          .update({ status: "deleted", updated_at: new Date().toISOString() } as never)
+          .eq("school_id", schoolId)
+          .in("id", chunk);
+        if (error) throw error;
+        const profileIds = [...new Set((rows ?? []).map((r) => r.profile_id).filter(Boolean))] as string[];
+        if (profileIds.length) {
+          await supabase
+            .from("profiles")
+            .update({ status: "deleted", updated_at: new Date().toISOString() } as never)
+            .in("id", profileIds);
+        }
+      }
+      toast.success(`Removed ${n} student${n === 1 ? "" : "s"}`);
+      setSelected(new Set());
+      await qc.invalidateQueries({ queryKey: ["admin-all-students", schoolId] });
+      await qc.invalidateQueries({ queryKey: ["admin-student"] });
+      await listQ.refetch();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      toast.error(m || "Could not delete students");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+    // Departments filtered by selected faculty when bulk assigning
   const bulkDepts = useMemo(() => {
     const all = deptsQ.data ?? [];
     if (!bulkFaculty) return all;
@@ -482,6 +538,17 @@ function Page() {
             >
               {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
               Add to department
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 gap-1.5 font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={bulkBusy}
+              onClick={() => void deleteSelected()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete selected
             </Button>
             <Button type="button" size="sm" variant="outline" className="h-9" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
               Clear
