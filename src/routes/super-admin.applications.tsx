@@ -495,7 +495,15 @@ function Page() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logoViewer, setLogoViewer] = useState<{ url: string; name: string } | null>(null);
 
-  const apps = data ?? [];
+  // Approved schools are live users — hide from application queue
+  const apps = useMemo(
+    () =>
+      (data ?? []).filter((a) => {
+        const st = String(a.status || "").toLowerCase();
+        return st !== "approved";
+      }),
+    [data],
+  );
   const selected = useMemo(
     () => (selectedId ? apps.find((a) => a.id === selectedId) ?? null : null),
     [apps, selectedId],
@@ -552,6 +560,8 @@ function Page() {
               : "School approved. Copy the login details below (email not configured).",
           );
         }
+        // Leave application queue — school is now under Schools
+        setSelectedId(null);
       } else if (decision === "rejected") {
         toast.success("Application rejected.");
         setCreds(null);

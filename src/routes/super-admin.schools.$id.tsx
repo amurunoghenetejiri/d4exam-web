@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   Trash2,
   ShieldOff,
   Pencil,
+  ImagePlus,
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge, EmptyState } from "@/components/dashboard/kit";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { uploadSchoolLogo, updateSchoolLogoUrl } from "@/lib/school-identity";
 
 export const Route = createFileRoute("/super-admin/schools/$id")({
   validateSearch: (
@@ -56,6 +58,8 @@ function Page() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [mgmtBusy, setMgmtBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const logoFileRef = useRef<HTMLInputElement | null>(null);
   const tab = (search.tab as Tab) || "overview";
   const facultyId = search.faculty ?? null;
   const departmentId = search.department ?? null;
@@ -77,6 +81,40 @@ function Page() {
       setMgmtBusy(false);
     }
   }
+
+
+  async function onLogoFile(file: File | null) {
+    if (!file || !id) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose a PNG or JPG logo (PNG preferred for transparent background).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Logo must be under 5MB.");
+      return;
+    }
+    setLogoBusy(true);
+    try {
+      const up = await uploadSchoolLogo({ file, folder: `schools/${id}` });
+      if (!up?.url) throw new Error("Upload failed — try a smaller PNG.");
+      await updateSchoolLogoUrl(id, up.url);
+      // Also direct update for reliability
+      const { error } = await supabase
+        .from("schools")
+        .update({ logo_url: up.url, updated_at: new Date().toISOString() } as never)
+        .eq("id", id);
+      if (error) throw error;
+      toast.success("School logo updated");
+      void qc.invalidateQueries({ queryKey: ["sa-school", id] });
+      void qc.invalidateQueries({ queryKey: ["sa-schools-list"] });
+    } catch (e) {
+      toast.error((e as Error).message || "Could not update logo");
+    } finally {
+      setLogoBusy(false);
+      if (logoFileRef.current) logoFileRef.current.value = "";
+    }
+  }
+
 
   async function deleteSchool() {
     if (!id) return;
@@ -411,13 +449,34 @@ function Page() {
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <SchoolLogo logoUrl={school.logo_url} schoolName={school.name} size="lg" />
+        <div className="relative">
+          <SchoolLogo logoUrl={school.logo_url} schoolName={school.name} size="lg" className="!bg-transparent" />
+          <input
+            ref={logoFileRef}
+            type="file"
+            accept="image/png,image/webp,image/jpeg,image/jpg"
+            className="hidden"
+            onChange={(e) => void onLogoFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-extrabold text-slate-900">{school.name}</p>
           <p className="text-xs text-slate-500">
             {school.school_code ? `ID ${school.school_code}` : "No code"}
             {school.country ? ` · ${school.country}` : ""}
           </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-2 gap-1.5 font-semibold"
+            disabled={logoBusy || mgmtBusy}
+            onClick={() => logoFileRef.current?.click()}
+          >
+            {logoBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            {school.logo_url ? "Update logo" : "Upload logo"}
+          </Button>
+          <p className="mt-1 text-[11px] text-slate-400">PNG with transparent background recommended</p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button
