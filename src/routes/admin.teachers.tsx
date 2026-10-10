@@ -17,6 +17,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { createSchoolUser } from "@/lib/auth.school-admin.functions";
 import { useSessionUser } from "@/lib/session";
 import { useRows } from "@/lib/queries";
@@ -144,6 +153,8 @@ function Page() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [courseOpen, setCourseOpen] = useState<string | null>(null);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [actionTeacher, setActionTeacher] = useState<Teacher | null>(null);
   const [importBusy, setImportBusy] = useState(false);
 
   const coursesByTeacher = useMemo(() => {
@@ -260,6 +271,7 @@ function Page() {
 
   async function suspendTeacher(t: Teacher) {
     setMenuOpen(null);
+    setActionTeacher(null);
     setActionBusy(t.id);
     try {
       const { error } = await supabase
@@ -267,7 +279,13 @@ function Page() {
         .update({ employment_status: "suspended", updated_at: new Date().toISOString() } as never)
         .eq("id", t.id);
       if (error) throw error;
-      toast.success("Teacher suspended");
+      if (t.profile_id) {
+        await supabase
+          .from("profiles")
+          .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
+          .eq("id", t.profile_id);
+      }
+      toast.success(`${t.profiles?.full_name || "Teacher"} suspended — they cannot use the app until reactivated`);
       await qc.invalidateQueries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not suspend");
@@ -278,6 +296,7 @@ function Page() {
 
   async function reactivateTeacher(t: Teacher) {
     setMenuOpen(null);
+    setActionTeacher(null);
     setActionBusy(t.id);
     try {
       const { error } = await supabase
@@ -285,7 +304,13 @@ function Page() {
         .update({ employment_status: "active", updated_at: new Date().toISOString() } as never)
         .eq("id", t.id);
       if (error) throw error;
-      toast.success("Teacher reactivated");
+      if (t.profile_id) {
+        await supabase
+          .from("profiles")
+          .update({ status: "active", updated_at: new Date().toISOString() } as never)
+          .eq("id", t.profile_id);
+      }
+      toast.success(`${t.profiles?.full_name || "Teacher"} reactivated`);
       await qc.invalidateQueries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not reactivate");
@@ -295,8 +320,10 @@ function Page() {
   }
 
   async function removeTeacher(t: Teacher) {
-    if (!confirm(`Remove ${t.profiles?.full_name || t.staff_id}? They will lose access.`)) return;
+    const label = t.profiles?.full_name || t.staff_id || "this teacher";
+    if (!confirm(`Remove ${label}?\n\nThey will no longer be able to sign in with these details.`)) return;
     setMenuOpen(null);
+    setActionTeacher(null);
     setActionBusy(t.id);
     try {
       await supabase.from("teacher_courses").delete().eq("teacher_id", t.id);
@@ -305,7 +332,19 @@ function Page() {
         .update({ employment_status: "terminated", updated_at: new Date().toISOString() } as never)
         .eq("id", t.id);
       if (error) throw error;
-      toast.success("Teacher removed");
+      if (t.profile_id) {
+        await supabase
+          .from("profiles")
+          .update({ status: "deleted", updated_at: new Date().toISOString() } as never)
+          .eq("id", t.profile_id);
+        // Remove role rows keyed by profile id or auth id
+        await supabase.from("user_roles").delete().eq("role", "teacher").eq("user_id", t.profile_id);
+        const { data: prof } = await supabase.from("profiles").select("auth_user_id").eq("id", t.profile_id).maybeSingle();
+        if (prof?.auth_user_id) {
+          await supabase.from("user_roles").delete().eq("role", "teacher").eq("user_id", prof.auth_user_id);
+        }
+      }
+      toast.success(`${label} removed — login with these details is blocked`);
       await qc.invalidateQueries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove");
@@ -579,55 +618,13 @@ function Page() {
                           disabled={actionBusy === t.id}
                           onClick={() => {
                             setCourseOpen(open ? null : t.id);
+                            setCourseSearch("");
                             setMenuOpen(null);
+                            setActionTeacher(null);
                           }}
                         >
                           Select courses
                         </Button>
-                        {open ? (
-                          <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                            <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                              Assign courses
-                            </p>
-                            <div className="max-h-48 space-y-1 overflow-y-auto">
-                              {courses.map((c) => {
-                                const on = assigned.has(c.id);
-                                return (
-                                  <label
-                                    key={c.id}
-                                    className={cn(
-                                      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-                                      on ? "bg-primary/10 font-semibold text-primary" : "hover:bg-slate-50",
-                                    )}
-                                  >
-                                    <Checkbox
-                                      checked={on}
-                                      onCheckedChange={() => {
-                                        const next = new Set(assigned);
-                                        if (next.has(c.id)) next.delete(c.id);
-                                        else next.add(c.id);
-                                        void setTeacherCourses(t.id, next);
-                                      }}
-                                    />
-                                    <span>
-                                      {c.code}
-                                      <span className="ml-1 font-normal text-slate-500">{c.name}</span>
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="mt-2 w-full text-xs"
-                              onClick={() => setCourseOpen(null)}
-                            >
-                              <Check className="mr-1 h-3.5 w-3.5" />
-                              Done
-                            </Button>
-                          </div>
-                        ) : null}
                       </div>
 
                       {/* ⋮ menu */}
@@ -639,8 +636,9 @@ function Page() {
                           className="h-9 w-9 p-0"
                           disabled={actionBusy === t.id}
                           onClick={() => {
-                            setMenuOpen(menu ? null : t.id);
+                            setActionTeacher(t);
                             setCourseOpen(null);
+                            setMenuOpen(null);
                           }}
                           aria-label="Teacher actions"
                         >
@@ -650,36 +648,6 @@ function Page() {
                             <MoreVertical className="h-4 w-4" />
                           )}
                         </Button>
-                        {menu ? (
-                          <div className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                            {(t.employment_status || "active") === "suspended" ? (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                                onClick={() => void reactivateTeacher(t)}
-                              >
-                                Reactivate teacher
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                                onClick={() => void suspendTeacher(t)}
-                              >
-                                <UserX className="h-3.5 w-3.5" />
-                                Suspend teacher
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                              onClick={() => void removeTeacher(t)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Remove teacher
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                     </div>
                   </li>
@@ -689,6 +657,119 @@ function Page() {
           )}
         </SectionCard>
       </div>
+
+      {/* Centered course assignment dialog */}
+      <Dialog open={Boolean(courseOpen)} onOpenChange={(o) => { if (!o) setCourseOpen(null); }}>
+        <DialogContent className="max-h-[85vh] max-w-md overflow-hidden sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Assign courses</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const tt = teachers.find((x) => x.id === courseOpen);
+                return tt?.profiles?.full_name || "Teacher";
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            className="h-10"
+            placeholder="Search course code or name…"
+            value={courseSearch}
+            onChange={(e) => setCourseSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="max-h-[50vh] space-y-1 overflow-y-auto pr-1">
+            {(() => {
+              const assigned = courseOpen ? coursesByTeacher.get(courseOpen) ?? new Set<string>() : new Set<string>();
+              const q = courseSearch.trim().toLowerCase();
+              const list = courses.filter(
+                (c) => !q || c.code.toLowerCase().includes(q) || (c.name || "").toLowerCase().includes(q),
+              );
+              if (!list.length) {
+                return <p className="py-6 text-center text-sm text-slate-500">No courses match.</p>;
+              }
+              return list.map((c) => {
+                const on = assigned.has(c.id);
+                return (
+                  <label
+                    key={c.id}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm",
+                      on ? "bg-primary/10 font-semibold text-primary" : "hover:bg-slate-50",
+                    )}
+                  >
+                    <Checkbox
+                      checked={on}
+                      onCheckedChange={() => {
+                        if (!courseOpen) return;
+                        const next = new Set(assigned);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        void setTeacherCourses(courseOpen, next);
+                      }}
+                    />
+                    <span>
+                      <span className="font-semibold">{c.code}</span>
+                      <span className="ml-1.5 font-normal text-slate-500">{c.name}</span>
+                    </span>
+                  </label>
+                );
+              });
+            })()}
+          </div>
+          <DialogFooter>
+            <Button type="button" className="font-semibold" onClick={() => setCourseOpen(null)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Centered teacher actions dialog */}
+      <Dialog open={Boolean(actionTeacher)} onOpenChange={(o) => { if (!o) setActionTeacher(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Teacher actions</DialogTitle>
+            <DialogDescription>
+              {actionTeacher?.profiles?.full_name || actionTeacher?.staff_id || "Teacher"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-1">
+            {(actionTeacher?.employment_status || "active") === "suspended" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-start font-semibold"
+                disabled={!actionTeacher || actionBusy === actionTeacher?.id}
+                onClick={() => actionTeacher && void reactivateTeacher(actionTeacher)}
+              >
+                Reactivate {actionTeacher?.profiles?.full_name || "teacher"}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-start font-semibold"
+                disabled={!actionTeacher || actionBusy === actionTeacher?.id}
+                onClick={() => actionTeacher && void suspendTeacher(actionTeacher)}
+              >
+                <UserX className="mr-2 h-4 w-4" />
+                Suspend {actionTeacher?.profiles?.full_name || "teacher"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-start font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={!actionTeacher || actionBusy === actionTeacher?.id}
+              onClick={() => actionTeacher && void removeTeacher(actionTeacher)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove {actionTeacher?.profiles?.full_name || "teacher"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </>
   );
 }

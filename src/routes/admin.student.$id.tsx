@@ -42,15 +42,36 @@ function Page() {
         .eq("id", id)
         .eq("school_id", schoolId!)
         .maybeSingle();
-      if (!res.error) return res.data;
-      const res2 = await supabase
-        .from("students")
-        .select(selectBasic)
-        .eq("id", id)
-        .eq("school_id", schoolId!)
-        .maybeSingle();
-      if (res2.error) throw res2.error;
-      return res2.data;
+      let row = !res.error ? res.data : null;
+      if (!row) {
+        const res2 = await supabase
+          .from("students")
+          .select(selectBasic)
+          .eq("id", id)
+          .eq("school_id", schoolId!)
+          .maybeSingle();
+        if (res2.error) throw res2.error;
+        row = res2.data;
+      }
+      if (!row) return null;
+      // Always resolve structure names (joins can be empty under RLS)
+      const [f, d, l] = await Promise.all([
+        row.faculty_id
+          ? supabase.from("faculties").select("name, code").eq("id", row.faculty_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        row.department_id
+          ? supabase.from("departments").select("name, code").eq("id", row.department_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        row.level_id
+          ? supabase.from("levels").select("name, code").eq("id", row.level_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      return {
+        ...row,
+        faculties: (row as { faculties?: unknown }).faculties || f.data || null,
+        departments: (row as { departments?: unknown }).departments || d.data || null,
+        levels: (row as { levels?: unknown }).levels || l.data || null,
+      };
     },
   });
 

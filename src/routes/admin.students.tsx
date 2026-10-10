@@ -128,14 +128,52 @@ function Page() {
         });
       }
 
+      async function hydrateStructure(rows: StudentRow[]): Promise<StudentRow[]> {
+        const fIds = [...new Set(rows.map((r) => r.faculty_id).filter(Boolean))] as string[];
+        const dIds = [...new Set(rows.map((r) => r.department_id).filter(Boolean))] as string[];
+        const lIds = [...new Set(rows.map((r) => r.level_id).filter(Boolean))] as string[];
+        const [fRes, dRes, lRes] = await Promise.all([
+          fIds.length
+            ? supabase.from("faculties").select("id, name, code").in("id", fIds)
+            : Promise.resolve({ data: [] as { id: string; name: string; code: string | null }[] }),
+          dIds.length
+            ? supabase.from("departments").select("id, name, code").in("id", dIds)
+            : Promise.resolve({ data: [] as { id: string; name: string; code: string | null }[] }),
+          lIds.length
+            ? supabase.from("levels").select("id, name, code").in("id", lIds)
+            : Promise.resolve({ data: [] as { id: string; name: string; code: string | null }[] }),
+        ]);
+        const fMap = new Map((fRes.data ?? []).map((x) => [x.id, x]));
+        const dMap = new Map((dRes.data ?? []).map((x) => [x.id, x]));
+        const lMap = new Map((lRes.data ?? []).map((x) => [x.id, x]));
+        return rows.map((r) => ({
+          ...r,
+          faculties: r.faculties?.name
+            ? r.faculties
+            : r.faculty_id && fMap.get(r.faculty_id)
+              ? { name: fMap.get(r.faculty_id)!.name, code: fMap.get(r.faculty_id)!.code }
+              : r.faculties,
+          departments: r.departments?.name
+            ? r.departments
+            : r.department_id && dMap.get(r.department_id)
+              ? { name: dMap.get(r.department_id)!.name, code: dMap.get(r.department_id)!.code }
+              : r.departments,
+          levels: r.levels?.name
+            ? r.levels
+            : r.level_id && lMap.get(r.level_id)
+              ? { name: lMap.get(r.level_id)!.name, code: lMap.get(r.level_id)!.code }
+              : r.levels,
+        }));
+      }
+
       try {
-        return await hydrateProfiles(await loadAll(selectFull));
+        return await hydrateStructure(await hydrateProfiles(await loadAll(selectFull)));
       } catch {
         try {
-          return await hydrateProfiles(await loadAll(selectBasic));
+          return await hydrateStructure(await hydrateProfiles(await loadAll(selectBasic)));
         } catch {
           try {
-            return await hydrateProfiles(await loadAll(selectPlain));
+            return await hydrateStructure(await hydrateProfiles(await loadAll(selectPlain)));
           } catch {
             const { data, error } = await supabase
               .from("students")
@@ -143,7 +181,7 @@ function Page() {
               .eq("school_id", schoolId!)
               .limit(5000);
             if (error) throw error;
-            return await hydrateProfiles((data ?? []) as StudentRow[]);
+            return await hydrateStructure(await hydrateProfiles((data ?? []) as StudentRow[]));
           }
         }
       }
@@ -281,6 +319,7 @@ function Page() {
       toast.success(`Updated ${ids.length} student${ids.length === 1 ? "" : "s"}`);
       setSelected(new Set());
       await qc.invalidateQueries({ queryKey: ["admin-all-students", schoolId] });
+      await qc.invalidateQueries({ queryKey: ["admin-student"] });
       await listQ.refetch();
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -389,10 +428,20 @@ function Page() {
           </Select>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" className="h-8 text-xs font-semibold" onClick={() => toggleAllVisible()}>
+            {allVisibleSelected ? "Clear selection" : "Select all visible"}
+          </Button>
+          {someSelected ? (
+            <span className="text-xs font-semibold text-primary">{selected.size} selected — tap a row to toggle</span>
+          ) : (
+            <span className="text-xs text-slate-500">Tap a student to select · Details opens the profile</span>
+          )}
+        </div>
         {someSelected ? (
           <div className="flex flex-wrap items-end gap-2 rounded-xl border border-primary/25 bg-primary/5 p-3">
             <p className="w-full text-xs font-semibold text-slate-700">
-              {selected.size} selected · Assign to department
+              {selected.size} selected · Assign faculty / department / level
             </p>
             <Select value={bulkFaculty || undefined} onValueChange={(v) => { setBulkFaculty(v); setBulkDept(""); }}>
               <SelectTrigger className="h-9 w-[160px]">
@@ -453,13 +502,6 @@ function Page() {
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-2 pr-2 w-10">
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onCheckedChange={() => toggleAllVisible()}
-                      aria-label="Select all visible"
-                    />
-                  </th>
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Full name</th>
                   <th className="py-2 pr-3">Matric</th>
@@ -476,30 +518,18 @@ function Page() {
                   return (
                     <tr
                       key={s.id}
-                      className={"border-b border-slate-50 " + (isOn ? "bg-primary/5" : "hover:bg-slate-50/80")}
+                      className={
+                        "cursor-pointer border-b border-slate-50 transition " +
+                        (isOn ? "bg-primary/10 ring-1 ring-inset ring-primary/30" : "hover:bg-slate-50/80")
+                      }
                       onClick={(e) => {
-                        const tag = (e.target as HTMLElement).tagName;
-                        if (tag === "A" || tag === "BUTTON" || (e.target as HTMLElement).closest("a,button,input")) return;
+                        if ((e.target as HTMLElement).closest("a,button")) return;
                         toggleOne(s.id);
                       }}
                     >
-                      <td className="py-2.5 pr-2" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={isOn}
-                          onCheckedChange={() => toggleOne(s.id)}
-                          aria-label={"Select " + displayName(s)}
-                        />
-                      </td>
                       <td className="py-2.5 pr-3 text-slate-500">{i + 1}</td>
                       <td className="py-2.5 pr-3 font-semibold text-slate-900">
-                        <Link
-                          to="/admin/student/$id"
-                          params={{ id: s.id }}
-                          className="text-slate-900 hover:text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {displayName(s)}
-                        </Link>
+                        {displayName(s)}
                       </td>
                       <td className="py-2.5 pr-3">{s.matric_number ?? s.student_id}</td>
                       <td className="py-2.5 pr-3">{s.faculties?.name ?? "—"}</td>

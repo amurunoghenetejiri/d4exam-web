@@ -196,6 +196,32 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
     if (loginSchool?.schoolId) seedLoginSchoolContext(loginSchool.schoolId, loginSchool.schoolCode || null);
   } catch { /* ignore */ }
 
+  // Block suspended / deleted accounts
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id;
+    if (uid) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("status")
+        .or(`auth_user_id.eq.${uid},id.eq.${uid}`)
+        .limit(1)
+        .maybeSingle();
+      const st = String(prof?.status || "").toLowerCase();
+      if (st === "suspended") {
+        await supabase.auth.signOut();
+        throw new Error("Your account has been suspended. Contact your school admin.");
+      }
+      if (st === "deleted" || st === "terminated" || st === "inactive") {
+        await supabase.auth.signOut();
+        throw new Error("This account is no longer active. Contact your school admin.");
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/suspended|no longer active/i.test(msg)) throw e;
+  }
+
   const home = roleHome[role as AppRole];
   try {
     setPreferredRole(role as AppRole);

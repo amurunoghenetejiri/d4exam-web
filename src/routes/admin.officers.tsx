@@ -13,6 +13,13 @@ import {
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge, EmptyState } from "@/components/dashboard/kit";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createSchoolUser } from "@/lib/auth.school-admin.functions";
@@ -125,6 +132,7 @@ function Page() {
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [actionOfficer, setActionOfficer] = useState<Officer | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [lastCreds, setLastCreds] = useState<{
     officerId: string;
@@ -216,7 +224,8 @@ function Page() {
           .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
           .eq("id", o.profile_id);
       }
-      toast.success("Officer suspended");
+      setActionOfficer(null);
+      toast.success(`${o.profiles?.full_name || "Officer"} suspended — they cannot use the app until reactivated`);
       await qc.invalidateQueries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not suspend");
@@ -514,7 +523,7 @@ function Page() {
                           variant="outline"
                           className="h-9 w-9 p-0"
                           disabled={actionBusy === o.id}
-                          onClick={() => setMenuOpen(menu ? null : o.id)}
+                          onClick={() => { setActionOfficer(o); setMenuOpen(null); }}
                           aria-label="Officer actions"
                         >
                           {actionBusy === o.id ? (
@@ -523,36 +532,6 @@ function Page() {
                             <MoreVertical className="h-4 w-4" />
                           )}
                         </Button>
-                        {menu ? (
-                          <div className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                            {o.status === "suspended" ? (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                                onClick={() => void reactivateOfficer(o)}
-                              >
-                                Reactivate officer
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                                onClick={() => void suspendOfficer(o)}
-                              >
-                                <UserX className="h-3.5 w-3.5" />
-                                Suspend officer
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                              onClick={() => void removeOfficer(o)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Remove officer
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                     </div>
                   </li>
@@ -562,6 +541,50 @@ function Page() {
           )}
         </SectionCard>
       </div>
+
+      <Dialog open={Boolean(actionOfficer)} onOpenChange={(o) => { if (!o) setActionOfficer(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Officer actions</DialogTitle>
+            <DialogDescription>
+              {actionOfficer?.profiles?.full_name || actionOfficer?.officer_id || "Officer"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-1">
+            {(actionOfficer?.status || "active") === "suspended" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-start font-semibold"
+                disabled={!actionOfficer || actionBusy === actionOfficer?.id}
+                onClick={() => actionOfficer && void reactivateOfficer(actionOfficer)}
+              >
+                Reactivate {actionOfficer?.profiles?.full_name || "officer"}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-start font-semibold"
+                disabled={!actionOfficer || actionBusy === actionOfficer?.id}
+                onClick={() => actionOfficer && void suspendOfficer(actionOfficer)}
+              >
+                Suspend {actionOfficer?.profiles?.full_name || "officer"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-start font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={!actionOfficer || actionBusy === actionOfficer?.id}
+              onClick={() => actionOfficer && void removeOfficer(actionOfficer)}
+            >
+              Remove {actionOfficer?.profiles?.full_name || "officer"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </>
   );
 }
