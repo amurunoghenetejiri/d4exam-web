@@ -46,6 +46,13 @@ export function useBottomNavSwipe(
     const mq = window.matchMedia("(max-width: 1023px)");
     if (!mq.matches) return;
 
+    // Route changed: clear any leftover inline transform/opacity a swipe
+    // left on <main> — otherwise the page stays shifted/invisible and the
+    // app looks frozen.
+    if (!animatingRef.current) {
+      clearInline(getMainEl());
+    }
+
     const indexOfPath = () => {
       for (let i = 0; i < bottomNav.length; i++) {
         const item = bottomNav[i];
