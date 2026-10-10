@@ -25,7 +25,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { createSchoolUser } from "@/lib/auth.school-admin.functions";
 import { useSessionUser } from "@/lib/session";
 import { useRows } from "@/lib/queries";
