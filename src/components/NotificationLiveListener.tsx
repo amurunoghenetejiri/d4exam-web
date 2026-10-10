@@ -108,7 +108,10 @@ async function showWebTray(
 
   const icon = absIcon("/icon-192.png");
   const openLabel = actionLabelForType(type);
-  const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
+  const options: NotificationOptions & {
+    actions?: { action: string; title: string }[];
+    renotify?: boolean;
+  } = {
     body: body || "",
     icon,
     badge: icon,

@@ -281,6 +281,44 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Recovers from orphaned scroll/interaction locks. When a Radix dialog
+ * (menu, sheet, modal) closes abnormally — or the app is backgrounded mid
+ * open — react-remove-scroll can leave the body with pointer-events:none /
+ * overflow:hidden, which makes the whole app look frozen (nothing clickable
+ * or scrollable). This sweep clears those locks whenever no dialog is open.
+ */
+function InteractionGuard() {
+  useEffect(() => {
+    const sweep = () => {
+      try {
+        const lockGate = document.querySelector("[data-d4-lock-gate]");
+        if (lockGate) return; // fingerprint lock manages its own locks
+        const openDialog = document.querySelector(
+          '[role="dialog"][data-state="open"], [data-radix-dialog-content][data-state="open"]',
+        );
+        const body = document.body;
+        if (!openDialog) {
+          if (body.getAttribute("data-scroll-locked")) body.removeAttribute("data-scroll-locked");
+          if (body.style.pointerEvents === "none") body.style.pointerEvents = "";
+          if (body.style.overflow === "hidden") body.style.overflow = "";
+        }
+        const root = document.getElementById("root") || document.getElementById("app");
+        if (root && root.hasAttribute("inert") && !lockGate) root.removeAttribute("inert");
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = window.setInterval(sweep, 1000);
+    window.addEventListener("d4-interaction-sweep", sweep);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("d4-interaction-sweep", sweep);
+    };
+  }, []);
+  return null;
+}
+
 function installGlobalErrorHandlers() {
   if (typeof window === "undefined") return;
   const w = window as Window & { __d4GlobalHandlers?: boolean };
@@ -321,6 +359,7 @@ function RootComponent() {
       <AppUnlockSetupGate />
       <FingerprintLockGate />
       <AndroidApkInstallBanner />
+      <InteractionGuard />
       <Outlet />
       <NativeBootstrap />
       <WebPushBootstrap />
