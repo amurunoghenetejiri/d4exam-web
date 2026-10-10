@@ -1,6 +1,31 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
+
+/** Turn Postgres unique/FK errors into clear user-facing messages. */
+function friendlyDbError(message: string, fallback = "Could not save. Please try again."): string {
+  const m = String(message || "");
+  if (/profiles_auth_user_id_key|auth_user_id/i.test(m) || /duplicate key.*auth_user/i.test(m)) {
+    return "This person already has an account. Use a different email, or open their existing profile.";
+  }
+  if (/profiles_email|duplicate key.*email/i.test(m)) {
+    return "This email is already registered. Use another email or update the existing user.";
+  }
+  if (/officer_id|staff_id|matric_number|student_id|duplicate key.*unique/i.test(m)) {
+    return "This ID is already in use for someone in this school. Choose a different ID.";
+  }
+  if (/duplicate key|unique constraint|23505/i.test(m)) {
+    return "This person or ID already exists. Check the list below or use a different email / ID.";
+  }
+  if (/foreign key|23503/i.test(m)) {
+    return "Related record is missing (for example department). Create it first, then try again.";
+  }
+  if (/row-level security|42501/i.test(m)) {
+    return "You do not have permission to do this. Sign in again as school admin.";
+  }
+  return m || fallback;
+}
+
 function hasServiceRoleKey(): boolean {
   return Boolean(
     process.env["SUPABASE_SERVICE_ROLE_KEY"] ||
@@ -189,49 +214,146 @@ export async function createPerson(
     role: data.role,
   });
 
-  const db = opts?.db as SupabaseClient<Database> | undefined;
+  // Prefer service role so staff rows always land (avoids RLS half-creates)
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = (hasServiceRoleKey() ? supabaseAdmin : opts?.db) as SupabaseClient<Database> | undefined;
   if (!db) {
     throw new Error(
       "Cannot write staff records: no admin session. Sign in as school admin and try again.",
     );
   }
 
-  const { data: profile, error: profileError } = await db
-    .from("profiles")
-    .insert({
-      auth_user_id: authUser.id,
-      school_id: schoolId,
-      first_name: data.firstName,
-      last_name: data.lastName,
-      full_name: fullName,
-      email: data.email,
-      status: "active",
-    })
-    .select("id")
-    .single();
-  if (profileError || !profile) {
-    throw new Error(profileError?.message ?? "Could not create profile");
+  // Reuse profile if this auth user / email already exists
+  let profileId: string | null = null;
+  let action: "created" | "updated" = "created";
+  {
+    const { data: byAuth } = await db
+      .from("profiles")
+      .select("id")
+      .eq("auth_user_id", authUser.id)
+      .maybeSingle();
+    if (byAuth?.id) {
+      profileId = String(byAuth.id);
+      action = "updated";
+      const { error: upErr } = await db
+        .from("profiles")
+        .update({
+          school_id: schoolId,
+          first_name: data.firstName,
+          last_name: data.lastName,
+          full_name: fullName,
+          email: data.email,
+          status: "active",
+          updated_at: new Date().toISOString(),
+        } as never)
+        .eq("id", profileId);
+      if (upErr) throw new Error(friendlyDbError(upErr.message));
+    } else {
+      const { data: byEmail } = await db
+        .from("profiles")
+        .select("id")
+        .ilike("email", data.email)
+        .maybeSingle();
+      if (byEmail?.id) {
+        profileId = String(byEmail.id);
+        action = "updated";
+        const { error: upErr } = await db
+          .from("profiles")
+          .update({
+            auth_user_id: authUser.id,
+            school_id: schoolId,
+            first_name: data.firstName,
+            last_name: data.lastName,
+            full_name: fullName,
+            status: "active",
+            updated_at: new Date().toISOString(),
+          } as never)
+          .eq("id", profileId);
+        if (upErr) throw new Error(friendlyDbError(upErr.message));
+      }
+    }
   }
 
-  const { error: roleErr } = await db
+  if (!profileId) {
+    const { data: profile, error: profileError } = await db
+      .from("profiles")
+      .insert({
+        auth_user_id: authUser.id,
+        school_id: schoolId,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        full_name: fullName,
+        email: data.email,
+        status: "active",
+      } as never)
+      .select("id")
+      .single();
+    if (profileError || !profile) {
+      throw new Error(friendlyDbError(profileError?.message ?? "Could not create profile"));
+    }
+    profileId = String(profile.id);
+  }
+
+  // Ensure role row
+  const { data: existingRole } = await db
     .from("user_roles")
-    .insert({ user_id: authUser.id, school_id: schoolId, role: data.role });
-  if (roleErr) throw new Error(roleErr.message);
+    .select("id")
+    .eq("user_id", authUser.id)
+    .eq("role", data.role)
+    .eq("school_id", schoolId)
+    .maybeSingle();
+  if (!existingRole) {
+    const { error: roleErr } = await db
+      .from("user_roles")
+      .insert({ user_id: authUser.id, school_id: schoolId, role: data.role } as never);
+    if (roleErr && !/duplicate|unique/i.test(roleErr.message)) {
+      throw new Error(friendlyDbError(roleErr.message));
+    }
+  }
 
   if (data.role === "teacher") {
+    const { data: existingT } = await db
+      .from("teachers")
+      .select("id")
+      .eq("school_id", schoolId)
+      .or(`staff_id.ilike.${data.identifier},profile_id.eq.${profileId}`)
+      .limit(1)
+      .maybeSingle();
+    if (existingT?.id) {
+      await db
+        .from("teachers")
+        .update({
+          staff_id: data.identifier,
+          department_id: data.departmentId ?? null,
+          faculty_id: data.facultyId ?? null,
+          employment_status: "active",
+          profile_id: profileId,
+          updated_at: new Date().toISOString(),
+        } as never)
+        .eq("id", existingT.id);
+      return {
+        id: String(existingT.id),
+        email: data.email,
+        password,
+        identifier: data.identifier,
+        role: data.role,
+        fullName,
+        action: "updated",
+      };
+    }
     const { data: row, error } = await db
       .from("teachers")
       .insert({
-        profile_id: profile.id,
+        profile_id: profileId,
         school_id: schoolId,
         staff_id: data.identifier,
         department_id: data.departmentId ?? null,
         faculty_id: data.facultyId ?? null,
         employment_status: "active",
-      })
+      } as never)
       .select("id")
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(friendlyDbError(error.message));
     return {
       id: row.id as string,
       email: data.email,
@@ -239,21 +361,54 @@ export async function createPerson(
       identifier: data.identifier,
       role: data.role,
       fullName,
-      action: "created",
+      action,
     };
   }
 
+  // examination_officer
+  const { data: existingO } = await db
+    .from("examination_officers")
+    .select("id")
+    .eq("school_id", schoolId)
+    .or(`officer_id.ilike.${data.identifier},profile_id.eq.${profileId}`)
+    .limit(1)
+    .maybeSingle();
+  if (existingO?.id) {
+    await db
+      .from("examination_officers")
+      .update({
+        officer_id: data.identifier,
+        status: "active",
+        profile_id: profileId,
+        department_id: data.departmentId ?? null,
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq("id", existingO.id);
+    return {
+      id: String(existingO.id),
+      email: data.email,
+      password,
+      identifier: data.identifier,
+      role: data.role,
+      fullName,
+      action: "updated",
+    };
+  }
+
+  const insertPayload: Record<string, unknown> = {
+    profile_id: profileId,
+    school_id: schoolId,
+    officer_id: data.identifier,
+    status: "active",
+  };
+  if (data.departmentId) insertPayload.department_id = data.departmentId;
+
   const { data: row, error } = await db
     .from("examination_officers")
-    .insert({
-      profile_id: profile.id,
-      school_id: schoolId,
-      officer_id: data.identifier,
-      status: "active",
-    })
+    .insert(insertPayload as never)
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(friendlyDbError(error.message));
   return {
     id: row.id as string,
     email: data.email,
@@ -261,7 +416,7 @@ export async function createPerson(
     identifier: data.identifier,
     role: data.role,
     fullName,
-    action: "created",
+    action,
   };
 }
 
@@ -290,7 +445,7 @@ export async function upsertStudent(
     .or(`matric_number.ilike.${matric},student_id.ilike.${identifier}`)
     .limit(5);
 
-  if (findErr) throw new Error(findErr.message);
+  if (findErr) throw new Error(friendlyDbError(findErr.message));
 
   const existing =
     (existingList ?? []).find(
@@ -384,7 +539,7 @@ export async function upsertStudent(
       })
       .select("id")
       .single();
-    if (profileError || !profile) throw new Error(profileError?.message ?? "Could not create profile");
+    if (profileError || !profile) throw new Error(friendlyDbError(profileError?.message ?? "Could not create profile"));
     profileId = profile.id as string;
   }
 

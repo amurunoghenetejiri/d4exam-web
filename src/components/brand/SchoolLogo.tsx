@@ -70,29 +70,24 @@ export function SchoolLogo({
     );
   }
 
+  // No fill behind the logo — sits on whatever is behind (navy nav, white page, etc.)
   return (
-    <span
+    <img
+      src={logoUrl}
+      alt={schoolName ? `${schoolName} logo` : "School logo"}
       className={cn(
         dims,
-        "inline-grid shrink-0 place-items-center overflow-hidden",
-        // Light checkerboard so transparent logos stay visible (never solid black)
-        "bg-[length:10px_10px] bg-[linear-gradient(45deg,#e2e8f0_25%,transparent_25%,transparent_75%,#e2e8f0_75%,#e2e8f0),linear-gradient(45deg,#e2e8f0_25%,#f8fafc_25%,#f8fafc_75%,#e2e8f0_75%,#e2e8f0)] bg-[position:0_0,5px_5px]",
+        "shrink-0 bg-transparent object-contain",
         rounded && "rounded-lg",
         className,
       )}
-    >
-      <img
-        src={logoUrl}
-        alt={schoolName ? `${schoolName} logo` : "School logo"}
-        className="h-full w-full object-contain"
-        style={{ backgroundColor: "transparent" }}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        fetchPriority={priority ? "high" : undefined}
-        referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
-      />
-    </span>
+      style={{ backgroundColor: "transparent", background: "none" }}
+      loading={priority ? "eager" : "lazy"}
+      decoding="async"
+      fetchPriority={priority ? "high" : undefined}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
   );
 }
 

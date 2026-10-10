@@ -50,10 +50,6 @@ type Creds = {
   emailError?: string | null;
 };
 
-/** Checkerboard so transparent PNG logos are visible (not black/white solid). */
-const LOGO_CHECKER =
-  "bg-[length:12px_12px] bg-[linear-gradient(45deg,#e2e8f0_25%,transparent_25%,transparent_75%,#e2e8f0_75%,#e2e8f0),linear-gradient(45deg,#e2e8f0_25%,#f8fafc_25%,#f8fafc_75%,#e2e8f0_75%,#e2e8f0)] bg-[position:0_0,6px_6px]";
-
 function SchoolLogo({
   url,
   name,
@@ -88,8 +84,7 @@ function SchoolLogo({
         }}
         className={cn(
           dim,
-          "group relative shrink-0 overflow-hidden rounded-xl border border-slate-200 object-contain shadow-sm",
-          LOGO_CHECKER,
+          "group relative shrink-0 overflow-hidden rounded-xl bg-transparent object-contain",
           clickable && "cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
           !clickable && "cursor-default",
         )}
@@ -225,10 +220,7 @@ function LogoLightbox({
         </div>
       </div>
       <div
-        className={cn(
-          "flex min-h-0 flex-1 items-center justify-center overflow-auto p-4",
-          LOGO_CHECKER,
-        )}
+        className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-transparent p-4"
         onClick={onClose}
       >
         <img

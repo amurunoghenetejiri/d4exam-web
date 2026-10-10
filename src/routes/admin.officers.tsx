@@ -21,6 +21,21 @@ import { useRows } from "@/lib/queries";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+function friendlyErr(err: unknown, fallback = "Something went wrong"): string {
+  const m = err instanceof Error ? err.message : String(err || "");
+  if (/profiles_auth_user_id_key|duplicate key.*auth_user/i.test(m)) {
+    return "This person already has an account. Open the list below or use a different email.";
+  }
+  if (/duplicate key|unique constraint|23505/i.test(m)) {
+    return "This person or ID already exists in this school.";
+  }
+  if (/row-level security|42501/i.test(m)) {
+    return "Permission denied. Sign out and sign in again as school admin.";
+  }
+  return m || fallback;
+}
+
+
 export const Route = createFileRoute("/admin/officers")({
   head: () => ({
     meta: [{ title: "Departmental Officers — D4EXAM" }],
@@ -155,10 +170,10 @@ function Page() {
       setEmail("");
       setOfficerId("");
       setDepartmentId("");
-      toast.success("Departmental officer created");
+      toast.success((result as { action?: string }).action === "updated" ? "Officer already existed — details updated" : "Departmental officer created");
       await qc.invalidateQueries();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not create officer");
+      toast.error(friendlyErr(err, "Could not create officer"));
     } finally {
       setBusy(false);
     }

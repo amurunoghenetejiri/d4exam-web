@@ -11,6 +11,21 @@ import { useSessionUser } from "@/lib/session";
 import { toast } from "sonner";
 import { Loader2, Upload, Download } from "lucide-react";
 
+function friendlyErr(err: unknown, fallback = "Something went wrong"): string {
+  const m = err instanceof Error ? err.message : String(err || "");
+  if (/profiles_auth_user_id_key|duplicate key.*auth_user/i.test(m)) {
+    return "This person already has an account. Open the list below or use a different email.";
+  }
+  if (/duplicate key|unique constraint|23505/i.test(m)) {
+    return "This person or ID already exists in this school.";
+  }
+  if (/row-level security|42501/i.test(m)) {
+    return "Permission denied. Sign out and sign in again as school admin.";
+  }
+  return m || fallback;
+}
+
+
 export const Route = createFileRoute("/admin/student-import")({
   head: () => ({
     meta: [{ title: "Student Import — D4EXAM" }],
