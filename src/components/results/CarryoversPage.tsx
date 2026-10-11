@@ -54,7 +54,7 @@ export function CarryoversPage() {
         .from("students")
         .select("id, matric_number, student_id, level_id, department_id, profile_id, levels(name), departments(name), profiles(full_name)")
         .eq("school_id", schoolId!)
-        .order("full_name")
+        .order("matric_number")
         .limit(800);
       if (error) throw error;
       return (data ?? []) as Student[];
@@ -163,7 +163,7 @@ export function CarryoversPage() {
   }
 
   async function deactivate(id: string) {
-    if (!confirm("Deactivate this carryover registration?")) return;
+    /* branded: immediate deactivate */
     try {
       const { error } = await supabase
         .from("course_carryovers")

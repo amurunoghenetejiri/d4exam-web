@@ -210,11 +210,12 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
       const st = String(prof?.status || "").toLowerCase();
       if (st === "suspended") {
         await supabase.auth.signOut();
-        throw new Error("Your account has been suspended. Contact your school admin.");
+        if (typeof window !== "undefined") window.location.assign("/account-suspended");
+        throw new Error("Your account has been suspended.");
       }
-      if (st === "deleted" || st === "terminated" || st === "inactive") {
+      if (st === "deactivated" || st === "locked" || st === "deleted" || st === "terminated" || st === "inactive") {
         await supabase.auth.signOut();
-        throw new Error("This account is no longer active. Contact your school admin.");
+        throw new Error("Invalid login details.");
       }
     }
   } catch (e) {

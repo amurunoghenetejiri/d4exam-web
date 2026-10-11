@@ -31,6 +31,8 @@ import { useRows } from "@/lib/queries";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { notifyTeacherCoursesAssigned } from "@/lib/email-notify.functions";
 
 function friendlyErr(err: unknown, fallback = "Something went wrong"): string {
@@ -139,7 +141,7 @@ function Page() {
     enabled,
   });
 
-  const teachers = teachersQ.data ?? [];
+  const teachers = (teachersQ.data ?? []).filter((x) => String(x.employment_status || "active").toLowerCase() !== "terminated");
   const courses = coursesQ.data ?? [];
   const links = linksQ.data ?? [];
 
@@ -154,6 +156,10 @@ function Page() {
   const [courseOpen, setCourseOpen] = useState<string | null>(null);
   const [courseSearch, setCourseSearch] = useState("");
   const [actionTeacher, setActionTeacher] = useState<Teacher | null>(null);
+  const [suspendNotes, setSuspendNotes] = useState("");
+  const [suspendOpen, setSuspendOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [pendingTeacher, setPendingTeacher] = useState<Teacher | null>(null);
   const [importBusy, setImportBusy] = useState(false);
 
   const coursesByTeacher = useMemo(() => {
@@ -268,9 +274,10 @@ function Page() {
     }
   }
 
-  async function suspendTeacher(t: Teacher) {
+  async function suspendTeacher(t: Teacher, notes?: string) {
     setMenuOpen(null);
     setActionTeacher(null);
+    setSuspendOpen(false);
     setActionBusy(t.id);
     try {
       const { error } = await supabase
@@ -284,7 +291,21 @@ function Page() {
           .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
           .eq("id", t.profile_id);
       }
-      toast.success(`${t.profiles?.full_name || "Teacher"} suspended — they cannot use the app until reactivated`);
+      try {
+        if (schoolId) {
+          await supabase.from("audit_logs").insert({
+            school_id: schoolId,
+            actor_role: "school_admin",
+            action: "teacher_suspended",
+            entity_type: "teacher",
+            entity_id: t.id,
+            description: notes?.trim() || `Suspended ${t.profiles?.full_name || t.staff_id}`,
+          } as never);
+        }
+      } catch { /* optional */ }
+      toast.success(`${t.profiles?.full_name || "Teacher"} suspended`);
+      setSuspendNotes("");
+      setPendingTeacher(null);
       await qc.invalidateQueries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not suspend");
@@ -320,31 +341,34 @@ function Page() {
 
   async function removeTeacher(t: Teacher) {
     const label = t.profiles?.full_name || t.staff_id || "this teacher";
-    if (!confirm(`Remove ${label}?\n\nThey will no longer be able to sign in with these details.`)) return;
     setMenuOpen(null);
     setActionTeacher(null);
+    setDeleteOpen(false);
     setActionBusy(t.id);
     try {
       await supabase.from("teacher_courses").delete().eq("teacher_id", t.id);
-      const { error } = await supabase
-        .from("teachers")
-        .update({ employment_status: "terminated", updated_at: new Date().toISOString() } as never)
-        .eq("id", t.id);
-      if (error) throw error;
+      const { error: delErr } = await supabase.from("teachers").delete().eq("id", t.id);
+      if (delErr) {
+        await supabase
+          .from("teachers")
+          .update({ employment_status: "terminated", updated_at: new Date().toISOString() } as never)
+          .eq("id", t.id);
+      }
       if (t.profile_id) {
         await supabase
           .from("profiles")
-          .update({ status: "deleted", updated_at: new Date().toISOString() } as never)
+          .update({ status: "deactivated", updated_at: new Date().toISOString() } as never)
           .eq("id", t.profile_id);
-        // Remove role rows keyed by profile id or auth id
         await supabase.from("user_roles").delete().eq("role", "teacher").eq("user_id", t.profile_id);
         const { data: prof } = await supabase.from("profiles").select("auth_user_id").eq("id", t.profile_id).maybeSingle();
         if (prof?.auth_user_id) {
-          await supabase.from("user_roles").delete().eq("role", "teacher").eq("user_id", prof.auth_user_id);
+          await supabase.from("user_roles").delete().eq("user_id", prof.auth_user_id);
         }
       }
-      toast.success(`${label} removed — login with these details is blocked`);
+      toast.success(`${label} deleted — those login details will no longer work`);
+      setPendingTeacher(null);
       await qc.invalidateQueries();
+      await teachersQ.refetch();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove");
     } finally {
@@ -749,7 +773,13 @@ function Page() {
                 variant="outline"
                 className="justify-start font-semibold"
                 disabled={!actionTeacher || actionBusy === actionTeacher?.id}
-                onClick={() => actionTeacher && void suspendTeacher(actionTeacher)}
+                onClick={() => {
+                  if (!actionTeacher) return;
+                  setPendingTeacher(actionTeacher);
+                  setActionTeacher(null);
+                  setSuspendNotes("");
+                  setSuspendOpen(true);
+                }}
               >
                 <UserX className="mr-2 h-4 w-4" />
                 Suspend {actionTeacher?.profiles?.full_name || "teacher"}
@@ -760,14 +790,63 @@ function Page() {
               variant="outline"
               className="justify-start font-semibold text-red-600 hover:bg-red-50 hover:text-red-700"
               disabled={!actionTeacher || actionBusy === actionTeacher?.id}
-              onClick={() => actionTeacher && void removeTeacher(actionTeacher)}
+              onClick={() => {
+                if (!actionTeacher) return;
+                setPendingTeacher(actionTeacher);
+                setActionTeacher(null);
+                setDeleteOpen(true);
+              }}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Remove {actionTeacher?.profiles?.full_name || "teacher"}
+              Delete {actionTeacher?.profiles?.full_name || "teacher"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={suspendOpen} onOpenChange={(o) => { if (!o) { setSuspendOpen(false); setPendingTeacher(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Suspend teacher</DialogTitle>
+            <DialogDescription>
+              {pendingTeacher?.profiles?.full_name || pendingTeacher?.staff_id || "Teacher"} will see an account-suspended page and cannot use the app until reactivated.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="suspend-notes">Optional note (for school records only)</Label>
+            <Textarea
+              id="suspend-notes"
+              rows={3}
+              placeholder="e.g. Sharing examination questions — pending investigation"
+              value={suspendNotes}
+              onChange={(e) => setSuspendNotes(e.target.value)}
+            />
+            <p className="text-[11px] text-slate-400">The teacher will not see this note.</p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => { setSuspendOpen(false); setPendingTeacher(null); }}>Cancel</Button>
+            <Button
+              type="button"
+              className="font-semibold"
+              disabled={!pendingTeacher || actionBusy === pendingTeacher?.id}
+              onClick={() => pendingTeacher && void suspendTeacher(pendingTeacher, suspendNotes)}
+            >
+              Suspend
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={(o) => { if (!o) { setDeleteOpen(false); setPendingTeacher(null); } }}
+        title={`Delete ${pendingTeacher?.profiles?.full_name || "teacher"}?`}
+        description="This removes them from the school. Those login details will no longer work (invalid credentials)."
+        confirmLabel="Delete"
+        destructive
+        busy={Boolean(pendingTeacher && actionBusy === pendingTeacher.id)}
+        onConfirm={() => pendingTeacher && void removeTeacher(pendingTeacher)}
+      />
 
     </>
   );

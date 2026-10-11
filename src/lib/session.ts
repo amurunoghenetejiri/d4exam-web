@@ -692,26 +692,10 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     }
   }
 
-  // Inject preferred/pending role only AFTER school recovery attempts
-  {
-    const preferred = readPreferredRole() || readPendingLoginRole();
-    if (
-      preferred &&
-      !roles.includes(preferred) &&
-      ["school_admin", "examination_officer", "teacher", "super_admin", "student"].includes(preferred)
-    ) {
-      roles = [...roles, preferred];
-    }
-  }
+  // Do NOT inject preferred/pending roles the user does not actually have.
+  // That previously let teachers open /admin as school_admin.
 
   // FAST EXIT: RPC already resolved identity — only load school branding
-  // Ensure pending/preferred staff role is present before early return
-  {
-    const pref = readPreferredRole() || readPendingLoginRole();
-    if (pref && ["school_admin", "examination_officer", "teacher", "super_admin"].includes(pref) && !roles.includes(pref as AppRole)) {
-      roles = [...roles, pref as AppRole];
-    }
-  }
 
   if (roles.length > 0 && (schoolId || roles.includes("super_admin"))) {
     let schoolName: string | null = null;
@@ -910,10 +894,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     "student",
   ];
   const preferred = readPreferredRole() || readPendingLoginRole();
-  // Keep preferred staff role even if user_roles lag / RLS delays (prevents admin→login loop)
-  if (preferred && !roles.includes(preferred) && ["school_admin", "examination_officer", "teacher", "super_admin"].includes(preferred)) {
-    roles = [...roles, preferred];
-  }
+  // Prefer a saved role only if the account truly has it — never invent school_admin for teachers.
   const primaryRole =
     (preferred && roles.includes(preferred) ? preferred : null) ||
     priority.find((r) => roles.includes(r)) ||

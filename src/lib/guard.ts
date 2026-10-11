@@ -205,7 +205,7 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
   const isSuper = user.roles.includes("super_admin") || user.role === "super_admin";
 
   if (user.status === "suspended" || user.status === "deactivated" || user.status === "locked") {
-    throw redirect({ to: "/login", search: { blocked: "1" } as never });
+    throw redirect({ to: "/account-suspended" as never });
   }
 
   if (
@@ -217,22 +217,31 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
     throw redirect({ to: "/login", search: { pending: "1" } as never });
   }
 
+  // STRICT: only roles from DB — never invent school_admin from preferred path/cache
   let hasRole = allowed.some((r) => user!.roles.includes(r) || user!.role === r);
   if (!hasRole) {
     const preferred = readPreferredRole() || readPendingLoginRole();
-    if (preferred && allowed.includes(preferred)) {
-      // Hydration lag: trust preferred role for this navigation
-      user = {
-        ...user!,
-        role: preferred,
-        roles: Array.from(new Set([...(user!.roles || []), preferred])),
-      };
+    if (
+      preferred &&
+      allowed.includes(preferred) &&
+      (user!.roles.includes(preferred) || user!.role === preferred)
+    ) {
+      user = { ...user!, role: preferred };
       hasRole = true;
       if (queryClient) queryClient.setQueryData(["session-user"], user);
     }
   }
   if (!hasRole) {
-    throw redirect({ to: (user.role ? roleHome[user.role] : "/login") as never });
+    const home = user.role && user.role in roleHome ? roleHome[user.role] : "/login";
+    throw redirect({ to: home as never });
+  }
+
+  if (
+    user.status === "suspended" ||
+    user.status === "deactivated" ||
+    user.status === "locked"
+  ) {
+    throw redirect({ to: "/account-suspended" as never });
   }
 
   return { user };

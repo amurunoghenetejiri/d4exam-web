@@ -10,6 +10,7 @@ import {
   reviewSchoolApplication,
 } from "@/lib/auth.school-admin.functions";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ArrowLeft, Building2, Copy, Download, Loader2, MapPin, Phone, Mail, User, Trash2, ZoomIn, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -485,6 +486,8 @@ function Page() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [creds, setCreds] = useState<Creds | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteAppId, setDeleteAppId] = useState<string | null>(null);
+  const [deleteAppName, setDeleteAppName] = useState("");
   const [logoViewer, setLogoViewer] = useState<{ url: string; name: string } | null>(null);
 
   // Approved schools are live users — hide from application queue
@@ -506,14 +509,10 @@ function Page() {
     decision: "approved" | "rejected" | "under_review" | "more_information_required",
   ) {
     if (decision === "approved") {
-      const ok = window.confirm(
-        "Are you sure you want to approve this school application?\n\nThis will create the school, generate login credentials, and notify the applicant.",
-      );
-      if (!ok) return;
+      // continue — approval already has a credentials modal
     }
     if (decision === "rejected") {
-      const ok = window.confirm("Reject this application? The school will not be created.");
-      if (!ok) return;
+      // reject continues
     }
 
     setBusyId(applicationId);
@@ -1000,6 +999,26 @@ function Page() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(deleteAppId)}
+        onOpenChange={(o) => { if (!o) setDeleteAppId(null); }}
+        title="Delete application?"
+        description={`Remove ${deleteAppName} from the queue. This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!deleteAppId) return;
+          try {
+            const { error } = await supabase.from("school_applications").delete().eq("id", deleteAppId);
+            if (error) throw error;
+            toast.success("Application deleted");
+            setDeleteAppId(null);
+            await refetch();
+          } catch (e) {
+            toast.error((e as Error).message || "Could not delete application");
+          }
+        }}
+      />
     </>
   );
 }

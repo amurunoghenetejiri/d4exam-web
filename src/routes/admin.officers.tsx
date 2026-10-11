@@ -27,6 +27,7 @@ import { useSessionUser } from "@/lib/session";
 import { useRows } from "@/lib/queries";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function friendlyErr(err: unknown, fallback = "Something went wrong"): string {
   const m = err instanceof Error ? err.message : String(err || "");
@@ -259,35 +260,39 @@ function Page() {
   }
 
   async function removeOfficer(o: Officer) {
-    if (
-      !confirm(
-        `Remove departmental officer ${o.profiles?.full_name || o.officer_id}? They will no longer access the app.`,
-      )
-    ) {
-      return;
-    }
+    const label = o.profiles?.full_name || o.officer_id || "officer";
     setMenuOpen(null);
+    setActionOfficer(null);
     setActionBusy(o.id);
     try {
-      const { error } = await supabase
-        .from("examination_officers")
-        .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
-        .eq("id", o.id);
-      if (error) throw error;
+      const { error: delErr } = await supabase.from("examination_officers").delete().eq("id", o.id);
+      if (delErr) {
+        await supabase
+          .from("examination_officers")
+          .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
+          .eq("id", o.id);
+      }
       if (o.profile_id) {
         await supabase
           .from("profiles")
-          .update({ status: "suspended", updated_at: new Date().toISOString() } as never)
+          .update({ status: "deactivated", updated_at: new Date().toISOString() } as never)
           .eq("id", o.profile_id);
+        const { data: prof } = await supabase.from("profiles").select("auth_user_id").eq("id", o.profile_id).maybeSingle();
+        if (prof?.auth_user_id) {
+          await supabase.from("user_roles").delete().eq("user_id", prof.auth_user_id);
+        }
+        await supabase.from("user_roles").delete().eq("user_id", o.profile_id);
       }
-      toast.success("Officer removed (suspended)");
+      toast.success(`${label} deleted — those login details will no longer work`);
       await qc.invalidateQueries();
+      await listQ.refetch?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove officer");
+      toast.error(err instanceof Error ? err.message : "Could not remove");
     } finally {
       setActionBusy(null);
     }
   }
+
 
   async function importOfficers(file: File) {
     if (!schoolId) {

@@ -12,6 +12,7 @@ import { useRows } from "@/lib/queries";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/admin/courses")({
   head: () => ({ meta: [{ title: "Courses — D4EXAM" }] }),
@@ -317,6 +318,10 @@ function Page() {
   }, [courses, filterSem, filterDept, activeSemester, offerings]);
 
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [deleteCourseOpen, setDeleteCourseOpen] = useState(false);
+  const [editCode, setEditCode] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editUnits, setEditUnits] = useState("3");
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null;
 
   const assignedTeacherIds = useMemo(() => {
@@ -528,6 +533,12 @@ function Page() {
   }
 
   function selectCourse(id: string) {
+    const c = (coursesQ.data ?? []).find((x) => x.id === id);
+    if (c) {
+      setEditCode(c.code || "");
+      setEditName(c.name || "");
+      setEditUnits(String(c.credit_units ?? 3));
+    }
     setSelectedCourseId(id);
     setPendingTeachers(null);
   }
@@ -587,6 +598,56 @@ function Page() {
       .filter((t) => ids.has(t.id))
       .map((t) => t.profiles?.full_name ?? t.staff_id)
       .join(", ");
+  }
+
+
+  async function saveCourseMeta() {
+    if (!schoolId || !selectedCourse) return;
+    if (!editCode.trim() || !editName.trim()) {
+      toast.error("Code and title are required");
+      return;
+    }
+    setEditBusy(true);
+    try {
+      const { error } = await supabase
+        .from("courses")
+        .update({
+          code: editCode.trim().toUpperCase(),
+          name: editName.trim(),
+          credit_units: Number(editUnits) || 0,
+          updated_at: new Date().toISOString(),
+        } as never)
+        .eq("id", selectedCourse.id)
+        .eq("school_id", schoolId);
+      if (error) throw error;
+      toast.success("Course updated");
+      await coursesQ.refetch();
+    } catch (e) {
+      toast.error((e as Error).message || "Could not update course");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function deleteCourse() {
+    if (!schoolId || !selectedCourse) return;
+    setEditBusy(true);
+    try {
+      await supabase.from("teacher_courses").delete().eq("course_id", selectedCourse.id);
+      await supabase.from("course_offerings").delete().eq("course_id", selectedCourse.id).eq("school_id", schoolId);
+      const { error } = await supabase.from("courses").delete().eq("id", selectedCourse.id).eq("school_id", schoolId);
+      if (error) throw error;
+      toast.success("Course deleted");
+      setSelectedCourseId(null);
+      setDeleteCourseOpen(false);
+      await coursesQ.refetch();
+      await offeringsQ.refetch();
+      await linksQ.refetch();
+    } catch (e) {
+      toast.error((e as Error).message || "Could not delete course");
+    } finally {
+      setEditBusy(false);
+    }
   }
 
   return (
@@ -823,6 +884,29 @@ function Page() {
             </div>
           </div>
 
+          <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-3">
+            <div className="space-y-1 sm:col-span-1">
+              <Label className="text-xs">Code</Label>
+              <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} className="h-9" />
+            </div>
+            <div className="space-y-1 sm:col-span-1">
+              <Label className="text-xs">Title</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="h-9" />
+            </div>
+            <div className="space-y-1 sm:col-span-1">
+              <Label className="text-xs">Credit units</Label>
+              <Input value={editUnits} onChange={(e) => setEditUnits(e.target.value)} className="h-9" type="number" min={0} />
+            </div>
+            <div className="flex flex-wrap gap-2 sm:col-span-3">
+              <Button size="sm" className="font-semibold" disabled={editBusy} onClick={() => void saveCourseMeta()}>
+                Save course details
+              </Button>
+              <Button size="sm" variant="outline" className="font-semibold text-red-600" disabled={editBusy} onClick={() => setDeleteCourseOpen(true)}>
+                Delete course
+              </Button>
+            </div>
+          </div>
+
           <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
             <BookOpen className="h-4 w-4 text-primary" />
             Teachers ({effectiveAssigned.size})
@@ -860,6 +944,16 @@ function Page() {
           )}
         </SectionCard>
       )}
+      <ConfirmDialog
+        open={deleteCourseOpen}
+        onOpenChange={setDeleteCourseOpen}
+        title="Delete this course?"
+        description={`${selectedCourse?.code || ""} — ${selectedCourse?.name || ""}. Teachers assigned to it will be unlinked.`}
+        confirmLabel="Delete"
+        destructive
+        busy={editBusy}
+        onConfirm={() => void deleteCourse()}
+      />
     </>
   );
 }
