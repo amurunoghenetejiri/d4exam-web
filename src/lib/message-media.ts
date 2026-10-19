@@ -11,42 +11,60 @@ export async function uploadMessageMedia(
   contentType: string,
   pathPrefix: string,
 ): Promise<{ url: string; type: "image" | "audio" | "file"; inline?: boolean }> {
-  const kind = contentType || blob.type || "application/octet-stream";
+  const kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
   const isImage = kind.startsWith("image/");
-  const isAudio = kind.startsWith("audio/");
+  const isAudio = kind.startsWith("audio/") || kind === "application/ogg";
   const type: "image" | "audio" | "file" = isImage ? "image" : isAudio ? "audio" : "file";
   const ext = isImage
     ? kind.includes("png")
       ? "png"
       : kind.includes("webp")
         ? "webp"
-        : "jpg"
+        : kind.includes("gif")
+          ? "gif"
+          : "jpg"
     : isAudio
-      ? "webm"
-      : "bin";
+      ? kind.includes("mpeg") || kind.includes("mp3")
+        ? "mp3"
+        : kind.includes("ogg")
+          ? "ogg"
+          : kind.includes("mp4")
+            ? "m4a"
+            : "webm"
+      : kind.includes("pdf")
+        ? "pdf"
+        : kind.includes("mp4")
+          ? "mp4"
+          : "bin";
   const path = `${pathPrefix.replace(/\/+$/, "")}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
+  let lastErr = "";
   for (const bucket of BUCKETS) {
     try {
       const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-        contentType: kind,
+        contentType: kind || "application/octet-stream",
         upsert: true,
+        cacheControl: "3600",
       });
-      if (error) continue;
+      if (error) {
+        lastErr = error.message || String(error);
+        continue;
+      }
       const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       if (data?.publicUrl) return { url: data.publicUrl, type };
-    } catch {
-      /* try next */
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
     }
   }
 
-  // Inline fallback — keep small to avoid huge DB rows (max ~600KB)
-  if (blob.size <= 600_000) {
+  // Inline fallback — voice notes / small images (max ~1.2MB)
+  if (blob.size <= 1_200_000) {
     const dataUrl = await blobToDataUrl(blob);
     return { url: dataUrl, type, inline: true };
   }
   throw new Error(
-    "Could not upload file. Use a smaller photo/video under 8 MB, check your connection, or ensure the message-media Storage bucket exists and is public.",
+    lastErr ||
+      "Could not upload file. Use a smaller photo/video under 8 MB, check your connection, or ensure the message-media Storage bucket exists and is public.",
   );
 }
 
