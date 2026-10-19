@@ -30,14 +30,17 @@ export function ProfilePhotoViewer({
 
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = prev;
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
       window.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
@@ -74,8 +77,21 @@ export function ProfilePhotoViewer({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] h-[100dvh] w-screen overflow-hidden bg-black text-white"
-      style={{ top: 0, left: 0, right: 0, bottom: 0 }}
+      className="fixed overflow-hidden bg-black text-white"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: "100vw",
+        height: "100dvh",
+        maxWidth: "100vw",
+        maxHeight: "100dvh",
+        zIndex: 2147483000,
+        margin: 0,
+        padding: 0,
+      }}
       role="dialog"
       aria-modal="true"
       aria-label="Profile photo"

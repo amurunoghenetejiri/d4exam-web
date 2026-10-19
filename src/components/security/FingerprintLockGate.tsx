@@ -337,7 +337,8 @@ export function FingerprintLockGate() {
 
   function showFingerprintMode() {
     userPickedPasswordRef.current = false;
-    setMode("fingerprint");
+    if (native) setMode("fingerprint");
+    else setMode("password");
     setAppPw("");
     setPwError(null);
     setFailedMsg(null);
@@ -440,23 +441,27 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    if (!native) {
-      // Website: require app password only (no fingerprint)
+    // Website / non-native: password only, stay locked until password unlock
+    const onWeb = !native;
+    if (onWeb) {
       if (!hasAppPw) {
         setLocked(false);
+        setMode("password");
         return;
       }
-      if (isSessionUnlocked() && !isFingerprintLocked() && !shouldLockAfterBackground()) {
+      if (isSessionUnlocked()) {
         setLocked(false);
+        setMode("password");
         return;
       }
+      // Always password mode — never fingerprint UI on website
+      setMode("password");
       setFingerprintLocked(true);
       setLocked(true);
       setFailedMsg(null);
       setStatus("idle");
       promptedRef.current = false;
       userPickedPasswordRef.current = false;
-      setMode("password");
       return;
     }
     if (isFingerprintLocked() || shouldLockAfterBackground()) {
@@ -470,7 +475,8 @@ export function FingerprintLockGate() {
       setStatus("idle");
       promptedRef.current = false;
       userPickedPasswordRef.current = false;
-      if (canFp) setMode("fingerprint");
+      if (native) setMode("fingerprint");
+      else setMode("password");
       else setMode("password");
       return;
     }
@@ -500,7 +506,8 @@ export function FingerprintLockGate() {
     const fpEnabled = isFingerprintEnabledFor(userId) || Boolean(pref?.enabled && pref.userId);
     // Only force password when device is known to lack fingerprint
     const canFp = Boolean(native && hwState !== "no");
-    if (canFp) setMode("fingerprint");
+    if (native) setMode("fingerprint");
+    else setMode("password");
     else setMode("password");
   }, [locked, userId, pref?.enabled, hwState, native]);
 

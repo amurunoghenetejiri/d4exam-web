@@ -5,6 +5,15 @@ import { startDirectCall, notifyCalleeOfIncomingCall, inviteCalleeOnPersonalChan
 import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { toast } from "sonner";
+
+function friendlySendErr(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e || "");
+  if (/row-level security|42501/i.test(m)) return "Could not send — try again in a moment.";
+  if (/not a member/i.test(m)) return "You are not in this chat yet. Open it again.";
+  if (/network|fetch|failed to fetch/i.test(m)) return "Network error — check connection and retry.";
+  return m || "Could not send message";
+}
+
 /**
  * Campus conversation chat (direct + group).
  * Reuses MessageMedia; stores in campus_messages.

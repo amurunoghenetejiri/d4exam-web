@@ -487,11 +487,16 @@ function MessagesHub() {
 
   const startDirect = useCallback(
     async (peer: StudentDiscover) => {
-      if (!peer.auth_user_id || !userId) {
-        toast.error("Cannot start chat — student account not linked yet");
+      if (!userId) {
+        toast.error("Sign in again to message");
+        return;
+      }
+      if (!peer.auth_user_id) {
+        toast.error("This student cannot receive messages yet");
         return;
       }
       try {
+        toast.loading("Opening chat…", { id: "open-chat" });
         const sid = schoolId || schoolIdHint || "";
         const cid = await getOrCreateDirectConversation(
           userId,
@@ -499,12 +504,16 @@ function MessagesHub() {
           sid,
         );
         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-        openConversation(cid);
+        toast.dismiss("open-chat");
+        if (cid) openConversation(cid);
+        else toast.error("Could not open chat");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not open chat");
+        toast.dismiss("open-chat");
+        const msg = e instanceof Error ? e.message : "Could not open chat";
+        toast.error(msg.replace(/row-level security policy/gi, "permission denied — try again"));
       }
     },
-    [userId, schoolId, navigate, qc],
+    [userId, schoolId, schoolIdHint, qc, openConversation],
   );
 
   const openOfficer = useCallback(() => {
@@ -581,7 +590,7 @@ function MessagesHub() {
         className="relative z-10 shrink-0 bg-[#0b1b3a] text-white"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="flex items-center gap-2 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
+        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
           <button
             type="button"
             onClick={() => navigate({ to: "/student" })}
@@ -590,40 +599,32 @@ function MessagesHub() {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] shadow-lg shadow-blue-900/40 ring-2 ring-white/25">
-            <MessageSquare className="h-5 w-5 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-black tracking-tight sm:text-xl">D4<span className="text-[#60a5fa]">Chat</span></h1>
-            <p className="text-[10px] text-white/70 sm:text-[11px]">
-              Campus messages · groups · officers
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => appNavigate("/student/notifications")}
-              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
-              aria-label="Notifications"
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#3b82f6] via-[#2563eb] to-[#1d4ed8] shadow-lg shadow-blue-900/45 ring-2 ring-white/20"
+              aria-hidden
             >
-              <Bell className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (userId) appNavigate(`/student/user/${encodeURIComponent(userId)}`);
-                else appNavigate("/student/user/me");
-              }}
-              className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-white/10 text-white ring-1 ring-white/20 transition active:scale-95"
-              aria-label="My profile"
-            >
-              {myNavPhoto ? (
-                <img src={myNavPhoto} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <User className="h-5 w-5" />
-              )}
-            </button>
+              <span className="text-[11px] font-black tracking-tight text-white">D4</span>
+            </div>
+            <h1 className="truncate text-lg font-black tracking-tight sm:text-xl">
+              D4<span className="text-[#60a5fa]">Chat</span>
+            </h1>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (userId) appNavigate(`/student/user/${encodeURIComponent(userId)}`);
+              else appNavigate("/student/user/me");
+            }}
+            className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-white ring-1 ring-white/20 transition active:scale-95"
+            aria-label="My profile"
+          >
+            {myNavPhoto ? (
+              <img src={myNavPhoto} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <User className="h-5 w-5" />
+            )}
+          </button>
         </div>
       </header>
 
@@ -1313,39 +1314,42 @@ function StudentRow({
   onMessage: (s: StudentDiscover) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (s.auth_user_id) onMessage(s);
-      }}
-      disabled={!s.auth_user_id}
-      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40 disabled:opacity-50"
-    >
-      <Avatar name={s.full_name} url={s.avatar_url} onOpenProfile={() =>
-        s.auth_user_id &&
-        openUserProfile(s.auth_user_id, {
-          name: s.full_name,
-          avatar: s.avatar_url,
-          matric: s.matric_number,
-        })
-      } />
+    <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 shadow-sm">
+      <Avatar
+        name={s.full_name}
+        url={s.avatar_url}
+        onOpenProfile={() =>
+          s.auth_user_id &&
+          openUserProfile(s.auth_user_id, {
+            name: s.full_name,
+            avatar: s.avatar_url,
+            matric: s.matric_number,
+          })
+        }
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-bold text-slate-900">
-          {s.full_name}
-        </p>
+        <p className="truncate text-[15px] font-bold text-slate-900">{s.full_name}</p>
         <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
           {[s.matric_number, s.level].filter(Boolean).join(" · ")}
         </p>
         {s.department ? (
-          <p className="mt-0.5 truncate text-[10px] text-slate-400">
-            {s.department}
-          </p>
+          <p className="mt-0.5 truncate text-[10px] text-slate-400">{s.department}</p>
         ) : null}
       </div>
-      <span className="shrink-0 rounded-xl bg-[#2563eb] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm">
+      <button
+        type="button"
+        disabled={!s.auth_user_id}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (s.auth_user_id) onMessage(s);
+          else toast.error("This student cannot receive messages yet");
+        }}
+        className="shrink-0 rounded-xl bg-[#2563eb] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm disabled:opacity-50 active:scale-95"
+      >
         Message
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
