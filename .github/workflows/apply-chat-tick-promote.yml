@@ -1,0 +1,22 @@
+name: Apply chat tick promote
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/apply_chat_tick_promote.py
+      - .github/workflows/apply-chat-tick-promote.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply promote patches
+        run: python3 scripts/apply_chat_tick_promote.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add "src/routes/student.messages.$conversationId.tsx"
+          if git diff --cached --quiet; then echo "no change"; else git commit -m "fix: promote optimistic voice/media to ticks (no stuck spinner)" && git push; fi
