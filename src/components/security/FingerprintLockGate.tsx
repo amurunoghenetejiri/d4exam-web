@@ -477,7 +477,6 @@ export function FingerprintLockGate() {
       userPickedPasswordRef.current = false;
       if (native) setMode("fingerprint");
       else setMode("password");
-      else setMode("password");
       return;
     }
     setLocked(false);
@@ -503,11 +502,9 @@ export function FingerprintLockGate() {
       setMode("password");
       return;
     }
-    const fpEnabled = isFingerprintEnabledFor(userId) || Boolean(pref?.enabled && pref.userId);
-    // Only force password when device is known to lack fingerprint
+    // Website: always password. Native: fingerprint only when device supports it.
     const canFp = Boolean(native && hwState !== "no");
-    if (native) setMode("fingerprint");
-    else setMode("password");
+    if (canFp) setMode("fingerprint");
     else setMode("password");
   }, [locked, userId, pref?.enabled, hwState, native]);
 
