@@ -502,11 +502,15 @@ function MessagesHub() {
       }
       try {
         const sid = schoolId || schoolIdHint || "";
-        const cid = await getOrCreateDirectConversation(
-          userId,
-          peer.auth_user_id,
-          sid,
-        );
+        const cacheKey = `d4_dm_${userId}_${peer.auth_user_id}`;
+        let cid: string | null = null;
+        try { cid = window.sessionStorage.getItem(cacheKey); } catch { /* */ }
+        if (!cid) {
+          cid = await getOrCreateDirectConversation(userId, peer.auth_user_id, sid);
+          if (cid) {
+            try { window.sessionStorage.setItem(cacheKey, cid); } catch { /* */ }
+          }
+        }
         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
         if (cid) {
           openConversation(cid, {
@@ -832,16 +836,26 @@ function MessagesHub() {
                         return;
                       }
                       try {
-                        const cid = await getOrCreateDirectConversation(
-                          userId,
-                          o.id,
-                          schoolId || schoolIdHint || "",
-                        );
+                        const cacheKey = `d4_dm_${userId}_${o.id}`;
+                        let cid: string | null = null;
+                        try { cid = window.sessionStorage.getItem(cacheKey); } catch { /* */ }
+                        if (!cid) {
+                          cid = await getOrCreateDirectConversation(
+                            userId,
+                            o.id,
+                            schoolId || schoolIdHint || "",
+                          );
+                          if (cid) {
+                            try { window.sessionStorage.setItem(cacheKey, cid); } catch { /* */ }
+                          }
+                        }
                         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-                        openConversation(cid, {
-                          title: o.full_name || "Departmental Officer",
-                          peerUserId: o.id,
-                        });
+                        if (cid) {
+                          openConversation(cid, {
+                            title: o.full_name || "Departmental Officer",
+                            peerUserId: o.id,
+                          });
+                        }
                       } catch (e) {
                         toast.error(e instanceof Error ? e.message : "Could not open chat");
                       }

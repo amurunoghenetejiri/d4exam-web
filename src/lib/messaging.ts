@@ -315,12 +315,35 @@ export async function getOrCreateDirectConversation(
 ): Promise<string> {
   if (myUserId === peerUserId) throw new Error("Cannot message yourself");
 
-  // Find existing direct conversation sharing both members
+  // Fast path: one RPC (find-or-create) — avoids slow multi-query membership scan
+  const resolvedSchool = (await resolveMySchoolId(schoolId)) || schoolId || null;
+  try {
+    const raced = await Promise.race([
+      supabase.rpc("create_campus_conversation", {
+        p_type: "direct",
+        p_title: null,
+        p_description: null,
+        p_group_kind: null,
+        p_member_user_ids: [peerUserId],
+        p_school_id: resolvedSchool,
+        p_peer_user_id: peerUserId,
+      }),
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 5_000),
+      ),
+    ]);
+    if (!raced.error && raced.data) return raced.data as string;
+  } catch {
+    /* fall through */
+  }
+
+  // Fallback: find existing direct conversation sharing both members
   const { data: myMemberships } = await supabase
     .from("conversation_members")
     .select("conversation_id")
     .eq("user_id", myUserId)
-    .is("left_at", null);
+    .is("left_at", null)
+    .limit(80);
 
   const myConvIds = (myMemberships || []).map((m) => m.conversation_id);
   if (myConvIds.length) {
@@ -329,10 +352,10 @@ export async function getOrCreateDirectConversation(
       .select("conversation_id")
       .eq("user_id", peerUserId)
       .in("conversation_id", myConvIds)
-      .is("left_at", null);
+      .is("left_at", null)
+      .limit(20);
 
     if (shared?.length) {
-      // Prefer a direct-type conversation
       const { data: directs } = await supabase
         .from("conversations")
         .select("id, type")
@@ -345,8 +368,6 @@ export async function getOrCreateDirectConversation(
     }
   }
 
-  // Create new via RPC first
-  const resolvedSchool = (await resolveMySchoolId(schoolId)) || schoolId || null;
   const { data: rpcId, error: rpcErr } = await supabase.rpc(
     "create_campus_conversation",
     {

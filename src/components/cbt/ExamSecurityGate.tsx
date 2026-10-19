@@ -537,9 +537,9 @@ export function ExamSecurityGate({
                 primeHaptics();
                 stopPreview();
                 {
-                  const offlineMsg = assertOnlineActionSync();
-                  if (offlineMsg) {
-                    toast.error(offlineMsg);
+                  // Only block when the browser explicitly reports offline
+                  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+                    toast.error(assertOnlineActionSync() || "Internet connection required for this action.");
                     return;
                   }
                 }

@@ -16,13 +16,22 @@ export function canReachNetwork(): boolean {
  * Use before exam start, submit, approvals, etc.
  */
 export async function assertOnlineAction(): Promise<string | null> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return requireOnlineMessage();
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === true) {
+    return null;
+  }
   if (!isOnlineNow()) return requireOnlineMessage();
-  const { internet } = await resolveConnectivity();
-  if (!internet) return requireOnlineMessage();
   return null;
 }
 
 export function assertOnlineActionSync(): string | null {
+  // Website / browser: only block when the browser itself reports offline
+  if (typeof navigator !== "undefined") {
+    if (navigator.onLine === false) return requireOnlineMessage();
+    return null;
+  }
   if (!isOnlineNow()) return requireOnlineMessage();
   return null;
 }

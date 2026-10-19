@@ -125,7 +125,7 @@ function StartExamButton({ examId, continueMode, remainingMs, hasResult }: { exa
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        if (typeof navigator !== "undefined" && navigator.onLine === false /* hard offline only */) {
           window.alert("Connect to the internet to write this exam.");
           return;
         }

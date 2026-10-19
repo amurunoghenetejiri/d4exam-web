@@ -15,7 +15,8 @@ export function getNetworkStatus(): NetworkStatus {
   if (typeof navigator === "undefined") {
     return { connected: true, connectionType: "unknown" };
   }
-  const online = navigator.onLine && lastProbeOk;
+  // Browser online wins — stale failed probes must not block website exam start
+  const online = navigator.onLine !== false;
   const conn = (navigator as Navigator & {
     connection?: { effectiveType?: string; type?: string };
   }).connection;
