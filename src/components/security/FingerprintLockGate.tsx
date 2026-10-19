@@ -138,14 +138,26 @@ function lastKnownRole(): AppRole | null {
 }
 
 export function FingerprintLockGate() {
-  const [native, setNative] = useState(() => isNativeShell());
+  const [native, setNative] = useState(() => {
+    try {
+      // Strict: only real Capacitor native shell — never treat mobile Chrome as APK
+      const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+      return Boolean(Cap?.isNativePlatform?.());
+    } catch {
+      return false;
+    }
+  });
   const { data: session } = useSessionUser();
 
   useEffect(() => {
     if (native) return;
     let cancelled = false;
-    void waitForNativeShell(10_000).then((ok) => {
-      if (!cancelled && ok && isNativeShell()) setNative(true);
+    void waitForNativeShell(3_000).then((ok) => {
+      if (cancelled) return;
+      try {
+        const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+        if (ok && Cap?.isNativePlatform?.()) setNative(true);
+      } catch { /* web stays non-native */ }
     });
     const onReady = () => {
       if (isNativeShell()) setNative(true);
@@ -448,12 +460,21 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    // Website: password-only lock. Stays until user enters correct app password.
-    // Do NOT use isSessionUnlocked() on web — it was auto-clearing the lock.
-    const onWeb = !native;
+    // Website: ALWAYS password-only. Never fingerprint. Never auto-unlock without password entry.
+    const capNative = (() => {
+      try {
+        const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+        return Boolean(Cap?.isNativePlatform?.());
+      } catch {
+        return false;
+      }
+    })();
+    const onWeb = !capNative;
     if (onWeb) {
       setMode("password");
-      if (!hasAppPw) {
+      // Prefer app-password when configured; if still loading hasAppPw, keep lock visible once unlocked key missing
+      if (hasAppPw === false) {
+        // No app password set for this user — do not block
         setLocked(false);
         return;
       }
@@ -465,12 +486,18 @@ export function FingerprintLockGate() {
         setLocked(false);
         return;
       }
-      setFingerprintLocked(true);
-      setLocked(true);
-      setFailedMsg(null);
-      setStatus("idle");
-      promptedRef.current = false;
-      userPickedPasswordRef.current = false;
+      // hasAppPw true OR still unknown — require password if pref/enabled or known app pw
+      if (hasAppPw === true || pref?.enabled) {
+        setFingerprintLocked(true);
+        setLocked(true);
+        setFailedMsg(null);
+        setStatus("idle");
+        promptedRef.current = true; // never auto-prompt biometrics on web
+        userPickedPasswordRef.current = true;
+        setMode("password");
+        return;
+      }
+      setLocked(false);
       return;
     }
     if (isFingerprintLocked() || shouldLockAfterBackground()) {
@@ -1044,7 +1071,12 @@ export function FingerprintLockGate() {
             <LogOut className="h-4 w-4 md:h-5 md:w-5" aria-hidden />
             Log out
           </button>
-          {mode === "fingerprint" && native ? (
+          {mode === "fingerprint" && native && (() => {
+            try {
+              const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+              return Boolean(Cap?.isNativePlatform?.());
+            } catch { return false; }
+          })() ? (
             <button
               type="button"
               onClick={showPasswordMode}

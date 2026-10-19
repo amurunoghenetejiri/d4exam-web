@@ -158,18 +158,29 @@ async function enrichMissingOptions(rows: RawQ[]): Promise<RawQ[]> {
 
 async function loadViaRpc(examId: string, courseId: string | null, schoolId: string | null): Promise<RawQ[]> {
   try {
-    const { data, error } = await sbLoose.rpc("get_cbt_exam_questions", {
-      p_exam_id: examId,
-      p_course_id: courseId || null,
-      p_school_id: schoolId || null,
-    });
+    const { data, error } = await Promise.race([
+      sbLoose.rpc("get_cbt_exam_questions", {
+        p_exam_id: examId,
+        p_course_id: courseId || null,
+        p_school_id: schoolId || null,
+      }),
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: { message: "rpc timeout" } }), 6_000),
+      ),
+    ]);
     if (error) {
       console.warn("[cbt] get_cbt_exam_questions rpc", error.message);
       return [];
     }
-    // data may be array of json objects
-    const rows = Array.isArray(data) ? data : [];
-    return enrichMissingOptions(normalizeRows(rows));
+    let rows: unknown = data;
+    if (typeof data === "string") {
+      try { rows = JSON.parse(data); } catch { rows = []; }
+    }
+    if (rows && typeof rows === "object" && !Array.isArray(rows) && Array.isArray((rows as { data?: unknown }).data)) {
+      rows = (rows as { data: unknown[] }).data;
+    }
+    const list = Array.isArray(rows) ? rows : [];
+    return enrichMissingOptions(normalizeRows(list));
   } catch (e) {
     console.warn("[cbt] rpc exception", e);
     return [];
@@ -240,28 +251,24 @@ async function fetchQuestionsByIds(ids: string[]): Promise<RawQ[]> {
 
 async function loadFromCourseBank(courseId: string, schoolId: string | null): Promise<RawQ[]> {
   if (!courseId) return [];
-  const colSets = [
-    "id, question_text, question_type, marks, correct_answer, explanation, options, school_id, status, course_id",
-    "id, question_text, question_type, marks, correct_answer, explanation, school_id, status, course_id",
-    "id, question_text, question_type, marks, correct_answer, school_id, status, course_id",
-    "id, question_text, marks, correct_answer, course_id",
-  ];
-  for (const cols of colSets) {
-    for (const withSchool of [true, false]) {
-      for (const statuses of [["active", "approved"], ["active", "approved", "pending"], null] as (string[] | null)[]) {
-        let q = supabase.from("questions").select(cols).eq("course_id", courseId).limit(300);
-        if (statuses) q = q.in("status", statuses);
-        if (withSchool && schoolId) q = q.eq("school_id", schoolId);
-        const { data, error } = await q;
-        if (error) {
-          console.warn("[cbt] course bank", error.message);
-          continue;
-        }
-        const rows = normalizeRows(data);
-        if (rows.length) return enrichMissingOptions(rows);
-      }
-    }
+  // Fast path: one query (avoid nested retries that delay exam start)
+  let q = supabase
+    .from("questions")
+    .select("id, question_text, question_type, marks, correct_answer, explanation, options, school_id, status, course_id")
+    .eq("course_id", courseId)
+    .limit(150);
+  if (schoolId) q = q.eq("school_id", schoolId);
+  const { data, error } = await q;
+  if (!error && data?.length) return enrichMissingOptions(normalizeRows(data));
+  if (schoolId) {
+    const { data: d2 } = await supabase
+      .from("questions")
+      .select("id, question_text, question_type, marks, correct_answer, explanation, options, school_id, status, course_id")
+      .eq("course_id", courseId)
+      .limit(150);
+    if (d2?.length) return enrichMissingOptions(normalizeRows(d2));
   }
+  if (error) console.warn("[cbt] course bank", error.message);
   return [];
 }
 

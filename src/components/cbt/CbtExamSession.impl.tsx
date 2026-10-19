@@ -226,12 +226,14 @@ export function CbtExamPage() {
 
   const questionsQ = useQuery({
     queryKey: ["cbt-questions", id, examQ.data?.course_id, examQ.data?.school_id],
-    enabled: Boolean(examQ.data?.course_id),
+    // Start as soon as we have exam id — RPC can load by exam_id alone
+    enabled: Boolean(id),
+    staleTime: 60_000,
     queryFn: async () => {
-      const exam = examQ.data!;
+      const exam = examQ.data;
       return loadExamQuestionBank({
-        courseId: String(exam.course_id),
-        schoolId: exam.school_id ? String(exam.school_id) : null,
+        courseId: exam?.course_id ? String(exam.course_id) : "",
+        schoolId: exam?.school_id ? String(exam.school_id) : null,
         examId: id || null,
       });
     },
