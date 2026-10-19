@@ -217,7 +217,6 @@ export function isNotificationTypeAllowed(
   return true;
 }
 
-
 /** Apply language, motion, compact tables, and theme classes to <html>. */
 export function applyDisplayPrefsToDom(prefs: DisplayPrefs) {
   if (typeof document === "undefined") return;
@@ -229,21 +228,33 @@ export function applyDisplayPrefsToDom(prefs: DisplayPrefs) {
   root.dataset.language = prefs.language || "en";
   root.dataset.timezone = prefs.timezone || "auto";
 
-  // Theme
+  // Theme: light | dark | system
   const appearance = prefs.appearance || "system";
   root.classList.remove("light", "dark");
+  let useDark = false;
   if (appearance === "light") {
+    useDark = false;
+  } else if (appearance === "dark") {
+    useDark = true;
+  } else {
+    try {
+      useDark = !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+    } catch {
+      useDark = false;
+    }
+  }
+  if (useDark) {
+    root.classList.add("dark");
+    root.classList.remove("light");
+    root.style.colorScheme = "dark";
+  } else {
     root.classList.add("light");
     root.classList.remove("dark");
-  } else if (appearance === "dark") {
-    root.classList.add("dark");
-  } else {
-    // system
-    const dark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-    root.classList.toggle("dark", !!dark);
+    root.style.colorScheme = "light";
   }
+  root.dataset.appearance = appearance;
+  root.dataset.theme = useDark ? "dark" : "light";
 
-  // Reduced motion also respect OS when user has not forced motion on
   try {
     if (!prefs.reducedMotion && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
       root.classList.add("d4-reduced-motion", "reduce-motion");
