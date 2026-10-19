@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 /**
  * Full-screen edge-to-edge profile photo viewer.
- * Black background only — no floating card, no share/download, pinch-to-zoom.
+ * Black background — occupies entire device viewport (100dvh + 100svh fallback).
  */
 export function ProfilePhotoViewer({
   open,
@@ -44,59 +44,74 @@ export function ProfilePhotoViewer({
   useEffect(() => {
     if (!open) return;
     const prevOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevTouch = document.body.style.touchAction;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.touchAction = prevTouch;
       window.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2) {
-      const pts = [...pointers.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      pinchStart.current = { dist: dist || 1, scale };
-      panStart.current = null;
-    } else if (pointers.current.size === 1) {
-      panStart.current = { x: e.clientX, y: e.clientY, tx, ty };
-      pinchStart.current = null;
-    }
-  }, [scale, tx, ty]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!pointers.current.has(e.pointerId)) return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2 && pinchStart.current) {
-      const pts = [...pointers.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const next = Math.min(4, Math.max(1, pinchStart.current.scale * (dist / pinchStart.current.dist)));
-      setScale(next);
-    } else if (pointers.current.size === 1 && panStart.current && scale > 1) {
-      const dx = e.clientX - panStart.current.x;
-      const dy = e.clientY - panStart.current.y;
-      setTx(panStart.current.tx + dx);
-      setTy(panStart.current.ty + dy);
-    }
-  }, [scale]);
-
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    pointers.current.delete(e.pointerId);
-    if (pointers.current.size < 2) pinchStart.current = null;
-    if (pointers.current.size === 0) {
-      panStart.current = null;
-      if (scale <= 1.05) {
-        setScale(1);
-        setTx(0);
-        setTy(0);
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2) {
+        const pts = [...pointers.current.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        pinchStart.current = { dist: dist || 1, scale };
+        panStart.current = null;
+      } else if (pointers.current.size === 1) {
+        panStart.current = { x: e.clientX, y: e.clientY, tx, ty };
+        pinchStart.current = null;
       }
-    }
-  }, [scale]);
+    },
+    [scale, tx, ty],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!pointers.current.has(e.pointerId)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2 && pinchStart.current) {
+        const pts = [...pointers.current.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const next = Math.min(4, Math.max(1, pinchStart.current.scale * (dist / pinchStart.current.dist)));
+        setScale(next);
+      } else if (pointers.current.size === 1 && panStart.current && scale > 1) {
+        const dx = e.clientX - panStart.current.x;
+        const dy = e.clientY - panStart.current.y;
+        setTx(panStart.current.tx + dx);
+        setTy(panStart.current.ty + dy);
+      }
+    },
+    [scale],
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      pointers.current.delete(e.pointerId);
+      if (pointers.current.size < 2) pinchStart.current = null;
+      if (pointers.current.size === 0) {
+        panStart.current = null;
+        if (scale <= 1.05) {
+          setScale(1);
+          setTx(0);
+          setTy(0);
+        }
+      }
+    },
+    [scale],
+  );
 
   if (!open || !mounted) return null;
   if (!src && !fallbackInitials) return null;
@@ -109,15 +124,24 @@ export function ProfilePhotoViewer({
       aria-label="Profile photo"
       style={{
         position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         inset: 0,
         zIndex: 99999,
         width: "100vw",
-        height: "100dvh",
+        width: "100dvw" as unknown as string,
+        height: "100vh",
+        height: "100dvh" as unknown as string,
+        minHeight: "100svh",
         background: "#000",
         display: "flex",
         flexDirection: "column",
         touchAction: "none",
         overscrollBehavior: "none",
+        margin: 0,
+        padding: 0,
       }}
     >
       {/* Top bar — Back only */}
@@ -152,12 +176,13 @@ export function ProfilePhotoViewer({
         </button>
       </div>
 
-      {/* Image area — full remaining space */}
+      {/* Image area — full remaining viewport */}
       <div
         style={{
           flex: 1,
           minHeight: 0,
           width: "100%",
+          height: "100%",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -178,8 +203,8 @@ export function ProfilePhotoViewer({
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
-              width: "auto",
-              height: "auto",
+              width: "100%",
+              height: "100%",
               objectFit: "contain",
               transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
               transition: pointers.current.size ? "none" : "transform 0.12s ease",
@@ -207,8 +232,8 @@ export function ProfilePhotoViewer({
         )}
       </div>
 
-      {/* Bottom caption — small & stylish */}
-      {(name || subtitle) ? (
+      {/* Bottom caption */}
+      {name || subtitle ? (
         <div
           style={{
             flexShrink: 0,
