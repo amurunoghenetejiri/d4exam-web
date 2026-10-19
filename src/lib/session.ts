@@ -1132,5 +1132,24 @@ export async function signOut() {
   }
   await supabase.auth.signOut();
   clearPendingLoginRole();
+  clearPreferredRole();
+  try {
+    if (typeof window !== "undefined") {
+      // Drop any cached session so the next account cannot inherit the last role
+      try { window.localStorage.removeItem("d4exam.lastUserId"); } catch { /* */ }
+      try { window.localStorage.removeItem("d4exam_preferred_role_v1"); } catch { /* */ }
+      for (const k of Object.keys(window.localStorage)) {
+        if (
+          k.startsWith("d4exam_offline_")
+          || k.includes("session-user")
+          || k.includes("sessionUser")
+          || k.includes("session.user")
+        ) {
+          try { window.localStorage.removeItem(k); } catch { /* */ }
+        }
+      }
+      try { window.sessionStorage.removeItem("d4_web_app_pw_unlocked_v1"); } catch { /* */ }
+    }
+  } catch { /* ignore */ }
   if (typeof window !== "undefined") window.location.href = "/login";
 }

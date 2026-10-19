@@ -168,32 +168,13 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
         } catch {
           /* continue to minimal */
         }
-        const minimal: SessionUser = {
-          userId: sess.session.user.id,
-          profileId: sess.session.user.id,
-          email: sess.session.user.email || "",
-          fullName: sess.session.user.email || "User",
-          status: "active",
-          schoolId: null,
-          schoolName: null,
-          schoolCode: null,
-          schoolLogoUrl: null,
-          avatarUrl: null,
-          roles: [pending],
-          role: pending,
-          identifier: sess.session.user.email || null,
-          identifierLabel: "Email",
-        };
-        // Do NOT cache incomplete session — next navigation must re-resolve
-        window.setTimeout(() => clearPendingLoginRole(), 60_000);
-        return { user: minimal };
+        // Do NOT invent a role from preferred/pending alone — that let teachers open /admin
+        clearPendingLoginRole();
+        throw redirect({ to: "/login" });
       }
-      // Session exists but role not yet known — use pending even if allowed list is strict
-      if (sess.session?.user && pending && pending in { student:1, teacher:1, school_admin:1, examination_officer:1, super_admin:1 }) {
-        // Wrong dashboard: send to the correct home instead of login
-        if (!allowed.includes(pending)) {
-          throw redirect({ to: roleHome[pending] as never });
-        }
+      // Session exists but role not yet known — never route by pending preferred role
+      if (sess.session?.user) {
+        clearPendingLoginRole();
       }
     } catch (e) {
       if (e && typeof e === "object" && "to" in e) throw e;

@@ -11,6 +11,8 @@ import {
   seedLoginSchoolContext,
   rememberLastPath,
   readPreferredRole,
+  clearPreferredRole,
+  clearPendingLoginRole,
   readPendingLoginRole,
   readLastPath,
   type AppRole,
@@ -419,17 +421,8 @@ function LoginPage() {
       /* ignore */
     }
 
-    // Last: preferred / pending role if we have a live session
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      if (sess.session?.user) {
-        const pref = readPreferredRole() || readPendingLoginRole();
-        if (pref && pref in roleHome) return await goToRoleHome(pref, remember);
-      }
-    } catch {
-      /* ignore */
-    }
-
+    // NEVER use preferred/pending role here — that sent teachers to school admin
+    // after a previous school_admin session. Only real roles from DB/tables above.
     return false;
   }
 
@@ -454,6 +447,11 @@ function LoginPage() {
     }
     inFlight.current = true;
     setLoading(true);
+    // Wipe previous account role so a teacher cannot inherit school_admin
+    try {
+      clearPreferredRole();
+      clearPendingLoginRole();
+    } catch { /* ignore */ }
     let navigated = false;
     let lastServerMsg = "";
     // Hard ceiling so the Sign in button never stays stuck
@@ -504,7 +502,48 @@ function LoginPage() {
               if (await resolveRoleAndGoHome()) {
                 return;
               }
-              await goToRoleHome(readPreferredRole() || "student", remember);
+              // Last resort: detect role from membership tables, never preferred
+              try {
+                const { data: au } = await supabase.auth.getUser();
+                const uid = au.user?.id;
+                if (uid) {
+                  const { data: prof } = await supabase
+                    .from("profiles")
+                    .select("id")
+                    .or(`id.eq.${uid},auth_user_id.eq.${uid}`)
+                    .maybeSingle();
+                  const pid = prof?.id || uid;
+                  for (const [table, role] of [
+                    ["examination_officers", "examination_officer"],
+                    ["teachers", "teacher"],
+                    ["students", "student"],
+                  ] as const) {
+                    const { data: row } = await supabase
+                      .from(table)
+                      .select("id")
+                      .eq("profile_id", pid)
+                      .limit(1)
+                      .maybeSingle();
+                    if (row?.id) {
+                      await goToRoleHome(role, remember);
+                      return;
+                    }
+                  }
+                  const { data: roles } = await supabase
+                    .from("user_roles")
+                    .select("role")
+                    .eq("user_id", uid)
+                    .limit(10);
+                  const list = (roles || []).map((r) => String(r.role).toLowerCase());
+                  for (const r of ["super_admin", "school_admin", "examination_officer", "teacher", "student"]) {
+                    if (list.includes(r)) {
+                      await goToRoleHome(r, remember);
+                      return;
+                    }
+                  }
+                }
+              } catch { /* ignore */ }
+              await goToRoleHome("student", remember);
               return;
             }
           } else if (nativeResult && "error" in nativeResult && nativeResult.error) {
@@ -572,12 +611,8 @@ function LoginPage() {
             if (await resolveRoleAndGoHome()) {
               return;
             }
-            // Session exists — never bounce back to login form
-            await goToRoleHome(
-              readPreferredRole() || readPendingLoginRole() || "student",
-              remember,
-              loginSchool,
-            );
+            // Session exists — never bounce back to login form with a stale preferred role
+            await goToRoleHome("student", remember, loginSchool);
             return;
           } else if (result.role && result.role in roleHome) {
             navigated = true;
