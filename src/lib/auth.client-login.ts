@@ -14,6 +14,21 @@ async function assertSchoolMembership(
   userId: string,
   schoolId: string,
 ): Promise<{ ok: true } | { error: string }> {
+  // Outer timeout so login never hangs on membership queries
+  try {
+    return await Promise.race([
+      assertSchoolMembershipInner(userId, schoolId),
+      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 4_000)),
+    ]);
+  } catch {
+    return { ok: true };
+  }
+}
+
+async function assertSchoolMembershipInner(
+  userId: string,
+  schoolId: string,
+): Promise<{ ok: true } | { error: string }> {
   try {
     const { data: profile } = await supabase
       .from("profiles")
@@ -58,6 +73,23 @@ async function assertSchoolMembership(
 
 
 
+
+async function timedSignIn(email: string, password: string, ms = 8_000) {
+  return Promise.race([
+    supabase.auth.signInWithPassword({ email: email.toLowerCase(), password }),
+    new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            data: { session: null, user: null },
+            error: { message: "Sign-in timed out. Check your network and try again." },
+          }),
+        ms,
+      ),
+    ),
+  ]);
+}
+
 export type ClientLoginInput = {
   schoolCode: string;
   identifier: string;
@@ -90,10 +122,20 @@ export async function clientSignInWithSchoolCode(
 
   // Super admin / plain email path
   if (looksLikeEmail(ident) && isSuperCode) {
-    const { data: signIn, error } = await supabase.auth.signInWithPassword({
-      email: ident.toLowerCase(),
-      password,
-    });
+    const si = await Promise.race([
+      supabase.auth.signInWithPassword({
+        email: ident.toLowerCase(),
+        password,
+      }),
+      new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
+        setTimeout(
+          () => resolve({ data: { session: null, user: null }, error: { message: "Sign-in timed out. Check network and try again." } }),
+          8_000,
+        ),
+      ),
+    ]);
+    const signIn = si.data;
+    const error = si.error;
     if (error || !signIn?.session || !signIn?.user) {
       return { error: error?.message || "Invalid email or password." };
     }
@@ -115,10 +157,16 @@ export async function clientSignInWithSchoolCode(
   let schoolId: string | null = null;
   let schoolResolveError: string | null = null;
   try {
-    const { data: rpcSchool, error: schoolErr } = await supabase.rpc(
+    const rpcPromise = supabase.rpc(
       "resolve_school_for_login",
       { _school_code: schoolCode },
     );
+    const { data: rpcSchool, error: schoolErr } = await Promise.race([
+      rpcPromise,
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 4_000),
+      ),
+    ]);
     if (schoolErr) {
       schoolResolveError = schoolErr.message || String(schoolErr);
       console.warn("[client-login] resolve_school", schoolResolveError);
@@ -171,10 +219,9 @@ export async function clientSignInWithSchoolCode(
 
   // Email login within school
   if (looksLikeEmail(ident)) {
-    const { data: signIn, error } = await supabase.auth.signInWithPassword({
-      email: ident.toLowerCase(),
-      password,
-    });
+    const si = await timedSignIn(ident, password);
+    const signIn = si.data;
+    const error = si.error;
     if (error || !signIn?.session || !signIn.user) {
       return { error: error?.message || "Invalid email or password." };
     }
@@ -204,10 +251,9 @@ export async function clientSignInWithSchoolCode(
             ? String((resolved[0] as { email?: string })?.email || resolved[0] || "")
             : String((resolved as { email?: string })?.email || "");
       if (email.includes("@")) {
-        const { data: signIn, error } = await supabase.auth.signInWithPassword({
-          email: email.toLowerCase(),
-          password,
-        });
+        const si = await timedSignIn(email, password);
+        const signIn = si.data;
+        const error = si.error;
         if (error || !signIn?.session || !signIn.user) {
           return { error: error?.message || "Invalid credentials." };
         }
@@ -231,10 +277,9 @@ export async function clientSignInWithSchoolCode(
   const safeMatric = ident.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
   const synthetic = `${safeMatric}@${safeCode || "school"}.student.d4exam.local`;
-  const { data: signIn, error } = await supabase.auth.signInWithPassword({
-    email: synthetic,
-    password,
-  });
+  const si2 = await timedSignIn(synthetic, password);
+  const signIn = si2.data;
+  const error = si2.error;
   if (error || !signIn?.session || !signIn.user) {
     return {
       error:

@@ -113,18 +113,27 @@ export function getRuntimePlatform(): RuntimePlatform {
 
 export function isNativeShell(): boolean {
   if (typeof window === "undefined") return false;
-  const p = getRuntimePlatform();
-  if (p === "android" || p === "ios") return true;
-  // Soft: Android WebView UA even without Capacitor yet
+  // Require a real Capacitor bridge — never treat a normal browser as the APK
+  const Cap = readCapacitor();
   try {
-    const ua = navigator.userAgent || "";
-    if (ua.includes("; wv)") && /Android/i.test(ua)) {
-      persistNativeFlag("android");
+    if (Cap?.isNativePlatform?.()) return true;
+  } catch { /* ignore */ }
+  try {
+    const p = (Cap?.getPlatform?.() || "").toLowerCase();
+    if (p === "android" || p === "ios") return true;
+  } catch { /* ignore */ }
+  try {
+    if (Cap?.Plugins && typeof Cap.Plugins === "object" && Cap.isNativePlatform) {
       return true;
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
+  // Android WebView UA only when Capacitor object already exists (bridge loading)
+  try {
+    const ua = navigator.userAgent || "";
+    if (Cap && ua.includes("; wv)") && /Android/i.test(ua)) {
+      return true;
+    }
+  } catch { /* ignore */ }
   return false;
 }
 

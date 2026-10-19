@@ -145,7 +145,7 @@ export function FingerprintLockGate() {
     if (native) return;
     let cancelled = false;
     void waitForNativeShell(10_000).then((ok) => {
-      if (!cancelled && (ok || isNativeShell())) setNative(true);
+      if (!cancelled && ok && isNativeShell()) setNative(true);
     });
     const onReady = () => {
       if (isNativeShell()) setNative(true);

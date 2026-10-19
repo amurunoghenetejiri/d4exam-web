@@ -257,36 +257,29 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
     } catch {
       /* ignore */
     }
-    for (let i = 0; i < (needsSchool ? 3 : 1); i++) {
+    // Fast path: one short session hydrate, then navigate — never block login
+    try {
       const u = await Promise.race([
         fetchSessionUser(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_500)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000)),
       ]);
-      if (u && (!needsSchool || u.schoolId)) {
+      if (u?.userId) {
         try {
-          if (u.userId) {
-            const { offlineSet, OfflineKeys } = await import("@/lib/offline-cache");
-            await offlineSet(u.userId, OfflineKeys.sessionUser, u, { schoolId: u.schoolId });
-          }
-        } catch {
-          /* ignore */
-        }
-        break;
-      }
-      // Explicit repair if still missing school
-      if (needsSchool) {
+          const { offlineSet, OfflineKeys } = await import("@/lib/offline-cache");
+          await offlineSet(u.userId, OfflineKeys.sessionUser, u, { schoolId: u.schoolId });
+        } catch { /* ignore */ }
+      } else if (needsSchool) {
         try {
           const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
-          const fixed = await repairMySessionSchool();
-          if (fixed?.schoolId) {
-            seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
-          }
-        } catch {
-          /* ignore */
-        }
+          await Promise.race([
+            repairMySessionSchool().then((fixed) => {
+              if (fixed?.schoolId) seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
+            }),
+            new Promise((r) => setTimeout(r, 1_500)),
+          ]);
+        } catch { /* ignore */ }
       }
-      await new Promise((r) => setTimeout(r, 200));
-    }
+    } catch { /* ignore */ }
   } catch {
     /* ignore */
   }
@@ -484,11 +477,14 @@ function LoginPage() {
       try {
         // Always try client Supabase login first (APK has no reliable SSR; website benefits too)
         {
-          const nativeResult = await clientSignInWithSchoolCode({
-            schoolCode: schoolCode || "",
-            identifier: ident,
-            password: pass,
-          });
+          const nativeResult = await Promise.race([
+            clientSignInWithSchoolCode({
+              schoolCode: schoolCode || "",
+              identifier: ident,
+              password: pass,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+          ]);
           if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
             const { error: sessErr } = await supabase.auth.setSession({
               access_token: nativeResult.accessToken,
@@ -499,15 +495,15 @@ function LoginPage() {
                 if (nativeResult.schoolId) {
                   seedLoginSchoolContext(nativeResult.schoolId, nativeResult.schoolCode || schoolCode);
                 } else if (schoolCode) {
-                  await seedSchoolFromCode(schoolCode);
+                  void seedSchoolFromCode(schoolCode);
                 }
               } catch { /* ignore */ }
+              // Mark navigated immediately so the 15s timeout cannot fire mid-redirect
+              navigated = true;
+              window.clearTimeout(loginTimeout);
               if (await resolveRoleAndGoHome()) {
-                navigated = true;
                 return;
               }
-              // Session is valid — never leave user stuck on login
-              navigated = true;
               await goToRoleHome(readPreferredRole() || "student", remember);
               return;
             }
@@ -566,18 +562,17 @@ function LoginPage() {
             refresh_token: result.session.refresh_token,
           });
           if (!sessErr) {
+            navigated = true;
+            window.clearTimeout(loginTimeout);
             if (result.role && result.role in roleHome) {
-              navigated = true;
               await goToRoleHome(String(result.role), remember, loginSchool);
               return;
             }
-            await seedSchoolFromCode(schoolCode);
+            void seedSchoolFromCode(schoolCode);
             if (await resolveRoleAndGoHome()) {
-              navigated = true;
               return;
             }
             // Session exists — never bounce back to login form
-            navigated = true;
             await goToRoleHome(
               readPreferredRole() || readPendingLoginRole() || "student",
               remember,
