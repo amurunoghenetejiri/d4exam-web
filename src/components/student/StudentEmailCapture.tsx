@@ -8,9 +8,13 @@ import { notifyStudentEmailLinked } from "@/lib/email-notify.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { X } from "lucide-react";
 
 const SKIP_KEY = (userId: string) => `d4_email_skip_${userId}`;
 
+/**
+ * Full-screen profile-style sheet: blur backdrop, edge-to-edge, centered card.
+ */
 export function StudentEmailCapture() {
   const { data: session } = useSessionUser();
   const qc = useQueryClient();
@@ -35,6 +39,15 @@ export function StudentEmailCapture() {
     }
   }, [session?.userId]);
 
+  useEffect(() => {
+    if (done || skipped || !session) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [done, skipped, session]);
+
   if (!session || session.role !== "student") return null;
   if (done || skipped) return null;
   if (!isSyntheticStudentEmail(session.email)) return null;
@@ -47,7 +60,7 @@ export function StudentEmailCapture() {
     } catch {
       /* ignore */
     }
-    window.setTimeout(() => setSkipped(true), 220);
+    window.setTimeout(() => setSkipped(true), 240);
   }
 
   async function save() {
@@ -101,67 +114,94 @@ export function StudentEmailCapture() {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9990] flex items-center justify-center p-4"
-      style={{
-        background: "rgba(15, 23, 42, 0.45)",
-        backdropFilter: "blur(4px)",
-        opacity: hiding ? 0 : 1,
-        transition: "opacity 0.2s ease",
-        pointerEvents: hiding ? "none" : "auto",
-      }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="d4-email-title"
+      className="fixed inset-0 z-[9990] flex flex-col"
+      style={{
+        width: "100vw",
+        height: "100dvh",
+        minHeight: "100svh",
+        background: "rgba(11, 27, 58, 0.55)",
+        backdropFilter: "blur(12px) saturate(1.15)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.15)",
+        opacity: hiding ? 0 : 1,
+        transition: "opacity 0.22s ease",
+        pointerEvents: hiding ? "none" : "auto",
+      }}
     >
+      {/* Top bar like profile */}
       <div
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+        className="flex shrink-0 items-center justify-between px-3"
         style={{
-          transform: hiding ? "translateY(8px) scale(0.98)" : "none",
-          transition: "transform 0.2s ease",
+          paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+          paddingBottom: "0.5rem",
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        <p id="d4-email-title" className="text-base font-bold text-slate-900">
-          Add your email
-        </p>
-        <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-          Optional but recommended. Used for results and account recovery. You can change it later.
-        </p>
-        <div className="mt-4 space-y-2">
-          <Label htmlFor="student-personal-email" className="text-xs font-semibold">
-            Email
-          </Label>
-          <Input
-            id="student-personal-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@gmail.com"
-            className="h-11"
-            autoComplete="email"
-            autoFocus
-          />
-          {error ? <p className="text-xs text-red-600">{error}</p> : null}
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button
-              type="button"
-              size="sm"
-              className="flex-1 font-semibold"
-              disabled={saving}
-              onClick={() => void save()}
-            >
-              {saving ? "Saving…" : "Save email"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              disabled={saving}
-              onClick={dismissSkip}
-            >
-              Skip for now
-            </Button>
+        <button
+          type="button"
+          onClick={dismissSkip}
+          className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white active:scale-95"
+          aria-label="Close"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <p className="text-sm font-semibold tracking-wide text-white/90">Account</p>
+        <span className="h-10 w-10" aria-hidden />
+      </div>
+
+      {/* Centered card */}
+      <div className="flex flex-1 items-center justify-center px-4 pb-8">
+        <div
+          className="w-full max-w-sm rounded-2xl border border-white/15 bg-white p-5 shadow-2xl"
+          style={{
+            transform: hiding ? "translateY(10px) scale(0.98)" : "none",
+            transition: "transform 0.22s ease",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p id="d4-email-title" className="text-base font-bold text-slate-900">
+            Add your email
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+            Optional but recommended. Used for results and account recovery. You can change it later.
+          </p>
+          <div className="mt-4 space-y-2">
+            <Label htmlFor="student-personal-email" className="text-xs font-semibold">
+              Email
+            </Label>
+            <Input
+              id="student-personal-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@gmail.com"
+              className="h-11"
+              autoComplete="email"
+              autoFocus
+            />
+            {error ? <p className="text-xs text-red-600">{error}</p> : null}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1 font-semibold"
+                disabled={saving}
+                onClick={() => void save()}
+              >
+                {saving ? "Saving…" : "Save email"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                disabled={saving}
+                onClick={dismissSkip}
+              >
+                Skip for now
+              </Button>
+            </div>
           </div>
         </div>
       </div>
