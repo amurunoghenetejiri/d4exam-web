@@ -384,7 +384,10 @@ function MessagesHub() {
       deptOpen,
       tab === "students" || findOpen || deptOpen,
     ],
-    enabled: Boolean(userId) && (tab === "students" || findOpen || deptOpen),
+    enabled:
+      Boolean(userId) &&
+      (tab === "students" || findOpen || deptOpen) &&
+      String(search || "").trim().length >= 2,
     staleTime: 30_000,
     queryFn: () =>
       discoverStudents({
@@ -397,10 +400,15 @@ function MessagesHub() {
   });
 
   const officersQuery = useQuery({
-    queryKey: ["campus-officers", schoolId],
-    enabled: Boolean(userId) && tab === "officers",
+    queryKey: ["campus-officers", schoolId, search],
+    enabled: Boolean(userId) && tab === "officers" && String(search || "").trim().length >= 2,
     staleTime: 60_000,
-    queryFn: () => listDepartmentOfficers(schoolId || schoolIdHint || ""),
+    queryFn: async () => {
+      const all = await listDepartmentOfficers(schoolId || schoolIdHint || "");
+      const q = String(search || "").trim().toLowerCase();
+      if (q.length < 2) return [];
+      return all.filter((o) => (o.full_name || "").toLowerCase().includes(q));
+    },
   });
 
   const conversations = convQuery.data || [];
@@ -1267,9 +1275,9 @@ function StudentDirectory({
         </div>
       ) : students.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">
-          <p className="font-semibold text-slate-700">No students found</p>
+          <p className="font-semibold text-slate-700">Search for a student</p>
           <p className="mt-1 text-xs">
-            Try clearing search, or open My Department. If this stays empty, run the messaging RLS fix SQL in Supabase.
+            Type at least 2 characters of a name or matric number to find someone to message. The full department list is not shown here.
           </p>
         </div>
       ) : departmentOnly ? (

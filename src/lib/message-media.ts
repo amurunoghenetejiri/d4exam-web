@@ -46,7 +46,7 @@ export async function uploadMessageMedia(
     return { url: dataUrl, type, inline: true };
   }
   throw new Error(
-    "Could not upload file. Use a smaller photo/video, or ensure the “message-media” Storage bucket exists and is public.",
+    "Could not upload file. Use a smaller photo/video under 8 MB, check your connection, or ensure the message-media Storage bucket exists and is public.",
   );
 }
 

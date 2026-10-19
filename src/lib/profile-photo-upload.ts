@@ -18,10 +18,28 @@ export async function uploadProfilePhoto(opts: {
     (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
   const path = `profiles/${pid}/avatar-${Date.now()}.${ext}`;
 
-  const { error: upErr } = await supabase.storage
-    .from("avatars")
-    .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
-  if (upErr) throw new Error(upErr.message || "Upload failed");
+  let upErr: { message?: string } | null = null;
+  try {
+    const res = await supabase.storage
+      .from("avatars")
+      .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+    upErr = res.error;
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (/failed to fetch|network|load failed/i.test(m)) {
+      throw new Error(
+        "Could not upload photo (network). Check your connection and try a smaller image under 2 MB.",
+      );
+    }
+    throw e;
+  }
+  if (upErr) {
+    const m = upErr.message || "Upload failed";
+    if (/bucket|not found|row-level security|policy/i.test(m)) {
+      throw new Error("Photo storage is not ready. Ask school admin to enable the avatars bucket.");
+    }
+    throw new Error(m);
+  }
 
   const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
   const publicUrl = urlData?.publicUrl;

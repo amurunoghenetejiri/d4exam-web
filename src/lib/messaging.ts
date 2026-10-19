@@ -799,12 +799,17 @@ export async function discoverStudents(opts: {
   limit?: number;
 }): Promise<StudentDiscover[]> {
   const limit = opts.limit ?? 60;
+  const q = (opts.query || "").trim();
+  // Do not dump the whole school/department — require a search term
+  if (q.length < 2) {
+    return [];
+  }
 
   // Prefer SECURITY DEFINER RPC
   const { data: rpcRows, error: rpcErr } = await supabase.rpc(
     "list_school_students_for_messaging",
     {
-      p_query: opts.query?.trim() || null,
+      p_query: q,
       p_department_id: opts.departmentId || null,
       p_limit: limit,
     },

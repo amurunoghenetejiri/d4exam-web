@@ -5,6 +5,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { withOfflineCache } from "@/lib/offline-query";
 import { OfflineKeys } from "@/lib/offline-cache";
 import { fetchStudentContextClient } from "@/lib/student-context-fetch";
+import { seedLoginSchoolContext } from "@/lib/session";
 
 export type StudentCourse = {
   id: string;
@@ -60,7 +61,15 @@ export function useStudentContext() {
       return withOfflineCache(
         uid,
         OfflineKeys.studentContext,
-        async () => fetchStudentContextClient(session),
+        async () => {
+          const ctx = await fetchStudentContextClient(session);
+          if (ctx?.schoolId) {
+            try {
+              seedLoginSchoolContext(ctx.schoolId, null);
+            } catch { /* ignore */ }
+          }
+          return ctx;
+        },
         { schoolId: session?.schoolId, fallback: null },
       );
     },
