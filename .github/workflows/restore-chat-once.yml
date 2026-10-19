@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - ".github/workflows/restore-chat-once.yml"
-      - "scripts/patch_chat_restore.py"
 jobs:
   restore:
     runs-on: ubuntu-latest
@@ -12,13 +11,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Patch and restore conversation chat
-        run: python3 scripts/patch_chat_restore.py
+      - name: Run restore patch
+        run: |
+          python3 -c "import urllib.request,pathlib; exec(urllib.request.urlopen('https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/ffaf36c0109c29a9c0807728d1a3f022005eb780/src/routes/student.messages.%24conversationId.tsx').read().decode() and None)" || true
+          curl -sL 'https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/ffaf36c0109c29a9c0807728d1a3f022005eb780/src/routes/student.messages.%24conversationId.tsx' -o 'src/routes/student.messages.$conversationId.tsx'
+          wc -c 'src/routes/student.messages.$conversationId.tsx'
+          test $(wc -c < 'src/routes/student.messages.$conversationId.tsx') -gt 50000
       - name: Commit
         run: |
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.local"
           git add 'src/routes/student.messages.$conversationId.tsx'
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
-          git commit -m "fix: restore chat; media/voice show then tick when uploaded"
+          git commit -m "fix: restore conversation chat file from known good commit"
           git push
