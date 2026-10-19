@@ -592,18 +592,23 @@ export function FingerprintLockGate() {
   }, [native, session?.userId, pref?.userId, lastUid]);
 
 
-  // Website: lock with app password when user leaves the tab and returns
+  // Website: always require app password again after leaving the page/tab
   useEffect(() => {
     if (native) return;
+    const clearWebUnlock = () => {
+      try { window.sessionStorage.removeItem("d4_web_app_pw_unlocked_v1"); } catch { /* */ }
+      markAppBackgrounded();
+    };
     const onVis = () => {
       if (document.visibilityState === "hidden") {
-        markAppBackgrounded();
+        clearWebUnlock();
         return;
       }
+      // Returned to the tab — require password again (except public auth / active CBT)
       if (isPublicAuthPath || isActiveCbtExamPath()) return;
       const uid = session?.userId ?? pref?.userId ?? lastUid;
       if (!uid || !hasAppPw) return;
-      if (isActiveCbtExamPath()) return;
+      try { window.sessionStorage.removeItem("d4_web_app_pw_unlocked_v1"); } catch { /* */ }
       setFingerprintLocked(true);
       setLocked(true);
       setMode("password");
@@ -614,8 +619,17 @@ export function FingerprintLockGate() {
       setPageReady(true);
       clearBackgroundMark();
     };
+    const onPageHide = () => clearWebUnlock();
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("blur", () => {
+      // Soft leave: clear unlock so next focus requires password
+      if (document.visibilityState === "hidden") clearWebUnlock();
+    });
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onPageHide);
+    };
   }, [native, isPublicAuthPath, session?.userId, pref?.userId, lastUid, hasAppPw]);
 
   // Page visible → ready for OS prompt (never over splash)

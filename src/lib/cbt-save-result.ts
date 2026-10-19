@@ -122,17 +122,55 @@ export async function saveCbtResult(input: {
   const scored = scoreObjectiveAnswers(questionsForScore, input.answers);
   const status = input.terminated ? "terminated" : "submitted";
   const secStatus = input.terminated || input.faceWarned ? "flagged" : "pending";
-  const vis = String(input.resultVisibility || "after_officer_release").toLowerCase().replace(/[\s-]+/g, "_");
-  const immediateAliases = new Set(["immediate", "immediately", "immediately_after_submit", "release_immediately", "release_immediately_after_exam", "after_submit"]);
-  const publishNow = immediateAliases.has(vis) && !input.terminated && secStatus !== "flagged";
+  const vis = String(input.resultVisibility || "immediate").toLowerCase().replace(/[\s-]+/g, "_");
+  const holdAliases = new Set(["after_officer_release", "officer_release", "held", "pending_release", "after_approval"]);
+  const immediateAliases = new Set(["immediate", "immediately", "immediately_after_submit", "release_immediately", "release_immediately_after_exam", "after_submit", ""]);
+  // Publish by default for objective CBT so students can open results after submit.
+  // Only hold when exam settings explicitly require officer release.
+  const publishNow = !input.terminated && secStatus !== "flagged" && !holdAliases.has(vis);
   const resultStatus = publishNow ? "published" : "pending";
   const releasedAt = publishNow ? new Date().toISOString() : null;
 
   let resultId: string | undefined;
   let error: { message?: string } | null = null;
 
-  // Preferred: server (service role) — bypasses RLS after ownership check
+  // Preferred: SECURITY DEFINER RPC (works even when server fn / RLS fail)
   try {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("submit_exam_result", {
+      p_exam_id: input.examId,
+      p_student_id: input.studentId,
+      p_school_id: input.schoolId,
+      p_attempt_id: input.attemptId,
+      p_total_score: scored.totalScore,
+      p_max_score: scored.maxMarks,
+      p_percentage: scored.percentage,
+      p_grade: scored.grade,
+      p_pass_fail: scored.passFail,
+      p_correct_count: scored.correct,
+      p_wrong_count: scored.wrong,
+      p_unanswered_count: scored.unanswered,
+      p_answers: input.answers,
+      p_result_status: resultStatus,
+      p_security_status: secStatus,
+      p_released_at: releasedAt,
+      p_terminated: Boolean(input.terminated),
+    });
+    if (!rpcErr && rpcData) {
+      const row = typeof rpcData === "object" ? (rpcData as Record<string, unknown>) : null;
+      const rid = row?.result_id != null ? String(row.result_id) : undefined;
+      if (rid) {
+        resultId = rid;
+        error = null;
+      }
+    } else if (rpcErr) {
+      console.warn("[cbt-save] submit_exam_result rpc", rpcErr.message);
+    }
+  } catch (e) {
+    console.warn("[cbt-save] rpc exception", e);
+  }
+
+  // Fallback: server (service role) — bypasses RLS after ownership check
+  if (!resultId) try {
     const serverRes = await saveCbtResultServer({
       data: {
         examId: input.examId,

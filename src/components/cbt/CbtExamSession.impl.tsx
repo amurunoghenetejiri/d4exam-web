@@ -74,6 +74,46 @@ async function leaveExamFullscreen(): Promise<void> {
   await exitExamImmersive();
 }
 
+
+async function startOrResumeAttempt(opts: {
+  examId: string;
+  studentId: string;
+  schoolId: string;
+  durationMinutes: number;
+}): Promise<{
+  id: string | null;
+  status: string | null;
+  ends_at: string | null;
+  started_at: string | null;
+  answers: Record<string, unknown>;
+  finished: boolean;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("start_or_resume_exam_attempt", {
+      p_exam_id: opts.examId,
+      p_student_id: opts.studentId,
+      p_school_id: opts.schoolId,
+      p_duration_minutes: opts.durationMinutes,
+    });
+    if (error) {
+      console.warn("[cbt] start_or_resume_exam_attempt", error.message);
+    } else if (data && typeof data === "object") {
+      const row = data as Record<string, unknown>;
+      return {
+        id: row.id != null ? String(row.id) : null,
+        status: row.status != null ? String(row.status) : null,
+        ends_at: row.ends_at != null ? String(row.ends_at) : null,
+        started_at: row.started_at != null ? String(row.started_at) : null,
+        answers: (row.answers && typeof row.answers === "object" ? row.answers : {}) as Record<string, unknown>,
+        finished: Boolean(row.finished),
+      };
+    }
+  } catch (e) {
+    console.warn("[cbt] start_or_resume exception", e);
+  }
+  return { id: null, status: null, ends_at: null, started_at: null, answers: {}, finished: false };
+}
+
 export function CbtExamPage() {
   const params = useParams({ strict: false }) as { id?: string };
   const id = params.id ?? "";
@@ -1076,12 +1116,22 @@ export function CbtExamPage() {
       if (student?.studentId && examQ.data) {
         let attemptId = attemptIdRef.current;
         if (!attemptId) {
-          const { data } = await supabase.from("exam_attempts").upsert({
-            exam_id: id, student_id: student.studentId, school_id: examQ.data?.school_id,
-            status: "in_progress", started_at: new Date().toISOString(), answers,
-          } as never, { onConflict: "exam_id,student_id" }).select("id").maybeSingle();
-          attemptId = (data?.id as string) ?? null;
+          const resumed = await startOrResumeAttempt({
+            examId: id,
+            studentId: student.studentId,
+            schoolId: String(examQ.data?.school_id ?? student.schoolId ?? ""),
+            durationMinutes: Number(examQ.data?.duration_minutes ?? 60) || 60,
+          });
+          attemptId = resumed.id;
           attemptIdRef.current = attemptId;
+          if (!attemptId) {
+            const { data } = await supabase.from("exam_attempts").upsert({
+              exam_id: id, student_id: student.studentId, school_id: examQ.data?.school_id,
+              status: "in_progress", started_at: new Date().toISOString(), answers,
+            } as never, { onConflict: "exam_id,student_id" }).select("id").maybeSingle();
+            attemptId = (data?.id as string) ?? null;
+            attemptIdRef.current = attemptId;
+          }
         }
         const schoolId = String(examQ.data.school_id ?? student.schoolId ?? "");
         const saved = await saveCbtResult({
@@ -1219,7 +1269,37 @@ export function CbtExamPage() {
         }
       }
       if (!previewMode && student?.studentId && examQ.data?.school_id) {
-        // Load existing attempt for stable question set
+        // Prefer RPC so attempts always persist (RLS-safe) + resume ends_at
+        const rpcAttempt = await startOrResumeAttempt({
+          examId: id,
+          studentId: student.studentId,
+          schoolId: String(examQ.data.school_id),
+          durationMinutes: Number(examQ.data.duration_minutes ?? 60) || 60,
+        });
+        if (rpcAttempt.id) {
+          attemptIdRef.current = rpcAttempt.id;
+          setLiveAttemptId(rpcAttempt.id);
+          if (rpcAttempt.finished) {
+            examSafeToast.message("This exam was already submitted.");
+            setDone(true);
+            return;
+          }
+          if (rpcAttempt.ends_at) {
+            const endsMs = new Date(rpcAttempt.ends_at).getTime();
+            if (Number.isFinite(endsMs) && endsMs > Date.now()) {
+              endsAtRef.current = endsMs;
+              setEndsAt(endsMs);
+            }
+          }
+          if (rpcAttempt.answers && typeof rpcAttempt.answers === "object") {
+            const prev = rpcAttempt.answers as Record<string, number>;
+            if (Object.keys(prev).length) {
+              setAnswers(prev);
+              setLockedAnswerIds(new Set(Object.keys(prev).filter((k) => prev[k] !== undefined && prev[k] !== null)));
+            }
+          }
+        }
+        // Load existing attempt for stable question set / metadata
         const { data: existingFull } = await supabase
           .from("exam_attempts")
           .select("id, status, question_order, tab_switch_count, fullscreen_exit_count, answers, ends_at, started_at, metadata")
@@ -1312,14 +1392,29 @@ export function CbtExamPage() {
         orderedIdsRef.current = orderIds;
 
         if (!attemptIdRef.current) {
-          const studentName = String((student as { fullName?: string } | null)?.fullName || session?.fullName || "").trim() || undefined;
-          const { data } = await supabase.from("exam_attempts").upsert({
-            exam_id: id, student_id: student.studentId, school_id: examQ.data?.school_id,
-            status: "in_progress", started_at: new Date().toISOString(), answers: {},
-            question_order: orderIds,
-            metadata: { studentName: studentName || session?.fullName || undefined, matricNumber: String((student as { matricNumber?: string } | null)?.matricNumber || (student as { matric?: string } | null)?.matric || session?.identifier || "").trim() || undefined, courseCode: (Array.isArray((examQ.data as { courses?: { code?: string }[] } | null)?.courses) ? String((examQ.data as { courses: { code?: string }[] }).courses[0]?.code || "").trim() : String((examQ.data as { courses?: { code?: string } } | null)?.courses?.code || "").trim()) || undefined, examTitle: String(examQ.data?.title || "").trim() || undefined, lastSeenAt: new Date().toISOString() },
-          } as never, { onConflict: "exam_id,student_id" }).select("id").maybeSingle();
-          if (data?.id) { attemptIdRef.current = data.id as string; setLiveAttemptId(data.id as string); }
+          const rpc2 = await startOrResumeAttempt({
+            examId: id,
+            studentId: student.studentId,
+            schoolId: String(examQ.data?.school_id ?? ""),
+            durationMinutes: Number(examQ.data?.duration_minutes ?? 60) || 60,
+          });
+          if (rpc2.id) {
+            attemptIdRef.current = rpc2.id;
+            setLiveAttemptId(rpc2.id);
+            if (rpc2.ends_at) {
+              const endsMs = new Date(rpc2.ends_at).getTime();
+              if (Number.isFinite(endsMs)) { endsAtRef.current = endsMs; setEndsAt(endsMs); }
+            }
+          } else {
+            const studentName = String((student as { fullName?: string } | null)?.fullName || session?.fullName || "").trim() || undefined;
+            const { data } = await supabase.from("exam_attempts").upsert({
+              exam_id: id, student_id: student.studentId, school_id: examQ.data?.school_id,
+              status: "in_progress", started_at: new Date().toISOString(), answers: {},
+              question_order: orderIds,
+              metadata: { studentName: studentName || session?.fullName || undefined, matricNumber: String((student as { matricNumber?: string } | null)?.matricNumber || (student as { matric?: string } | null)?.matric || session?.identifier || "").trim() || undefined, courseCode: (Array.isArray((examQ.data as { courses?: { code?: string }[] } | null)?.courses) ? String((examQ.data as { courses: { code?: string }[] }).courses[0]?.code || "").trim() : String((examQ.data as { courses?: { code?: string } } | null)?.courses?.code || "").trim()) || undefined, examTitle: String(examQ.data?.title || "").trim() || undefined, lastSeenAt: new Date().toISOString() },
+            } as never, { onConflict: "exam_id,student_id" }).select("id").maybeSingle();
+            if (data?.id) { attemptIdRef.current = data.id as string; setLiveAttemptId(data.id as string); }
+          }
         } else {
           // Persist order if missing
           const studentNameUpd = String((student as { fullName?: string } | null)?.fullName || session?.fullName || "").trim() || undefined;
