@@ -13,8 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Decode and run patch
         run: |
-          python3 -c "import base64,pathlib; pathlib.Path('scripts/apply_chat_tick_promote.py').write_bytes(base64.b64decode(open('/dev/stdin').read()))" << 'B64'
-PLACEHOLDER
+          mkdir -p scripts
+          python3 -c "import base64,pathlib,sys; pathlib.Path('scripts/apply_chat_tick_promote.py').write_bytes(base64.b64decode(sys.stdin.read()))" << 'B64'
+ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnAgPSBQYXRoKCJzcmMvcm91dGVzL3N0dWRlbnQubWVzc2FnZXMuJGNvbnZlcnNhdGlvbklkLnRzeCIpCnQgPSBwLnJlYWRfdGV4dCgpCmNoYW5nZWQgPSAwCgpkZWYgcmVwKG9sZCwgbmV3LCBsYWJlbCk6CiAgICBnbG9iYWwgdCwgY2hhbmdlZAogICAgaWYgb2xkIGluIHQ6CiAgICAgICAgdCA9IHQucmVwbGFjZShvbGQsIG5ldywgMSkKICAgICAgICBjaGFuZ2VkICs9IDEKICAgICAgICBwcmludCgib2siLCBsYWJlbCkKICAgICAgICByZXR1cm4gVHJ1ZQogICAgcHJpbnQoIm1pc3MiLCBsYWJlbCkKICAgIHJldHVybiBGYWxzZQo=
 B64
           python3 scripts/apply_chat_tick_promote.py
       - name: Commit
