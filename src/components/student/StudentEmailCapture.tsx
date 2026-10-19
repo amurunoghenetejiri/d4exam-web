@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSessionUser } from "@/lib/session";
@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const SKIP_KEY = (userId: string) => `d4_email_skip_${userId}`;
+
 export function StudentEmailCapture() {
   const { data: session } = useSessionUser();
   const qc = useQueryClient();
@@ -16,10 +18,34 @@ export function StudentEmailCapture() {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [skipped, setSkipped] = useState(false);
+  const [hiding, setHiding] = useState(false);
+
+  // Restore persisted skip so "Skip for now" does not flash back on reload
+  useEffect(() => {
+    if (!session?.userId) return;
+    try {
+      if (localStorage.getItem(SKIP_KEY(session.userId)) === "1") {
+        setSkipped(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [session?.userId]);
 
   if (!session || session.role !== "student") return null;
   if (done || skipped) return null;
   if (!isSyntheticStudentEmail(session.email)) return null;
+
+  function dismissSkip() {
+    setHiding(true);
+    try {
+      if (session?.userId) localStorage.setItem(SKIP_KEY(session.userId), "1");
+    } catch {
+      /* ignore */
+    }
+    // Short fade so it does not just vanish abruptly
+    window.setTimeout(() => setSkipped(true), 220);
+  }
 
   async function save() {
     setError("");
@@ -46,6 +72,11 @@ export function StudentEmailCapture() {
           .update({ email: value } as never)
           .eq("profile_id", session!.profileId);
       }
+      try {
+        if (session?.userId) localStorage.removeItem(SKIP_KEY(session.userId));
+      } catch {
+        /* ignore */
+      }
       setDone(true);
       void qc.invalidateQueries({ queryKey: ["session-user"] });
       try {
@@ -55,7 +86,9 @@ export function StudentEmailCapture() {
             studentName: session!.fullName || "Student",
           },
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
       setError((e as Error).message || "Could not save email.");
     } finally {
@@ -64,7 +97,14 @@ export function StudentEmailCapture() {
   }
 
   return (
-    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div
+      className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200"
+      style={{
+        opacity: hiding ? 0 : 1,
+        transform: hiding ? "translateY(-6px)" : "none",
+        pointerEvents: hiding ? "none" : undefined,
+      }}
+    >
       <p className="text-sm font-bold text-slate-900">Add your email</p>
       <p className="mt-1 text-xs text-slate-500">
         Optional but recommended. Used for results and account recovery. You can change it later.
@@ -87,7 +127,7 @@ export function StudentEmailCapture() {
           <Button type="button" size="sm" className="font-semibold" disabled={saving} onClick={() => void save()}>
             {saving ? "Saving…" : "Save email"}
           </Button>
-          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setSkipped(true)}>
+          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={dismissSkip}>
             Skip for now
           </Button>
         </div>
