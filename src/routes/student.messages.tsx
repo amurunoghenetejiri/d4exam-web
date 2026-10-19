@@ -849,7 +849,8 @@ function MessagesHub() {
         />
       )}
 
-      {/* Floating compose pen — writing motion; fades while scrolling */}
+      {/* Floating compose pen — hidden while Create Group sheet is open */}
+      {!createOpen ? (
       <button
         type="button"
         data-d4-fab="compose"
@@ -888,6 +889,7 @@ function MessagesHub() {
           strokeWidth={2.25}
         />
       </button>
+      ) : null}
 
       <MessagingProfileSheet
         userId={profileSheetUserId}

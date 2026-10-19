@@ -266,7 +266,9 @@ export function FingerprintLockGate() {
     };
   }, [native, splashDone]);
 
-  const [mode, setMode] = useState<"fingerprint" | "password">("fingerprint"); // default: fingerprint
+  const [mode, setMode] = useState<"fingerprint" | "password">(() =>
+    typeof window !== "undefined" && !isNativeShell() ? "password" : "fingerprint",
+  );
   const [appPw, setAppPw] = useState("");
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwBusy, setPwBusy] = useState(false);
@@ -424,15 +426,37 @@ export function FingerprintLockGate() {
     // If device supports but user never enabled → password only, then offer enable.
     // Native + user enabled FP + device not proven without FP → fingerprint first
     // Web always password. hwState "pending" still allows FP UI so it does not flash away.
+    // Website: never fingerprint UI — password only when app password is set
     const canFp = Boolean(native && hwState !== "no");
-    const unlockConfigured = hasAppPw || fpEnabled || canFp;
-    if (!native) {
-      // Website / non-Capacitor: never full-screen lock (blocks menu & taps)
+    const unlockConfigured = hasAppPw || (native && (fpEnabled || canFp));
+    // Forgot-app-password bypass flag (set when user taps Forgot)
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage.getItem("d4exam_skip_lock_forgot") === "1") {
+        setLocked(false);
+        return;
+      }
+    } catch { /* ignore */ }
+    if (!uid || !unlockConfigured) {
       setLocked(false);
       return;
     }
-    if (!uid || !unlockConfigured) {
-      setLocked(false);
+    if (!native) {
+      // Website: require app password only (no fingerprint)
+      if (!hasAppPw) {
+        setLocked(false);
+        return;
+      }
+      if (isSessionUnlocked() && !isFingerprintLocked() && !shouldLockAfterBackground()) {
+        setLocked(false);
+        return;
+      }
+      setFingerprintLocked(true);
+      setLocked(true);
+      setFailedMsg(null);
+      setStatus("idle");
+      promptedRef.current = false;
+      userPickedPasswordRef.current = false;
+      setMode("password");
       return;
     }
     if (isFingerprintLocked() || shouldLockAfterBackground()) {
@@ -999,7 +1023,7 @@ export function FingerprintLockGate() {
             <LogOut className="h-4 w-4 md:h-5 md:w-5" aria-hidden />
             Log out
           </button>
-          {mode === "fingerprint" ? (
+          {mode === "fingerprint" && native ? (
             <button
               type="button"
               onClick={showPasswordMode}
@@ -1007,7 +1031,7 @@ export function FingerprintLockGate() {
             >
               Use password
             </button>
-          ) : hwState !== "no" ? (
+          ) : native && hwState !== "no" ? (
             <button
               type="button"
               onClick={showFingerprintMode}

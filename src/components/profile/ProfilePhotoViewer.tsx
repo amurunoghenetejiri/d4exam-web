@@ -74,35 +74,22 @@ export function ProfilePhotoViewer({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] flex h-[100dvh] w-screen flex-col bg-black text-white"
+      className="fixed inset-0 z-[300] h-[100dvh] w-screen overflow-hidden bg-black text-white"
       style={{ top: 0, left: 0, right: 0, bottom: 0 }}
       role="dialog"
       aria-modal="true"
       aria-label="Profile photo"
     >
-      <div className="pointer-events-none absolute inset-0 z-0 bg-black" />
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <button
-          type="button"
-          onClick={onClose}
-          className="pointer-events-auto grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white"
-          aria-label="Close"
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <p className="text-sm font-semibold text-white/90">Close</p>
-        <span className="w-10" />
-      </div>
-
+      {/* Edge-to-edge image */}
       <div
-        className="relative z-10 flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        className="absolute inset-0 z-0 flex items-center justify-center bg-black"
         onTouchStart={(e) => {
           startY.current = e.touches[0]?.clientY ?? null;
         }}
         onTouchEnd={(e) => {
           if (startY.current == null) return;
           const dy = (e.changedTouches[0]?.clientY ?? 0) - startY.current;
-          if (dy > 80) onClose();
+          if (dy > 100 && scale <= 1) onClose();
           startY.current = null;
         }}
       >
@@ -110,37 +97,51 @@ export function ProfilePhotoViewer({
           <img
             src={src}
             alt={name || "Profile"}
-            className="max-h-full max-w-full object-contain"
+            className="h-full w-full select-none object-contain"
             style={{
-              width: "100vw",
-              height: "100dvh",
-              objectFit: "contain",
               transform: `scale(${scale})`,
               transition: "transform 0.15s ease",
+              touchAction: "none",
             }}
             onClick={(e) => {
               e.stopPropagation();
-              setScale((s) => (s > 1 ? 1 : 2.2));
+              setScale((s) => (s > 1 ? 1 : 2.4));
             }}
             draggable={false}
           />
         ) : (
-          <div className="grid h-40 w-40 place-items-center rounded-full bg-[#1e3a5f] text-4xl font-extrabold text-[#93c5fd]">
+          <div className="grid h-48 w-48 place-items-center rounded-full bg-[#1e3a5f] text-5xl font-extrabold text-[#93c5fd]">
             {fallbackInitials}
           </div>
         )}
       </div>
 
-      <div className="relative z-20 shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 text-center">
-        {name ? <p className="text-base font-bold text-white">{name}</p> : null}
-        {subtitle ? <p className="mt-0.5 text-xs text-white/55">{subtitle}</p> : null}
-        <div className="mt-4 flex items-center justify-center gap-8">
+      {/* Top bar: close */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-3 pb-8 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm"
+          aria-label="Close"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <p className="pointer-events-none text-sm font-semibold text-white/90">Close</p>
+        <span className="w-11" />
+      </div>
+
+      {/* Bottom meta + actions */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-16 text-center">
+        {name ? <p className="text-lg font-bold tracking-tight text-white drop-shadow">{name}</p> : null}
+        {subtitle ? <p className="mt-1 text-sm text-white/70">{subtitle}</p> : null}
+        <p className="mt-1 text-[11px] text-white/45">Tap photo to zoom</p>
+        <div className="pointer-events-auto mt-4 flex items-center justify-center gap-10">
           <button
             type="button"
             onClick={() => void share()}
             className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
           >
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 backdrop-blur-sm">
               <Share2 className="h-5 w-5" />
             </span>
             <span className="text-[11px] font-medium">Share</span>
@@ -150,7 +151,7 @@ export function ProfilePhotoViewer({
             onClick={download}
             className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
           >
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 backdrop-blur-sm">
               <Download className="h-5 w-5" />
             </span>
             <span className="text-[11px] font-medium">Download</span>

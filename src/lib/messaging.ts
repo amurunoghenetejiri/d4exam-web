@@ -356,6 +356,7 @@ export async function getOrCreateDirectConversation(
       p_group_kind: null,
       p_member_user_ids: [peerUserId],
       p_school_id: resolvedSchool,
+      p_peer_user_id: peerUserId,
     },
   );
   if (!rpcErr && rpcId) return rpcId as string;
@@ -936,9 +937,14 @@ export async function listDepartmentOfficers(schoolId: string) {
   let eoQ = supabase
     .from("examination_officers")
     .select("profile_id, school_id, department_id, status")
-    .limit(50);
+    .limit(80);
   if (schoolId) eoQ = eoQ.eq("school_id", schoolId);
-  const { data: eos } = await eoQ;
+  const { data: eosRaw } = await eoQ;
+  const eos = (eosRaw || []).filter(
+    (e) => String(e.status || "active").toLowerCase() !== "suspended"
+      && String(e.status || "active").toLowerCase() !== "terminated"
+      && String(e.status || "active").toLowerCase() !== "deactivated",
+  );
   const profileIds = (eos || [])
     .map((e) => e.profile_id as string)
     .filter(Boolean);
