@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - ".github/workflows/restore-chat-once.yml"
-      - ".d4exam-payload/chat-restore.b64.part0"
+      - "scripts/patch_chat_restore.py"
 jobs:
   restore:
     runs-on: ubuntu-latest
@@ -12,24 +12,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Decode and write chat route
-        run: |
-          python3 <<'PY'
-          import base64, pathlib
-          parts = sorted(pathlib.Path(".d4exam-payload").glob("chat-restore.b64.part*"))
-          b = "".join(p.read_text().strip() for p in parts)
-          data = base64.b64decode(b)
-          path = pathlib.Path("src/routes/student.messages.$conversationId.tsx")
-          path.write_bytes(data)
-          print("wrote", path, len(data), "from", len(parts), "parts")
-          assert len(data) > 50000
-          assert b"ConversationChat" in data
-          PY
-      - name: Commit restored file
+      - name: Patch and restore conversation chat
+        run: python3 scripts/patch_chat_restore.py
+      - name: Commit
         run: |
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.local"
           git add 'src/routes/student.messages.$conversationId.tsx'
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
-          git commit -m "fix: restore conversation chat; media/voice promote to ticks"
+          git commit -m "fix: restore chat; media/voice show then tick when uploaded"
           git push
