@@ -1,0 +1,36 @@
+name: wire-dark-theme
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/wire-dark-theme.yml"
+      - "src/styles-dark-theme.css"
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import dark theme in styles.css
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/styles.css")
+          t = p.read_text()
+          line = '@import "./styles-dark-theme.css";'
+          if line not in t:
+              t = t.replace('@import "./styles-material-reader.css";', '@import "./styles-material-reader.css";\n' + line, 1)
+              p.write_text(t)
+              print("import added")
+          else:
+              print("already imported")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/styles.css
+          if git diff --cached --quiet; then echo nochange; exit 0; fi
+          git commit -m "feat: wire dark theme CSS into styles.css"
+          git push

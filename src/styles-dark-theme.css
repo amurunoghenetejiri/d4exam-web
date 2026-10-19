@@ -1,0 +1,44 @@
+/* Dark theme for Settings → Appearance (light | dark | system) */
+.dark {
+  --background: oklch(0.16 0.025 255);
+  --foreground: oklch(0.97 0.01 250);
+  --card: oklch(0.2 0.03 255);
+  --card-foreground: oklch(0.97 0.01 250);
+  --popover: oklch(0.2 0.03 255);
+  --popover-foreground: oklch(0.97 0.01 250);
+  --primary: oklch(0.62 0.18 255);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.25 0.03 255);
+  --secondary-foreground: oklch(0.95 0.01 250);
+  --muted: oklch(0.24 0.025 255);
+  --muted-foreground: oklch(0.7 0.02 255);
+  --accent: oklch(0.26 0.04 255);
+  --accent-foreground: oklch(0.96 0.01 250);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.3 0.03 255);
+  --input: oklch(0.3 0.03 255);
+  --ring: oklch(0.55 0.16 255);
+  --sidebar: oklch(0.18 0.03 255);
+  --sidebar-foreground: oklch(0.96 0.01 250);
+  --sidebar-primary: oklch(0.62 0.18 255);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.24 0.03 255);
+  --sidebar-accent-foreground: oklch(0.96 0.01 250);
+  --sidebar-border: oklch(0.3 0.03 255);
+  --sidebar-ring: oklch(0.55 0.16 255);
+  color-scheme: dark;
+}
+html.dark body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+html.dark .surface-panel {
+  background-color: rgb(30 41 59 / 0.92);
+  border-color: rgb(51 65 85 / 0.9);
+}
+html.dark .bg-white\/90,
+html.dark .bg-white\/80,
+html.dark .bg-white\/95 {
+  background-color: rgb(30 41 59 / 0.94) !important;
+}
