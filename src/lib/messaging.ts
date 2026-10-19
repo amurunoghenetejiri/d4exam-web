@@ -685,10 +685,18 @@ export async function sendCampusMessage(opts: {
     if (existing) return existing as CampusMessage;
   }
 
-  throw new Error(
-    ins.error?.message ||
-      "Could not send message. Check you are a member of this chat.",
-  );
+  {
+    const raw = ins.error?.message || "Could not send message";
+    throw new Error(
+      /row-level security|policy|permission/i.test(raw)
+        ? "Could not send — try again"
+        : /not a member/i.test(raw)
+          ? "Chat not ready — reopen the chat"
+          : raw.length > 90
+            ? "Could not send message"
+            : raw,
+    );
+  }
 }
 
 async function touchConversation(

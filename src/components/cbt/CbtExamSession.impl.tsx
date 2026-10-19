@@ -1489,10 +1489,11 @@ export function CbtExamPage() {
     void navigate({ to: "/student/results/$id", params: { id: targetId || id } });
   }
 
-  if (examQ.isLoading || questionsQ.isLoading) {
+  // Show gate as soon as exam row is ready — do not block on questions
+  if (examQ.isLoading && !examQ.data) {
     return (
-      <div className="grid min-h-dvh place-items-center">
-        <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading examination…</p>
+      <div className="grid min-h-dvh place-items-center bg-white">
+        <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Opening examination…</p>
       </div>
     );
   }

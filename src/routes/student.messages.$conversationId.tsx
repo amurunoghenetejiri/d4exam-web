@@ -887,7 +887,7 @@ export function ConversationChat({
               queryKey: ["campus-messages", conversationId],
             });
           } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Voice send failed");
+            toast.error("Voice note could not send — try again");
           }
         })();
         resolve();
@@ -938,7 +938,7 @@ export function ConversationChat({
       replyToId: replyId || undefined,
     });
     try {
-      if (!isOnlineNow()) {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
         toast.message("Waiting for connection — queued");
         return;
       }
@@ -973,7 +973,20 @@ export function ConversationChat({
     } catch (e) {
       // Keep in outbox + optimistic; will retry on reconnect
       markOutboxFailed(clientId, e instanceof Error ? e.message : "Send failed");
-      toast.error(e instanceof Error ? e.message : "Send failed — will retry");
+      {
+        const raw = e instanceof Error ? e.message : "Send failed";
+        const short =
+          /row-level security|policy|permission/i.test(raw)
+            ? "Could not send — try again"
+            : /not a member/i.test(raw)
+              ? "Chat not ready — open again"
+              : /network|fetch|failed to fetch/i.test(raw)
+                ? "Network error — will retry"
+                : raw.length > 80
+                  ? "Could not send — will retry"
+                  : raw;
+        toast.error(short);
+      }
     } finally {
       sendLock.current = false;
     }
@@ -1039,7 +1052,7 @@ export function ConversationChat({
       });
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      toast.error("Upload failed — try a smaller file");
     }
   };
 
@@ -1666,7 +1679,7 @@ export function ConversationChat({
                       <span className="shrink-0">{timeLabel}</span>
                       {mine ? (
                         tick === "pending" ? (
-                          <Clock className="h-3 w-3 shrink-0 opacity-70" />
+                          <Clock className="h-3 w-3 shrink-0 animate-spin text-[#2563eb] opacity-90" style={{ animationDuration: "1.1s" }} />
                         ) : tick === "sent" ? (
                           <Check className="h-3 w-3 shrink-0 opacity-70" />
                         ) : tick === "delivered" ? (

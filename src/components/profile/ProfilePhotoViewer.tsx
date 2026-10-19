@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Share2, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 /**
- * True full-device-width profile photo viewer.
- * Portal to document.body — edge-to-edge black overlay, no floating card.
+ * Full-screen edge-to-edge profile photo viewer.
+ * Black background only — no floating card, no share/download, pinch-to-zoom.
  */
 export function ProfilePhotoViewer({
   open,
@@ -22,90 +22,136 @@ export function ProfilePhotoViewer({
   onClose: () => void;
 }) {
   const [scale, setScale] = useState(1);
-  const startY = useRef<number | null>(null);
+  const [tx, setTx] = useState(0);
+  const [ty, setTy] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStart = useRef<{ dist: number; scale: number } | null>(null);
+  const panStart = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!open) setScale(1);
+    if (!open) {
+      setScale(1);
+      setTx(0);
+      setTy(0);
+    }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const prevBody = document.body.style.cssText;
-    const prevHtml = document.documentElement.style.cssText;
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
-    document.documentElement.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.cssText = prevBody;
-      document.documentElement.style.cssText = prevHtml;
+      document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
 
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const pts = [...pointers.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pinchStart.current = { dist: dist || 1, scale };
+      panStart.current = null;
+    } else if (pointers.current.size === 1) {
+      panStart.current = { x: e.clientX, y: e.clientY, tx, ty };
+      pinchStart.current = null;
+    }
+  }, [scale, tx, ty]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2 && pinchStart.current) {
+      const pts = [...pointers.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const next = Math.min(4, Math.max(1, pinchStart.current.scale * (dist / pinchStart.current.dist)));
+      setScale(next);
+    } else if (pointers.current.size === 1 && panStart.current && scale > 1) {
+      const dx = e.clientX - panStart.current.x;
+      const dy = e.clientY - panStart.current.y;
+      setTx(panStart.current.tx + dx);
+      setTy(panStart.current.ty + dy);
+    }
+  }, [scale]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinchStart.current = null;
+    if (pointers.current.size === 0) {
+      panStart.current = null;
+      if (scale <= 1.05) {
+        setScale(1);
+        setTx(0);
+        setTy(0);
+      }
+    }
+  }, [scale]);
+
   if (!open || !mounted) return null;
   if (!src && !fallbackInitials) return null;
   if (typeof document === "undefined") return null;
-
-  const share = async () => {
-    try {
-      if (navigator.share && src) {
-        await navigator.share({ title: name || "Profile photo", url: src });
-      }
-    } catch {
-      /* cancelled */
-    }
-  };
-
-  const download = () => {
-    if (!src) return;
-    try {
-      const a = document.createElement("a");
-      a.href = src;
-      a.download = `${(name || "profile").replace(/\s+/g, "_")}.jpg`;
-      a.target = "_blank";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      window.open(src, "_blank");
-    }
-  };
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Profile photo"
-      onClick={onClose}
       style={{
         position: "fixed",
-        top: 0,
-        left: 0,
+        inset: 0,
+        zIndex: 99999,
         width: "100vw",
-        height: "100vh",
         height: "100dvh",
-        minHeight: "-webkit-fill-available",
-        zIndex: 2147483646,
-        margin: 0,
-        padding: 0,
-        border: "none",
         background: "#000",
         display: "flex",
         flexDirection: "column",
-        boxSizing: "border-box",
+        touchAction: "none",
         overscrollBehavior: "none",
       }}
     >
+      {/* Top bar — Back only */}
+      <div
+        style={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "max(10px, env(safe-area-inset-top)) 12px 10px",
+          background: "rgba(0,0,0,0.85)",
+          zIndex: 2,
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Back"
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 9999,
+            border: "none",
+            background: "rgba(255,255,255,0.12)",
+            color: "#fff",
+            display: "grid",
+            placeItems: "center",
+            cursor: "pointer",
+          }}
+        >
+          <ArrowLeft style={{ width: 20, height: 20 }} />
+        </button>
+      </div>
+
       {/* Image area — full remaining space */}
       <div
         style={{
@@ -115,49 +161,43 @@ export function ProfilePhotoViewer({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          position: "relative",
           overflow: "hidden",
+          background: "#000",
+          touchAction: "none",
         }}
-        onClick={(e) => e.stopPropagation()}
-        onTouchStart={(e) => {
-          startY.current = e.touches[0]?.clientY ?? null;
-        }}
-        onTouchEnd={(e) => {
-          if (startY.current == null) return;
-          const dy = (e.changedTouches[0]?.clientY ?? 0) - startY.current;
-          if (dy > 100 && scale <= 1) onClose();
-          startY.current = null;
-        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
       >
         {src ? (
           <img
             src={src}
             alt={name || "Profile"}
             draggable={false}
-            onClick={(e) => {
-              e.stopPropagation();
-              setScale((s) => (s > 1 ? 1 : 2.4));
-            }}
             style={{
-              width: "100%",
-              height: "100%",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              width: "auto",
+              height: "auto",
               objectFit: "contain",
-              transform: `scale(${scale})`,
-              transition: "transform 0.15s ease",
+              transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
+              transition: pointers.current.size ? "none" : "transform 0.12s ease",
               userSelect: "none",
               WebkitUserSelect: "none",
+              pointerEvents: "none",
             }}
           />
         ) : (
           <div
             style={{
-              width: 160,
-              height: 160,
+              width: 140,
+              height: 140,
               borderRadius: "9999px",
-              background: "#1e3a5f",
+              background: "#1e293b",
               display: "grid",
               placeItems: "center",
-              fontSize: 48,
+              fontSize: 42,
               fontWeight: 800,
               color: "#93c5fd",
             }}
@@ -167,145 +207,46 @@ export function ProfilePhotoViewer({
         )}
       </div>
 
-      {/* Top close — overlay */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "max(12px, env(safe-area-inset-top)) 12px 12px",
-          background: "linear-gradient(to bottom, rgba(0,0,0,0.75), transparent)",
-          pointerEvents: "none",
-        }}
-      >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          aria-label="Close"
-          style={{
-            pointerEvents: "auto",
-            width: 44,
-            height: 44,
-            borderRadius: 9999,
-            background: "rgba(0,0,0,0.5)",
-            border: "none",
-            color: "#fff",
-            display: "grid",
-            placeItems: "center",
-            cursor: "pointer",
-          }}
-        >
-          <X style={{ width: 20, height: 20 }} />
-        </button>
-        <span style={{ color: "rgba(255,255,255,0.9)", fontSize: 14, fontWeight: 600 }}>
-          Close
-        </span>
-        <span style={{ width: 44 }} />
-      </div>
-
-      {/* Bottom meta */}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          padding: "48px 16px max(20px, env(safe-area-inset-bottom))",
-          background: "linear-gradient(to top, rgba(0,0,0,0.9), transparent)",
-          textAlign: "center",
-          pointerEvents: "none",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {name ? (
-          <p style={{ margin: 0, color: "#fff", fontSize: 18, fontWeight: 700 }}>{name}</p>
-        ) : null}
-        {subtitle ? (
-          <p style={{ margin: "4px 0 0", color: "rgba(255,255,255,0.7)", fontSize: 13 }}>{subtitle}</p>
-        ) : null}
-        <p style={{ margin: "6px 0 0", color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
-          Tap photo to zoom
-        </p>
+      {/* Bottom caption — small & stylish */}
+      {(name || subtitle) ? (
         <div
           style={{
-            marginTop: 16,
-            display: "flex",
-            justifyContent: "center",
-            gap: 40,
-            pointerEvents: "auto",
+            flexShrink: 0,
+            padding: "12px 16px max(16px, env(safe-area-inset-bottom))",
+            background: "linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.55))",
+            textAlign: "center",
+            zIndex: 2,
           }}
         >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void share();
-            }}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.9)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 4,
-              cursor: "pointer",
-            }}
-          >
-            <span
+          {name ? (
+            <p
               style={{
-                width: 48,
-                height: 48,
-                borderRadius: 9999,
-                background: "rgba(255,255,255,0.15)",
-                display: "grid",
-                placeItems: "center",
+                margin: 0,
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                lineHeight: 1.3,
               }}
             >
-              <Share2 style={{ width: 20, height: 20 }} />
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 500 }}>Share</span>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              download();
-            }}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.9)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 4,
-              cursor: "pointer",
-            }}
-          >
-            <span
+              {name}
+            </p>
+          ) : null}
+          {subtitle ? (
+            <p
               style={{
-                width: 48,
-                height: 48,
-                borderRadius: 9999,
-                background: "rgba(255,255,255,0.15)",
-                display: "grid",
-                placeItems: "center",
+                margin: "4px 0 0",
+                color: "rgba(255,255,255,0.55)",
+                fontSize: 11,
+                fontWeight: 500,
+                lineHeight: 1.35,
               }}
             >
-              <Download style={{ width: 20, height: 20 }} />
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 500 }}>Download</span>
-          </button>
+              {subtitle}
+            </p>
+          ) : null}
         </div>
-      </div>
+      ) : null}
     </div>,
     document.body,
   );
