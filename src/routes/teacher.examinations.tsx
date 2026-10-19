@@ -386,9 +386,9 @@ function Page() {
     return true;
   }
 
-  async function persist(status: "draft" | "pending_approval") {
+  async function persist(status: "draft" | "pending_approval" | "published") {
     if (!teacher || !session) return;
-    if (!validateStep(1, status === "pending_approval")) return;
+    if (!validateStep(1, status !== "draft")) return;
     setBusy(true);
     try {
       const plain = stripInternalMarkers(description.trim() || "");
@@ -397,6 +397,11 @@ function Page() {
       const secBlob = `[[D4_SECURITY_JSON]]${JSON.stringify(sec)}`;
       let desc: string | null = [plain, metaBlob, secBlob].filter(Boolean).join("\n") || null;
       const computedEnd = endAt || ""; // Teacher must set end time explicitly — do not auto-fill
+      // Tests & assignments go live immediately. Only examinations need officer approval.
+      let finalStatus: string = status;
+      if (status === "pending_approval" && (assessmentKind === "test" || assessmentKind === "assignment")) {
+        finalStatus = "published";
+      }
       const payload = {
         school_id: teacher.schoolId,
         course_id: courseId,
@@ -406,7 +411,8 @@ function Page() {
         duration_minutes: durationMinutes,
         scheduled_start: startAt ? new Date(startAt).toISOString() : null,
         scheduled_end: computedEnd ? new Date(computedEnd).toISOString() : null,
-        status,
+        status: finalStatus,
+        assessment_kind: assessmentKind,
         questions_to_answer: questionsToAnswer > 0 ? questionsToAnswer : null,
       };
       let examId = editingId;
@@ -441,7 +447,7 @@ function Page() {
           console.warn("[teacher] ensureExamQuestionsLinked", linkErr);
         }
       }
-      if (status === "pending_approval" && examId) {
+      if (finalStatus === "pending_approval" && examId) {
         const course = teacher.courses.find((c) => c.id === courseId);
         void notifyOfficersExamSubmitted({
           schoolId: teacher.schoolId,
@@ -451,7 +457,13 @@ function Page() {
           courseLabel: course?.code,
         });
       }
-      toast.success(status === "draft" ? "Draft saved" : "Submitted for officer approval");
+      toast.success(
+        status === "draft"
+          ? "Draft saved"
+          : finalStatus === "published"
+            ? `${assessmentKind.charAt(0).toUpperCase() + assessmentKind.slice(1)} posted to students`
+            : "Submitted for officer approval",
+      );
       setBuilder(false);
       setEditingId(null);
       await qc.invalidateQueries({ queryKey: ["teacher-exams"] });
@@ -486,10 +498,14 @@ function Page() {
       const metaBlob = `[[D4_EXAM_META]]${JSON.stringify({ ...meta, assessmentKind: meta.assessmentKind || "examination" })}`;
       const secBlob = `[[D4_SECURITY_JSON]]${JSON.stringify(sec)}`;
       desc = [plain, metaBlob, secBlob].filter(Boolean).join("\n") || null;
+      const kind = String(meta.assessmentKind || "examination");
+      const nextStatus =
+        kind === "test" || kind === "assignment" ? "published" : "pending_approval";
       const { error } = await supabase
         .from("examinations")
         .update({
-          status: "pending_approval",
+          status: nextStatus,
+          assessment_kind: kind,
           description: desc,
           questions_to_answer:
             meta.questionsToAnswer && meta.questionsToAnswer > 0
@@ -515,14 +531,20 @@ function Page() {
           console.warn("[teacher] ensureExamQuestionsLinked", linkErr);
         }
       }
-      void notifyOfficersExamSubmitted({
-        schoolId: teacher.schoolId,
-        teacherName: session.fullName ?? "Teacher",
-        examId: id,
-        examTitle: row?.title ?? "Examination",
-        courseLabel: row?.courses?.code,
-      });
-      toast.success("Submitted for officer approval");
+      if (nextStatus === "pending_approval") {
+        void notifyOfficersExamSubmitted({
+          schoolId: teacher.schoolId,
+          teacherName: session.fullName ?? "Teacher",
+          examId: id,
+          examTitle: row?.title ?? "Examination",
+          courseLabel: row?.courses?.code,
+        });
+      }
+      toast.success(
+        nextStatus === "published"
+          ? `${kind.charAt(0).toUpperCase() + kind.slice(1)} posted to students`
+          : "Submitted for officer approval",
+      );
       await listQ.refetch();
     } catch (err) {
       toast.error((err as Error).message || "Could not submit");
@@ -932,7 +954,10 @@ function Page() {
                 </Button>
               ) : (
                 <Button className="font-semibold" disabled={busy} onClick={() => void persist("pending_approval")}>
-                  {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Submit for approval
+                  {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
+                  {assessmentKind === "test" || assessmentKind === "assignment"
+                    ? `Post ${assessmentKind} to students`
+                    : "Submit for approval"}
                 </Button>
               )}
             </div>

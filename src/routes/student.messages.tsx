@@ -616,10 +616,15 @@ function MessagesHub() {
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#3b82f6] via-[#2563eb] to-[#1d4ed8] shadow-lg shadow-blue-900/45 ring-2 ring-white/20"
+              className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-transparent"
               aria-hidden
             >
-              <span className="text-[11px] font-black tracking-tight text-white">D4</span>
+              <img
+                src="/d4chat-icon.png"
+                alt="D4Chat"
+                className="h-11 w-11 object-contain"
+                draggable={false}
+              />
             </div>
             <h1 className="truncate text-lg font-black tracking-tight sm:text-xl">
               D4<span className="text-[#60a5fa]">Chat</span>

@@ -125,7 +125,6 @@ function Page() {
             student_id: student.studentId,
             course_id: course.id,
             school_id: schoolId,
-            status: "enrolled",
           };
           const { error: scErr } = await supabase.from("student_courses").insert(payload as never);
           if (scErr && !/duplicate|unique/i.test(scErr.message || "")) {
