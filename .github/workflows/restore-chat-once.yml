@@ -11,17 +11,143 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Run restore patch
+      - name: Download base + apply tick patches
         run: |
-          python3 -c "import urllib.request,pathlib; exec(urllib.request.urlopen('https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/ffaf36c0109c29a9c0807728d1a3f022005eb780/src/routes/student.messages.%24conversationId.tsx').read().decode() and None)" || true
-          curl -sL 'https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/ffaf36c0109c29a9c0807728d1a3f022005eb780/src/routes/student.messages.%24conversationId.tsx' -o 'src/routes/student.messages.$conversationId.tsx'
-          wc -c 'src/routes/student.messages.$conversationId.tsx'
-          test $(wc -c < 'src/routes/student.messages.$conversationId.tsx') -gt 50000
+          set -e
+          curl -sL 'https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/ffaf36c0109c29a9c0807728d1a3f022005eb780/src/routes/student.messages.%24conversationId.tsx' -o /tmp/chat.tsx
+          test $(wc -c < /tmp/chat.tsx) -gt 50000
+          python3 scripts/patch_chat_restore.py || python3 - <<'PY'
+          import pathlib
+          text = pathlib.Path("/tmp/chat.tsx").read_text()
+          # Only copy base if patch script missing/broken
+          path = pathlib.Path("src/routes/student.messages.$conversationId.tsx")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          # Minimal: at least restore base so chat works
+          if "ConversationChat" in text:
+            path.write_text(text)
+            print("restored base", len(text))
+          PY
+          # Prefer local FINAL if we can get patched from previous artifact URL - use inline sed for critical fix
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.$conversationId.tsx")
+          text = p.read_text() if p.exists() else Path("/tmp/chat.tsx").read_text()
+          # voice: after successful send, promote optimistic
+          old = '''            await sendCampusMessage({
+              conversationId,
+              senderId: userId,
+              attachmentUrl: up.url,
+              attachmentType: "audio",
+              clientId,
+              durationSec,
+              replyToId: replyId,
+            });
+            void qc.invalidateQueries({
+              queryKey: ["campus-messages", conversationId],
+            });
+          } catch (e) {
+            toast.error("Voice note could not send — try again");
+          }'''
+          new = '''            const sent = await sendCampusMessage({
+              conversationId,
+              senderId: userId,
+              attachmentUrl: up.url,
+              attachmentType: "audio",
+              clientId,
+              durationSec,
+              replyToId: replyId,
+            });
+            setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId && m.id !== clientId));
+            if (sent?.id) {
+              qc.setQueryData(["campus-messages", conversationId], (old) => {
+                const list = Array.isArray(old) ? old.slice() : [];
+                const idx = list.findIndex((m) => m.id === sent.id || m.client_id === clientId || m.id === clientId);
+                if (idx >= 0) list[idx] = sent; else list.push(sent);
+                return list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+              });
+            }
+            void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+          } catch (e) {
+            toast.error(friendlySendErr(e) || "Voice note could not send — will retry");
+          }'''
+          if old in text:
+            text = text.replace(old, new, 1)
+            print("voice ok")
+          else:
+            print("voice skip")
+          old2 = '''      const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
+      await sendCampusMessage({
+        conversationId,
+        senderId: userId,
+        attachmentUrl: up.url,
+        attachmentType:
+          up.type === "image" ? "image" : up.type === "audio" ? "audio" : attType,
+        clientId,
+        replyToId: replyId,
+      });
+      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+    } catch (e) {
+      toast.error("Upload failed — try a smaller file");
+    }'''
+          new2 = '''      const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
+      const sent = await sendCampusMessage({
+        conversationId,
+        senderId: userId,
+        attachmentUrl: up.url,
+        attachmentType:
+          up.type === "image" ? "image" : up.type === "audio" ? "audio" : attType,
+        clientId,
+        replyToId: replyId,
+      });
+      setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId && m.id !== clientId));
+      if (sent?.id) {
+        qc.setQueryData(["campus-messages", conversationId], (old) => {
+          const list = Array.isArray(old) ? old.slice() : [];
+          const idx = list.findIndex((m) => m.id === sent.id || m.client_id === clientId || m.id === clientId);
+          if (idx >= 0) list[idx] = sent; else list.push(sent);
+          return list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        });
+      }
+      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+    } catch (e) {
+      toast.error(friendlySendErr(e) || "Upload failed — will retry");
+    }'''
+          if old2 in text:
+            text = text.replace(old2, new2, 1)
+            print("file ok")
+          else:
+            print("file skip")
+          old3 = '''                        tick === "pending" ? (
+                          <Clock className="h-3 w-3 shrink-0 animate-spin text-[#2563eb] opacity-90" style={{ animationDuration: "1.1s" }} />
+                        ) : tick === "sent" ? (
+                          <Check className="h-3 w-3 shrink-0 opacity-70" />
+                        ) : tick === "delivered" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 opacity-70" />
+                        ) : tick === "read" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb]" />
+                        ) : null'''
+          new3 = '''                        tick === "pending" ? (
+                          <Clock className="h-3.5 w-3.5 shrink-0 animate-spin text-[#2563eb]" style={{ animationDuration: "0.9s", filter: "drop-shadow(0 0 3px rgba(37,99,235,0.95))" }} />
+                        ) : tick === "sent" ? (
+                          <Check className="h-3 w-3 shrink-0 opacity-80 transition-opacity duration-300" />
+                        ) : tick === "delivered" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 opacity-80 transition-opacity duration-300" />
+                        ) : tick === "read" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb] transition-colors duration-300" />
+                        ) : null'''
+          if old3 in text:
+            text = text.replace(old3, new3, 1)
+            print("clock ok")
+          else:
+            print("clock skip")
+          p.write_text(text)
+          print("final", len(text))
+          PY
       - name: Commit
         run: |
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.local"
           git add 'src/routes/student.messages.$conversationId.tsx'
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
-          git commit -m "fix: restore conversation chat file from known good commit"
+          git commit -m "fix: media/voice promote optimistic to tick after upload"
           git push
