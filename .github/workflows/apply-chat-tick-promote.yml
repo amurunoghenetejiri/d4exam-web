@@ -3,7 +3,6 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - scripts/apply_chat_tick_promote.py
       - .github/workflows/apply-chat-tick-promote.yml
 jobs:
   apply:
@@ -12,11 +11,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Apply promote patches
-        run: python3 scripts/apply_chat_tick_promote.py
+      - name: Decode and run patch
+        run: |
+          python3 -c "import base64,pathlib; pathlib.Path('scripts/apply_chat_tick_promote.py').write_bytes(base64.b64decode(open('/dev/stdin').read()))" << 'B64'
+PLACEHOLDER
+B64
+          python3 scripts/apply_chat_tick_promote.py
       - name: Commit
         run: |
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.local"
-          git add "src/routes/student.messages.$conversationId.tsx"
+          git add 'src/routes/student.messages.$conversationId.tsx'
           if git diff --cached --quiet; then echo "no change"; else git commit -m "fix: promote optimistic voice/media to ticks (no stuck spinner)" && git push; fi
