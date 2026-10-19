@@ -615,17 +615,26 @@ function MessagesHub() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div className="grid h-12 w-12 shrink-0 place-items-center bg-transparent" aria-hidden>
+            <div className="grid h-11 w-11 shrink-0 place-items-center bg-transparent p-0" aria-hidden>
               <img
                 src="/d4chat-icon.png"
                 alt="D4Chat"
-                className="h-12 w-12 object-contain drop-shadow-[0_2px_6px_rgba(59,130,246,0.55)]"
-                style={{ background: "transparent", mixBlendMode: "normal" }}
+                className="h-11 w-11 object-contain"
+                style={{ background: "transparent", filter: "drop-shadow(0 1px 3px rgba(96,165,250,0.45))" }}
                 draggable={false}
               />
             </div>
-            <h1 className="truncate text-lg font-black tracking-tight sm:text-xl">
-              D4<span className="text-[#60a5fa]">Chat</span>
+            <h1
+              className="truncate text-lg font-black tracking-tight sm:text-xl"
+              style={{
+                backgroundImage: "linear-gradient(115deg, #60a5fa 0%, #3b82f6 35%, #8b5cf6 70%, #a78bfa 100%)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                color: "transparent",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              D4Chat
             </h1>
           </div>
           <button
@@ -829,7 +838,10 @@ function MessagesHub() {
                           schoolId || schoolIdHint || "",
                         );
                         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-                        openConversation(cid);
+                        openConversation(cid, {
+                          title: o.full_name || "Departmental Officer",
+                          peerUserId: o.id,
+                        });
                       } catch (e) {
                         toast.error(e instanceof Error ? e.message : "Could not open chat");
                       }

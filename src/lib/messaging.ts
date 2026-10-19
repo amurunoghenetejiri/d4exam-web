@@ -1042,6 +1042,15 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
       peerName = (peer?.full_name as string) || null;
       peerAvatar = (peer?.profile_photo_url as string) || null;
     }
+    if (!peerName) {
+      const { data: peer2 } = await supabase
+        .from("profiles")
+        .select("full_name, profile_photo_url")
+        .eq("id", peerIds[0])
+        .maybeSingle();
+      peerName = (peer2?.full_name as string) || null;
+      peerAvatar = peerAvatar || (peer2?.profile_photo_url as string) || null;
+    }
   }
 
   const myRole =
@@ -1060,7 +1069,7 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
         ? `${(members || []).length} members · ${(conv.group_kind as string) || "study"}`
         : "",
     avatar: (conv.avatar_url as string) || peerAvatar,
-    peerUserId: conv.type === "direct" ? (peerIds[0] || null) : null,
+    peerUserId: peerIds[0] || null,
     created_by: (conv.created_by as string) || null,
     creatorName,
     created_at: (conv.created_at as string) || null,
@@ -1068,7 +1077,6 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
     group_kind: (conv.group_kind as string) || null,
     memberCount: (members || []).length,
     myRole: myRole as string,
-    peerUserId: peerIds[0] || null,
   };
 }
 

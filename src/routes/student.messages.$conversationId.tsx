@@ -366,7 +366,19 @@ export function ConversationChat({
       return "";
     }
   })();
-  const displayTitle = localTitle || meta?.title || seededTitle || "Chat";
+  const displayTitle = (() => {
+    const seeded = (localTitle || seededTitle || "").trim();
+    const fromMeta = (meta?.title || "").trim();
+    if (seeded && seeded.toLowerCase() !== "chat") return seeded;
+    if (fromMeta && fromMeta.toLowerCase() !== "chat") return fromMeta;
+    return seeded || fromMeta || "Chat";
+  })();
+  const titleInitials = (() => {
+    const parts = displayTitle.replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  })();
 
   // Presence: online / typing / recording for peer
   useEffect(() => {
@@ -1219,13 +1231,13 @@ export function ConversationChat({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/90 shadow-md ring-offset-1 ring-offset-[#0b1b3a]">
+        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] ring-2 ring-white/90 shadow-md ring-offset-1 ring-offset-[#0b1b3a]">
           {meta?.avatar ? (
             <img src={meta.avatar} alt="" className="h-full w-full object-cover" />
           ) : meta?.isGroup ? (
             <UsersRound className="h-5 w-5 text-white" />
           ) : (
-            <User className="h-5 w-5 text-white" />
+            <span className="text-[13px] font-black tracking-tight text-white">{titleInitials}</span>
           )}
           {!meta?.isGroup ? (
             <span
@@ -1261,11 +1273,9 @@ export function ConversationChat({
                 ? "Typing…"
                 : peerOnline
                   ? "Online"
-                  : peerLastAt
-                    ? lastSeenLabel(peerLastAt)
-                    : meta?.isGroup
-                      ? meta?.subtitle || "Group"
-                      : "Last seen just now"}
+                  : meta?.isGroup
+                    ? meta?.subtitle || "Group"
+                    : " "}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
