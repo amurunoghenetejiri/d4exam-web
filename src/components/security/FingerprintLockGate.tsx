@@ -378,6 +378,7 @@ export function FingerprintLockGate() {
       clearFingerprintIfUser(userId);
       setFingerprintLocked(false);
       clearSessionUnlocked();
+      try { window.sessionStorage.removeItem("d4_web_app_pw_unlocked_v1"); } catch { /* */ }
     } catch {
       /* ignore */
     }
@@ -413,6 +414,12 @@ export function FingerprintLockGate() {
   const evaluateLock = useCallback(() => {
     if (isPublicAuthPath) {
       setLocked(false);
+      // After login page, require app password again on web
+      try {
+        if (pathname.startsWith("/login") || pathname === "/") {
+          window.sessionStorage.removeItem("d4_web_app_pw_unlocked_v1");
+        }
+      } catch { /* ignore */ }
       return;
     }
     // Never lock during an in-progress exam
@@ -441,21 +448,23 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    // Website / non-native: password only, stay locked until password unlock
+    // Website: password-only lock. Stays until user enters correct app password.
+    // Do NOT use isSessionUnlocked() on web — it was auto-clearing the lock.
     const onWeb = !native;
     if (onWeb) {
+      setMode("password");
       if (!hasAppPw) {
         setLocked(false);
-        setMode("password");
         return;
       }
-      if (isSessionUnlocked()) {
+      let webOk = false;
+      try {
+        webOk = window.sessionStorage.getItem("d4_web_app_pw_unlocked_v1") === "1";
+      } catch { /* ignore */ }
+      if (webOk) {
         setLocked(false);
-        setMode("password");
         return;
       }
-      // Always password mode — never fingerprint UI on website
-      setMode("password");
       setFingerprintLocked(true);
       setLocked(true);
       setFailedMsg(null);
@@ -498,11 +507,14 @@ export function FingerprintLockGate() {
 
   useEffect(() => {
     if (!locked) return;
+    if (!native) {
+      setMode("password");
+      return;
+    }
     if (userPickedPasswordRef.current) {
       setMode("password");
       return;
     }
-    // Website: always password. Native: fingerprint only when device supports it.
     const canFp = Boolean(native && hwState !== "no");
     if (canFp) setMode("fingerprint");
     else setMode("password");
@@ -602,6 +614,11 @@ export function FingerprintLockGate() {
     setFingerprintLocked(false);
     clearBackgroundMark();
     markSessionUnlocked();
+    try {
+      if (!native || opts?.fromPassword) {
+        window.sessionStorage.setItem("d4_web_app_pw_unlocked_v1", "1");
+      }
+    } catch { /* ignore */ }
     setFailedMsg(null);
     setStatus("success");
     setLocked(false);

@@ -140,9 +140,11 @@ export const Route = createFileRoute("/student/messages/$conversationId")({
 export function ConversationChat({
   conversationId,
   onBack,
+  initialTitle,
 }: {
   conversationId: string;
   onBack?: () => void;
+  initialTitle?: string;
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -356,7 +358,15 @@ export function ConversationChat({
   });
 
   const meta = metaQuery.data;
-  const displayTitle = localTitle || meta?.title || "Chat";
+  const seededTitle = (() => {
+    if (initialTitle) return initialTitle;
+    try {
+      return sessionStorage.getItem(`d4_chat_title_${conversationId}`) || "";
+    } catch {
+      return "";
+    }
+  })();
+  const displayTitle = localTitle || meta?.title || seededTitle || "Chat";
 
   // Presence: online / typing / recording for peer
   useEffect(() => {

@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { Download, Share2, X } from "lucide-react";
 
 /**
- * Full-screen edge-to-edge profile photo viewer (portal to body).
- * Covers the entire device viewport — not a cutout card.
+ * True full-device-width profile photo viewer.
+ * Portal to document.body — edge-to-edge black overlay, no floating card.
  */
 export function ProfilePhotoViewer({
   open,
@@ -23,6 +23,11 @@ export function ProfilePhotoViewer({
 }) {
   const [scale, setScale] = useState(1);
   const startY = useRef<number | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) setScale(1);
@@ -30,22 +35,23 @@ export function ProfilePhotoViewer({
 
   useEffect(() => {
     if (!open) return;
-    const prevBody = document.body.style.overflow;
-    const prevHtml = document.documentElement.style.overflow;
+    const prevBody = document.body.style.cssText;
+    const prevHtml = document.documentElement.style.cssText;
     document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
     document.documentElement.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = prevBody;
-      document.documentElement.style.overflow = prevHtml;
+      document.body.style.cssText = prevBody;
+      document.documentElement.style.cssText = prevHtml;
       window.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
   if (!src && !fallbackInitials) return null;
   if (typeof document === "undefined") return null;
 
@@ -77,28 +83,42 @@ export function ProfilePhotoViewer({
 
   return createPortal(
     <div
-      className="fixed overflow-hidden bg-black text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Profile photo"
+      onClick={onClose}
       style={{
         position: "fixed",
         top: 0,
         left: 0,
-        right: 0,
-        bottom: 0,
         width: "100vw",
+        height: "100vh",
         height: "100dvh",
-        maxWidth: "100vw",
-        maxHeight: "100dvh",
-        zIndex: 2147483000,
+        minHeight: "-webkit-fill-available",
+        zIndex: 2147483646,
         margin: 0,
         padding: 0,
+        border: "none",
+        background: "#000",
+        display: "flex",
+        flexDirection: "column",
+        boxSizing: "border-box",
+        overscrollBehavior: "none",
       }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Profile photo"
     >
-      {/* Edge-to-edge image */}
+      {/* Image area — full remaining space */}
       <div
-        className="absolute inset-0 z-0 flex items-center justify-center bg-black"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          position: "relative",
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
         onTouchStart={(e) => {
           startY.current = e.touches[0]?.clientY ?? null;
         }}
@@ -113,64 +133,176 @@ export function ProfilePhotoViewer({
           <img
             src={src}
             alt={name || "Profile"}
-            className="h-full w-full select-none object-contain"
-            style={{
-              transform: `scale(${scale})`,
-              transition: "transform 0.15s ease",
-              touchAction: "none",
-            }}
+            draggable={false}
             onClick={(e) => {
               e.stopPropagation();
               setScale((s) => (s > 1 ? 1 : 2.4));
             }}
-            draggable={false}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              transform: `scale(${scale})`,
+              transition: "transform 0.15s ease",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+            }}
           />
         ) : (
-          <div className="grid h-48 w-48 place-items-center rounded-full bg-[#1e3a5f] text-5xl font-extrabold text-[#93c5fd]">
+          <div
+            style={{
+              width: 160,
+              height: 160,
+              borderRadius: "9999px",
+              background: "#1e3a5f",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 48,
+              fontWeight: 800,
+              color: "#93c5fd",
+            }}
+          >
             {fallbackInitials}
           </div>
         )}
       </div>
 
-      {/* Top bar: close */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-3 pb-8 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      {/* Top close — overlay */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "max(12px, env(safe-area-inset-top)) 12px 12px",
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.75), transparent)",
+          pointerEvents: "none",
+        }}
+      >
         <button
           type="button"
-          onClick={onClose}
-          className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           aria-label="Close"
+          style={{
+            pointerEvents: "auto",
+            width: 44,
+            height: 44,
+            borderRadius: 9999,
+            background: "rgba(0,0,0,0.5)",
+            border: "none",
+            color: "#fff",
+            display: "grid",
+            placeItems: "center",
+            cursor: "pointer",
+          }}
         >
-          <X className="h-5 w-5" />
+          <X style={{ width: 20, height: 20 }} />
         </button>
-        <p className="pointer-events-none text-sm font-semibold text-white/90">Close</p>
-        <span className="w-11" />
+        <span style={{ color: "rgba(255,255,255,0.9)", fontSize: 14, fontWeight: 600 }}>
+          Close
+        </span>
+        <span style={{ width: 44 }} />
       </div>
 
-      {/* Bottom meta + actions */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-16 text-center">
-        {name ? <p className="text-lg font-bold tracking-tight text-white drop-shadow">{name}</p> : null}
-        {subtitle ? <p className="mt-1 text-sm text-white/70">{subtitle}</p> : null}
-        <p className="mt-1 text-[11px] text-white/45">Tap photo to zoom</p>
-        <div className="pointer-events-auto mt-4 flex items-center justify-center gap-10">
+      {/* Bottom meta */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          padding: "48px 16px max(20px, env(safe-area-inset-bottom))",
+          background: "linear-gradient(to top, rgba(0,0,0,0.9), transparent)",
+          textAlign: "center",
+          pointerEvents: "none",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {name ? (
+          <p style={{ margin: 0, color: "#fff", fontSize: 18, fontWeight: 700 }}>{name}</p>
+        ) : null}
+        {subtitle ? (
+          <p style={{ margin: "4px 0 0", color: "rgba(255,255,255,0.7)", fontSize: 13 }}>{subtitle}</p>
+        ) : null}
+        <p style={{ margin: "6px 0 0", color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
+          Tap photo to zoom
+        </p>
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "center",
+            gap: 40,
+            pointerEvents: "auto",
+          }}
+        >
           <button
             type="button"
-            onClick={() => void share()}
-            className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
+            onClick={(e) => {
+              e.stopPropagation();
+              void share();
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.9)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 4,
+              cursor: "pointer",
+            }}
           >
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 backdrop-blur-sm">
-              <Share2 className="h-5 w-5" />
+            <span
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 9999,
+                background: "rgba(255,255,255,0.15)",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <Share2 style={{ width: 20, height: 20 }} />
             </span>
-            <span className="text-[11px] font-medium">Share</span>
+            <span style={{ fontSize: 11, fontWeight: 500 }}>Share</span>
           </button>
           <button
             type="button"
-            onClick={download}
-            className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
+            onClick={(e) => {
+              e.stopPropagation();
+              download();
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.9)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 4,
+              cursor: "pointer",
+            }}
           >
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 backdrop-blur-sm">
-              <Download className="h-5 w-5" />
+            <span
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 9999,
+                background: "rgba(255,255,255,0.15)",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <Download style={{ width: 20, height: 20 }} />
             </span>
-            <span className="text-[11px] font-medium">Download</span>
+            <span style={{ fontSize: 11, fontWeight: 500 }}>Download</span>
           </button>
         </div>
       </div>

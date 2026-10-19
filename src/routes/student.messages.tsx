@@ -463,9 +463,14 @@ function MessagesHub() {
   }, [allChats, groups, search, tab]);
 
   const openConversation = useCallback(
-    (id: string) => {
+    (id: string, seed?: { title?: string; peerUserId?: string }) => {
       if (!id) return;
       // Inline chat view — works even when route matching fails on APK
+      if (seed?.title) {
+        try {
+          sessionStorage.setItem(`d4_chat_title_${id}`, seed.title);
+        } catch { /* */ }
+      }
       setActiveChatId(id);
       const path = `/student/messages/${id}`;
       try {
@@ -496,7 +501,6 @@ function MessagesHub() {
         return;
       }
       try {
-        toast.loading("Opening chat…", { id: "open-chat" });
         const sid = schoolId || schoolIdHint || "";
         const cid = await getOrCreateDirectConversation(
           userId,
@@ -504,11 +508,15 @@ function MessagesHub() {
           sid,
         );
         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-        toast.dismiss("open-chat");
-        if (cid) openConversation(cid);
-        else toast.error("Could not open chat");
+        if (cid) {
+          openConversation(cid, {
+            title: peer.full_name || "Chat",
+            peerUserId: peer.auth_user_id,
+          });
+        } else {
+          toast.error("Could not open chat");
+        }
       } catch (e) {
-        toast.dismiss("open-chat");
         const msg = e instanceof Error ? e.message : "Could not open chat";
         toast.error(msg.replace(/row-level security policy/gi, "permission denied — try again"));
       }
@@ -536,6 +544,13 @@ function MessagesHub() {
     return (
       <ConversationChat
         conversationId={activeChatId}
+        initialTitle={(() => {
+          try {
+            return sessionStorage.getItem(`d4_chat_title_${activeChatId}`) || undefined;
+          } catch {
+            return undefined;
+          }
+        })()}
         onBack={() => {
           setActiveChatId(null);
           try {
@@ -934,6 +949,13 @@ function MessagesHub() {
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white">
           <ConversationChat
             conversationId={activeChatId}
+            initialTitle={(() => {
+              try {
+                return sessionStorage.getItem(`d4_chat_title_${activeChatId}`) || undefined;
+              } catch {
+                return undefined;
+              }
+            })()}
             onBack={() => {
               setActiveChatId(null);
               try {
