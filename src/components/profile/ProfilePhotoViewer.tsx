@@ -128,13 +128,11 @@ export function ProfilePhotoViewer({
         left: 0,
         right: 0,
         bottom: 0,
-        inset: 0,
         zIndex: 99999,
         width: "100vw",
-        width: "100dvw" as unknown as string,
-        height: "100vh",
-        height: "100dvh" as unknown as string,
+        height: "100dvh",
         minHeight: "100svh",
+        maxHeight: "100dvh",
         background: "#000",
         display: "flex",
         flexDirection: "column",
@@ -142,6 +140,7 @@ export function ProfilePhotoViewer({
         overscrollBehavior: "none",
         margin: 0,
         padding: 0,
+        boxSizing: "border-box",
       }}
     >
       {/* Top bar — Back only */}
