@@ -547,6 +547,20 @@ export function AppShell({
                     <X className="h-5 w-5" strokeWidth={2.25} />
                   </button>
                 </div>
+                <div className="shrink-0 border-b border-white/10 px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      setSearchOpen(true);
+                    }}
+                    className="flex h-10 w-full items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 text-left text-sm text-white"
+                    aria-label="Search"
+                  >
+                    <Search className="h-4 w-4 shrink-0 text-white/80" />
+                    <span className="truncate text-white/70">Search exams, materials, courses…</span>
+                  </button>
+                </div>
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                   <NavLinks config={config} onNavigate={() => setOpen(false)} badges={navBadges} />
                 </div>
@@ -555,7 +569,7 @@ export function AppShell({
                     type="button"
                     onClick={() => {
                       setOpen(false);
-                      void signOut();
+                      setLogoutOpen(true);
                     }}
                     className="pressable flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/15 hover:text-red-300 active:scale-[0.98]"
                   >
@@ -594,7 +608,8 @@ export function AppShell({
             </Link>
           </div>
 
-          <div className="flex min-w-0 justify-center px-1 sm:px-2">
+          {/* Search in top bar only on large screens — mobile uses menu search */}
+          <div className="hidden min-w-0 justify-center px-1 sm:px-2 lg:flex">
             <div className="relative w-full max-w-xl">
               <button
                 type="button"
@@ -607,6 +622,8 @@ export function AppShell({
               </button>
             </div>
           </div>
+          {/* Spacer so right icons stay right-aligned on mobile */}
+          <div className="min-w-0 flex-1 lg:hidden" aria-hidden />
 
           <div className="flex items-center justify-end gap-0.5 sm:gap-2">
             <NotificationBell to={notifPath} unread={unreadCount} />

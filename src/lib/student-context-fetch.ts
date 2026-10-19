@@ -113,6 +113,17 @@ export async function fetchStudentContextClient(session: {
         .maybeSingle();
     }
     let student = studentQ.data as Record<string, unknown> | null;
+    if (!student) {
+      // profile_id may equal auth uid on legacy rows
+      const byAuth = await supabase
+        .from("students")
+        .select(
+          "id, matric_number, student_id, school_id, profile_id, department_id, level_id, faculty_id, status, full_name, departments(name), faculties(name), levels(name)",
+        )
+        .eq("profile_id", uid)
+        .maybeSingle();
+      if (byAuth.data) student = byAuth.data as Record<string, unknown>;
+    }
     if (!student && schoolId) {
       const alt = await supabase
         .from("students")
@@ -120,9 +131,23 @@ export async function fetchStudentContextClient(session: {
           "id, matric_number, student_id, school_id, profile_id, department_id, level_id, faculty_id, status, full_name, departments(name), faculties(name), levels(name)",
         )
         .eq("school_id", schoolId)
-        .limit(500);
+        .limit(800);
       const rows = (alt.data ?? []) as Record<string, unknown>[];
-      student = rows.find((r) => String(r.profile_id || "") === String(profile!.id)) ?? null;
+      student =
+        rows.find((r) => String(r.profile_id || "") === String(profile!.id)) ||
+        rows.find((r) => String(r.profile_id || "") === String(uid)) ||
+        null;
+    }
+    // Last resort: any student row linked to this profile id without school filter (RLS still applies)
+    if (!student) {
+      const any = await supabase
+        .from("students")
+        .select(
+          "id, matric_number, student_id, school_id, profile_id, department_id, level_id, faculty_id, status, full_name, departments(name), faculties(name), levels(name)",
+        )
+        .or(`profile_id.eq.${profile.id},profile_id.eq.${uid}`)
+        .limit(5);
+      if (any.data?.[0]) student = any.data[0] as Record<string, unknown>;
     }
     if (!student) return null;
     const departments = student.departments as { name?: string } | null;

@@ -72,7 +72,7 @@ type ResultRow = {
 type Notif = { id: string; title: string; created_at: string; read_at: string | null };
 
 function Page() {
-  const { data: student, isLoading: sLoading } = useStudentContext();
+  const { data: student, isLoading: sLoading, refetch: refetchStudent, isFetching: sFetching } = useStudentContext();
   const { data: user } = useSessionUser();
 
   useEffect(() => {
@@ -348,10 +348,23 @@ function Page() {
 
   if (!student) {
     return (
-      <EmptyState
-        title="Student profile not found"
-        description="Contact School Admin to link your account to a student record."
-      />
+      <>
+        <EmptyState
+          title="Student profile not found"
+          description="Contact School Admin to link your account to a student record. If you just signed in, tap Retry or sign out and sign in again."
+        />
+        <div className="mt-4 flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            className="font-semibold"
+            disabled={sFetching}
+            onClick={() => void refetchStudent()}
+          >
+            {sFetching ? "Loading…" : "Retry"}
+          </Button>
+        </div>
+      </>
     );
   }
 

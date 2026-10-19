@@ -68,6 +68,7 @@ export function useStudentContext() {
               seedLoginSchoolContext(ctx.schoolId, null);
             } catch { /* ignore */ }
           }
+          // Never permanently cache a null context — allow retry on next visit
           return ctx;
         },
         { schoolId: session?.schoolId, fallback: null },

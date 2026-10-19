@@ -384,30 +384,33 @@ function MessagesHub() {
       deptOpen,
       tab === "students" || findOpen || deptOpen,
     ],
-    enabled:
-      Boolean(userId) &&
-      (tab === "students" || findOpen || deptOpen) &&
-      String(search || "").trim().length >= 2,
+    enabled: Boolean(userId) && (tab === "students" || findOpen || deptOpen),
     staleTime: 30_000,
     queryFn: () =>
       discoverStudents({
         schoolId: schoolId || schoolIdHint || "",
         query: search,
-        departmentId: deptOpen ? student?.departmentId || null : null,
+        // Always scope to my department on Students tab so classmates load immediately
+        departmentId:
+          student?.departmentId ||
+          (deptOpen ? student?.departmentId || null : null) ||
+          null,
         excludeUserId: userId,
-        limit: 60,
+        limit: 120,
       }),
   });
 
   const officersQuery = useQuery({
     queryKey: ["campus-officers", schoolId, search],
-    enabled: Boolean(userId) && tab === "officers" && String(search || "").trim().length >= 2,
+    enabled: Boolean(userId) && tab === "officers",
     staleTime: 60_000,
     queryFn: async () => {
       const all = await listDepartmentOfficers(schoolId || schoolIdHint || "");
       const q = String(search || "").trim().toLowerCase();
-      if (q.length < 2) return [];
-      return all.filter((o) => (o.full_name || "").toLowerCase().includes(q));
+      if (q.length >= 1) {
+        return all.filter((o) => (o.full_name || "").toLowerCase().includes(q));
+      }
+      return all;
     },
   });
 
@@ -1275,9 +1278,9 @@ function StudentDirectory({
         </div>
       ) : students.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">
-          <p className="font-semibold text-slate-700">Search for a student</p>
+          <p className="font-semibold text-slate-700">No classmates found</p>
           <p className="mt-1 text-xs">
-            Type at least 2 characters of a name or matric number to find someone to message. The full department list is not shown here.
+            Students in your department will appear here. Try clearing search, or ask School Admin to assign your department.
           </p>
         </div>
       ) : departmentOnly ? (
