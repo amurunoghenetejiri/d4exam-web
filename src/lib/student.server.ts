@@ -110,15 +110,43 @@ export const getMyStudentContext = createServerFn({ method: "GET" })
         .maybeSingle();
       sessionName = (activeSession?.name as string | null) ?? null;
       if (activeSession?.id) {
-        const { data: sem } = await db
+        let semRes = await db
           .from("semesters")
           .select("id, name")
           .eq("academic_session_id", activeSession.id)
           .eq("status", "active")
           .maybeSingle();
-        semesterName = (sem?.name as string | null) ?? null;
-        semesterId = (sem?.id as string | null) ?? null;
+        if (!semRes.data) {
+          semRes = await db
+            .from("semesters")
+            .select("id, name")
+            .eq("school_id", schoolId)
+            .eq("status", "active")
+            .limit(1)
+            .maybeSingle();
+        }
+        if (!semRes.data) {
+          semRes = await db
+            .from("semesters")
+            .select("id, name")
+            .eq("school_id", schoolId)
+            .limit(1)
+            .maybeSingle();
+        }
+        semesterName = (semRes.data?.name as string | null) ?? null;
+        semesterId = (semRes.data?.id as string | null) ?? null;
       }
+      if (!semesterName) {
+        const { data: anySem } = await db
+          .from("semesters")
+          .select("id, name")
+          .eq("school_id", schoolId)
+          .limit(1)
+          .maybeSingle();
+        semesterName = (anySem?.name as string | null) ?? null;
+        semesterId = (anySem?.id as string | null) ?? null;
+      }
+      if (!semesterName && sessionName) semesterName = sessionName;
     } catch {
       /* optional */
     }

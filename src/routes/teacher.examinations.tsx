@@ -148,7 +148,7 @@ function Page() {
   const [courseId, setCourseId] = useState("");
   const [carryoverIds, setCarryoverIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
-  const [assessmentKind, setAssessmentKind] = useState<AssessmentKind>("examination");
+  const [assessmentKind, setAssessmentKind] = useState<AssessmentKind>("test");
   const [description, setDescription] = useState("");
   const [durationText, setDurationText] = useState("60");
   const [questionsText, setQuestionsText] = useState("20");
@@ -272,7 +272,7 @@ function Page() {
   function resetForm() {
     setCourseId(lockedCourseId ?? teacher?.courses[0]?.id ?? "");
     setTitle("");
-    setAssessmentKind("examination");
+    setAssessmentKind("test");
     setDescription("");
     setDurationText("60");
     setQuestionsText("20");
@@ -650,9 +650,9 @@ function Page() {
                 <Select value={assessmentKind} onValueChange={(v) => setAssessmentKind(v as AssessmentKind)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="examination">Examination</SelectItem>
                     <SelectItem value="test">Test</SelectItem>
                     <SelectItem value="assignment">Assignment</SelectItem>
+                    <SelectItem value="examination">Examination</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -973,7 +973,7 @@ function Page() {
     <>
       <PageHeader
         title={lockedCourse ? `Exams · ${lockedCourse.code}` : "Examinations"}
-        description="Create exam → Select questions → security → submit for officer"
+        description="Create test, assignment, or examination. Tests & assignments post directly; examinations need officer approval."
         actions={
           <Button className="font-semibold" onClick={openBuilder} disabled={!teacher.courses.length}>
             <Plus className="mr-1.5 h-4 w-4" /> Create examination

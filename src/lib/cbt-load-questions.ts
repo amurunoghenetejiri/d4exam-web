@@ -178,15 +178,33 @@ async function loadViaRpc(examId: string, courseId: string | null, schoolId: str
 
 async function loadFromExamQuestions(examId: string): Promise<RawQ[]> {
   try {
-    const linkRes = await supabase
+    let linkRes = await supabase
       .from("exam_questions")
       .select("question_id, marks, question_order")
       .eq("exam_id", examId)
       .order("question_order", { ascending: true })
       .limit(300);
     if (linkRes.error) {
-      console.warn("[cbt] exam_questions link", linkRes.error.message);
-      return [];
+      // Legacy column names
+      linkRes = await supabase
+        .from("exam_questions")
+        .select("question_id, marks, sort_order")
+        .eq("examination_id", examId)
+        .order("sort_order", { ascending: true })
+        .limit(300);
+      if (linkRes.error) {
+        console.warn("[cbt] exam_questions link", linkRes.error.message);
+        return [];
+      }
+      // normalize
+      linkRes = {
+        ...linkRes,
+        data: (linkRes.data || []).map((r: any) => ({
+          question_id: r.question_id,
+          marks: r.marks,
+          question_order: r.sort_order ?? r.question_order,
+        })),
+      } as typeof linkRes;
     }
     const links = (linkRes.data ?? []).filter((r) => r.question_id);
     if (!links.length) return [];
@@ -323,7 +341,16 @@ export async function ensureExamQuestionsLinked(opts: {
       marks: marksById.get(qid) ?? 1,
       question_order: i + 1,
     }));
-    const { error } = await sbLoose.from("exam_questions").insert(rows);
+    let { error } = await sbLoose.from("exam_questions").insert(rows);
+    if (error && /examination_id|column/i.test(error.message || "")) {
+      const legacy = unique.map((qid, i) => ({
+        examination_id: examId,
+        question_id: qid,
+        marks: marksById.get(qid) ?? 1,
+        sort_order: i + 1,
+      }));
+      ({ error } = await sbLoose.from("exam_questions").insert(legacy));
+    }
     if (error) {
       console.warn("[cbt] ensureExamQuestionsLinked selected", error.message);
       return 0;
@@ -331,7 +358,10 @@ export async function ensureExamQuestionsLinked(opts: {
     return rows.length;
   }
 
-  const existing = await supabase.from("exam_questions").select("question_id").eq("exam_id", examId).limit(1);
+  let existing = await supabase.from("exam_questions").select("question_id").eq("exam_id", examId).limit(1);
+  if (existing.error) {
+    existing = await supabase.from("exam_questions").select("question_id").eq("examination_id", examId).limit(1);
+  }
   if (!existing.error && (existing.data?.length ?? 0) > 0) return 0;
   let qs: { id: string; marks: number | null }[] | null = null;
   for (const statuses of [["active", "approved"], ["active", "approved", "pending"], null] as (string[] | null)[]) {
@@ -358,7 +388,16 @@ export async function ensureExamQuestionsLinked(opts: {
     marks: q.marks ?? 1,
     question_order: i + 1,
   }));
-  const { error } = await sbLoose.from("exam_questions").insert(rows);
+  let { error } = await sbLoose.from("exam_questions").insert(rows);
+  if (error && /examination_id|column/i.test(error.message || "")) {
+    const legacy = picked.map((q, i) => ({
+      examination_id: examId,
+      question_id: q.id,
+      marks: q.marks ?? 1,
+      sort_order: i + 1,
+    }));
+    ({ error } = await sbLoose.from("exam_questions").insert(legacy));
+  }
   if (error) {
     console.warn("[cbt] ensureExamQuestionsLinked", error.message);
     return 0;

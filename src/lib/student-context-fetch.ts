@@ -153,6 +153,36 @@ export async function fetchStudentContextClient(session: {
     const departments = student.departments as { name?: string } | null;
     const faculties = student.faculties as { name?: string } | null;
     const levels = student.levels as { name?: string } | null;
+    
+    // Hydrate semester/session for dashboard display
+    let sessionName: string | null = null;
+    let semesterName: string | null = null;
+    let semesterId: string | null = null;
+    try {
+      const sid = String(student.school_id || schoolId || "");
+      if (sid) {
+        const { data: asess } = await supabase
+          .from("academic_sessions")
+          .select("id, name")
+          .eq("school_id", sid)
+          .eq("status", "active")
+          .maybeSingle();
+        sessionName = (asess?.name as string) || null;
+        let semQ = await supabase
+          .from("semesters")
+          .select("id, name")
+          .eq("school_id", sid)
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+        if (!semQ.data) {
+          semQ = await supabase.from("semesters").select("id, name").eq("school_id", sid).limit(1).maybeSingle();
+        }
+        semesterName = (semQ.data?.name as string) || sessionName;
+        semesterId = (semQ.data?.id as string) || null;
+      }
+    } catch { /* ignore */ }
+
     const status = String(student.status || "active");
     const studentId = String(student.id);
     let courses: StudentCourse[] = [];
@@ -212,9 +242,9 @@ export async function fetchStudentContextClient(session: {
       levelName: levels?.name ?? null,
       status,
       isActive: status.toLowerCase() === "active",
-      sessionName: null,
-      semesterName: null,
-      semesterId: null,
+      sessionName,
+      semesterName,
+      semesterId,
       courses,
       courseIds: courses.map((c) => c.id),
     };

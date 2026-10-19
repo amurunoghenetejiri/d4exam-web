@@ -615,14 +615,12 @@ function MessagesHub() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div
-              className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-transparent"
-              aria-hidden
-            >
+            <div className="grid h-12 w-12 shrink-0 place-items-center bg-transparent" aria-hidden>
               <img
                 src="/d4chat-icon.png"
                 alt="D4Chat"
-                className="h-11 w-11 object-contain"
+                className="h-12 w-12 object-contain drop-shadow-[0_2px_6px_rgba(59,130,246,0.55)]"
+                style={{ background: "transparent", mixBlendMode: "normal" }}
                 draggable={false}
               />
             </div>
