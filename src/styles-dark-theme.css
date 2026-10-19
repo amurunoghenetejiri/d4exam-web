@@ -29,16 +29,63 @@
   --sidebar-ring: oklch(0.55 0.16 255);
   color-scheme: dark;
 }
+
+html.dark,
 html.dark body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
 }
+
 html.dark .surface-panel {
   background-color: rgb(30 41 59 / 0.92);
   border-color: rgb(51 65 85 / 0.9);
 }
+
+/* Common hardcoded light surfaces → dark */
+html.dark .bg-white,
 html.dark .bg-white\/90,
 html.dark .bg-white\/80,
-html.dark .bg-white\/95 {
-  background-color: rgb(30 41 59 / 0.94) !important;
+html.dark .bg-white\/95,
+html.dark .bg-white\/70,
+html.dark .bg-slate-50,
+html.dark .bg-slate-100,
+html.dark .bg-gray-50,
+html.dark .bg-zinc-50 {
+  background-color: rgb(30 41 59 / 0.96) !important;
+}
+
+html.dark .bg-slate-50\/80,
+html.dark .bg-slate-100\/80 {
+  background-color: rgb(30 41 59 / 0.85) !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-gray-900,
+html.dark .text-zinc-900 {
+  color: rgb(241 245 249) !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600 {
+  color: rgb(203 213 225) !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html.dark .text-gray-500 {
+  color: rgb(148 163 184) !important;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-gray-100,
+html.dark .border-gray-200 {
+  border-color: rgb(51 65 85 / 0.9) !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  color-scheme: dark;
 }

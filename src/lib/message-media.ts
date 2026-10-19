@@ -11,9 +11,17 @@ export async function uploadMessageMedia(
   contentType: string,
   pathPrefix: string,
 ): Promise<{ url: string; type: "image" | "audio" | "file"; inline?: boolean }> {
-  const kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
+  let kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
+  if (!kind || kind === "application/octet-stream" || kind === "video/webm") {
+    // MediaRecorder often yields empty/generic type for webm voice notes
+    kind = kind === "video/webm" ? "audio/webm" : (kind || "audio/webm");
+  }
   const isImage = kind.startsWith("image/");
-  const isAudio = kind.startsWith("audio/") || kind === "application/ogg";
+  const isAudio =
+    kind.startsWith("audio/") ||
+    kind === "application/ogg" ||
+    kind === "audio/webm" ||
+    kind === "video/webm";
   const type: "image" | "audio" | "file" = isImage ? "image" : isAudio ? "audio" : "file";
   const ext = isImage
     ? kind.includes("png")
@@ -57,7 +65,11 @@ export async function uploadMessageMedia(
     }
   }
 
-  // Inline fallback — voice notes / small images (max ~1.2MB)
+  // Inline fallback — voice notes / small images (max ~2.5MB so typical webm notes work)
+  if ((isAudio || isImage) && blob.size <= 2_500_000) {
+    const dataUrl = await blobToDataUrl(blob);
+    return { url: dataUrl, type, inline: true };
+  }
   if (blob.size <= 1_200_000) {
     const dataUrl = await blobToDataUrl(blob);
     return { url: dataUrl, type, inline: true };
