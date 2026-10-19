@@ -13,7 +13,8 @@ import { X } from "lucide-react";
 const SKIP_KEY = (userId: string) => `d4_email_skip_${userId}`;
 
 /**
- * Full-screen profile-style sheet: blur backdrop, edge-to-edge, centered card.
+ * Full-screen profile-style sheet (same pattern as MessagingProfileSheet):
+ * edge-to-edge blur backdrop, centered card, safe-area aware.
  */
 export function StudentEmailCapture() {
   const { data: session } = useSessionUser();
@@ -117,57 +118,57 @@ export function StudentEmailCapture() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="d4-email-title"
-      className="fixed inset-0 z-[9990] flex flex-col"
+      className="fixed inset-0 z-[9990] flex h-[100dvh] w-screen items-center justify-center p-4"
       style={{
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         width: "100vw",
         height: "100dvh",
         minHeight: "100svh",
-        background: "rgba(11, 27, 58, 0.55)",
-        backdropFilter: "blur(12px) saturate(1.15)",
-        WebkitBackdropFilter: "blur(12px) saturate(1.15)",
+        background: "rgba(0,0,0,0.55)",
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
         opacity: hiding ? 0 : 1,
         transition: "opacity 0.22s ease",
         pointerEvents: hiding ? "none" : "auto",
+        paddingTop: "max(1rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
       }}
+      onClick={dismissSkip}
     >
-      {/* Top bar like profile */}
       <div
-        className="flex shrink-0 items-center justify-between px-3"
+        className="relative mx-auto flex w-full max-w-[22rem] flex-col overflow-hidden rounded-[1.5rem] bg-[#0b1b3a] shadow-2xl ring-1 ring-white/10"
         style={{
-          paddingTop: "max(0.75rem, env(safe-area-inset-top))",
-          paddingBottom: "0.5rem",
+          margin: "auto",
+          transform: hiding ? "translateY(10px) scale(0.98)" : "none",
+          transition: "transform 0.22s ease",
         }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <button
-          type="button"
-          onClick={dismissSkip}
-          className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white active:scale-95"
-          aria-label="Close"
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <p className="text-sm font-semibold tracking-wide text-white/90">Account</p>
-        <span className="h-10 w-10" aria-hidden />
-      </div>
+        <div className="relative flex items-center justify-between px-3 pt-3">
+          <button
+            type="button"
+            onClick={dismissSkip}
+            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white active:bg-white/20"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <p className="text-sm font-semibold tracking-wide text-white/90">Account</p>
+          <span className="h-9 w-9" aria-hidden />
+        </div>
 
-      {/* Centered card */}
-      <div className="flex flex-1 items-center justify-center px-4 pb-8">
-        <div
-          className="w-full max-w-sm rounded-2xl border border-white/15 bg-white p-5 shadow-2xl"
-          style={{
-            transform: hiding ? "translateY(10px) scale(0.98)" : "none",
-            transition: "transform 0.22s ease",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p id="d4-email-title" className="text-base font-bold text-slate-900">
+        <div className="px-5 pb-6 pt-2">
+          <p id="d4-email-title" className="text-base font-bold text-white">
             Add your email
           </p>
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+          <p className="mt-1.5 text-xs leading-relaxed text-white/60">
             Optional but recommended. Used for results and account recovery. You can change it later.
           </p>
           <div className="mt-4 space-y-2">
-            <Label htmlFor="student-personal-email" className="text-xs font-semibold">
+            <Label htmlFor="student-personal-email" className="text-xs font-semibold text-white/80">
               Email
             </Label>
             <Input
@@ -176,16 +177,16 @@ export function StudentEmailCapture() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@gmail.com"
-              className="h-11"
+              className="h-11 border-white/15 bg-white/10 text-white placeholder:text-white/40"
               autoComplete="email"
               autoFocus
             />
-            {error ? <p className="text-xs text-red-600">{error}</p> : null}
+            {error ? <p className="text-xs text-red-400">{error}</p> : null}
             <div className="flex flex-wrap gap-2 pt-2">
               <Button
                 type="button"
                 size="sm"
-                className="flex-1 font-semibold"
+                className="flex-1 font-semibold bg-[#2563eb] hover:bg-[#1d4ed8]"
                 disabled={saving}
                 onClick={() => void save()}
               >
@@ -195,7 +196,7 @@ export function StudentEmailCapture() {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="flex-1"
+                className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10"
                 disabled={saving}
                 onClick={dismissSkip}
               >
