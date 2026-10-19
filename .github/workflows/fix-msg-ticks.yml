@@ -1,0 +1,24 @@
+name: fix-msg-ticks
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-msg-ticks.yml"
+      - "scripts/patch_msg_ticks.py"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply message tick + voice send fixes
+        run: python3 scripts/patch_msg_ticks.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add 'src/routes/student.messages.$conversationId.tsx'
+          if git diff --cached --quiet; then echo nochange; exit 0; fi
+          git commit -m "fix: voice/media send promote to ticks; stop infinite clock"
+          git push
