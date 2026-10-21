@@ -59,7 +59,6 @@ function normalizeRows(data: unknown): RawQ[] {
   for (const row of data) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
-    // RPC may return nested json already
     const id = r.id != null ? String(r.id) : "";
     const text = r.question_text != null ? String(r.question_text) : "";
     if (!id) continue;
@@ -88,7 +87,6 @@ function mergeRaw(base: RawQ, extra: RawQ): RawQ {
   };
 }
 
-/** Load option rows from question_options table (legacy / alternate storage). */
 async function fetchOptionsFromQuestionOptionsTable(
   ids: string[],
 ): Promise<Map<string, { key: string; text: string; is_correct?: boolean }[]>> {
@@ -196,7 +194,6 @@ async function loadFromExamQuestions(examId: string): Promise<RawQ[]> {
       .order("question_order", { ascending: true })
       .limit(300);
     if (linkRes.error) {
-      // Legacy column names
       linkRes = await supabase
         .from("exam_questions")
         .select("question_id, marks, sort_order")
@@ -207,7 +204,6 @@ async function loadFromExamQuestions(examId: string): Promise<RawQ[]> {
         console.warn("[cbt] exam_questions link", linkRes.error.message);
         return [];
       }
-      // normalize
       linkRes = {
         ...linkRes,
         data: (linkRes.data || []).map((r: any) => ({
@@ -235,7 +231,6 @@ async function loadFromExamQuestions(examId: string): Promise<RawQ[]> {
 
 async function fetchQuestionsByIds(ids: string[]): Promise<RawQ[]> {
   if (!ids.length) return [];
-  // Prefer selecting options; fall back if column missing
   for (const cols of [
     "id, question_text, question_type, marks, correct_answer, explanation, options, status",
     "id, question_text, question_type, marks, correct_answer, explanation, status",
@@ -251,7 +246,6 @@ async function fetchQuestionsByIds(ids: string[]): Promise<RawQ[]> {
 
 async function loadFromCourseBank(courseId: string, schoolId: string | null): Promise<RawQ[]> {
   if (!courseId) return [];
-  // Fast path: one query (avoid nested retries that delay exam start)
   let q = supabase
     .from("questions")
     .select("id, question_text, question_type, marks, correct_answer, explanation, options, school_id, status, course_id")
@@ -287,7 +281,6 @@ export async function loadExamQuestionBank(opts: {
     rows = await loadViaRpc(examId, courseId || null, schoolId);
   }
 
-  // If RPC gave questions but no options, merge from exam_questions path
   if (examId && (!rows.length || rows.some((r) => !hasUsableOptions(r)))) {
     const linked = await loadFromExamQuestions(examId);
     if (linked.length) {
@@ -326,13 +319,11 @@ export async function ensureExamQuestionsLinked(opts: {
   courseId: string;
   schoolId: string;
   maxQuestions?: number | null;
-  /** Explicit bank questions chosen by teacher for this paper */
   questionIds?: string[] | null;
 }): Promise<number> {
   const { examId, courseId, schoolId, questionIds } = opts;
   if (!examId || !courseId) return 0;
 
-  // If teacher picked specific questions, (re)link exactly those
   if (questionIds && questionIds.length > 0) {
     const unique = [...new Set(questionIds.map(String).filter(Boolean))];
     const qRows = await fetchQuestionsByIds(unique);
@@ -370,24 +361,28 @@ export async function ensureExamQuestionsLinked(opts: {
     existing = await supabase.from("exam_questions").select("question_id").eq("examination_id", examId).limit(1);
   }
   if (!existing.error && (existing.data?.length ?? 0) > 0) return 0;
+
   let qs: { id: string; marks: number | null }[] | null = null;
-  for (const statuses of [["active", "approved"], ["active", "approved", "pending"], null] as (string[] | null)[]) {
-    let q = sbLoose
-      .from("questions")
-      .select("id, marks")
-      .eq("course_id", courseId)
-      .order("created_at", { ascending: true })
-      .limit(300);
-    if (schoolId) q = q.eq("school_id", schoolId);
-    if (statuses) q = q.in("status", statuses);
-    const res = (await q) as { data: { id: string; marks: number | null }[] | null; error: { message: string } | null };
-    if (!res.error && res.data?.length) {
-      qs = res.data;
-      break;
+  const statusSets: (string[] | null)[] = [["active", "approved"], ["active", "approved", "pending"], null];
+  if (schoolId) {
+    for (const statuses of statusSets) {
+      let q = sbLoose
+        .from("questions")
+        .select("id, marks")
+        .eq("course_id", courseId)
+        .eq("school_id", schoolId)
+        .order("created_at", { ascending: true })
+        .limit(300);
+      if (statuses) q = q.in("status", statuses);
+      const res = (await q) as { data: { id: string; marks: number | null }[] | null; error: { message: string } | null };
+      if (!res.error && res.data?.length) {
+        qs = res.data;
+        break;
+      }
     }
   }
-  if (!qs?.length && schoolId) {
-    for (const statuses of [["active", "approved"], ["active", "approved", "pending"], null] as (string[] | null)[]) {
+  if (!qs?.length) {
+    for (const statuses of statusSets) {
       let q = sbLoose
         .from("questions")
         .select("id, marks")
@@ -402,7 +397,18 @@ export async function ensureExamQuestionsLinked(opts: {
       }
     }
   }
-  if (!qs?.length) return 0;
+  if (!qs?.length) {
+    const res = (await sbLoose
+      .from("questions")
+      .select("id, marks")
+      .eq("course_id", courseId)
+      .limit(300)) as { data: { id: string; marks: number | null }[] | null; error: { message: string } | null };
+    if (!res.error && res.data?.length) qs = res.data;
+  }
+  if (!qs?.length) {
+    console.warn("[cbt] ensureExamQuestionsLinked: no questions for course", courseId, "school", schoolId);
+    return 0;
+  }
   const limit = opts.maxQuestions && opts.maxQuestions > 0 ? opts.maxQuestions : qs.length;
   const picked = qs.slice(0, Math.min(limit, qs.length));
   const rows = picked.map((q, i) => ({
@@ -482,13 +488,6 @@ export function prepareStudentPaper(
   return picked;
 }
 
-
-/**
- * On tab-leave during CBT: keep answered questions fixed; replace unanswered
- * slots with other questions from the teacher bank (or reshuffle unanswered
- * among themselves when the bank is exhausted). Option order may be remixed;
- * correct answers stay bound via correctOptionText / originalOptions.
- */
 export function reshuffleUnansweredPaper(
   fullBank: CbtQuestionRow[],
   currentPaper: CbtQuestionRow[],
@@ -530,21 +529,20 @@ export function reshuffleUnansweredPaper(
   }
 
   if (opts.randomizeOptions) {
-    picked = picked.map((q) => {
-      const base = byId.get(q.id) || q;
-      const optsList = base.originalOptions?.length ? [...base.originalOptions] : [...base.options];
-      return {
-        ...base,
-        options: seededShuffle(optsList, `${seed}:${q.id}:opts`),
-      };
-    });
-  } else {
-    picked = picked.map((q) => byId.get(q.id) || q);
+    picked = picked.map((q) => ({
+      ...q,
+      options: seededShuffle(q.options, `${seed}:${q.id}:opts`),
+    }));
   }
 
-  const queue = [...picked];
-  return currentPaper.map((q) => {
-    if (isAnswered(q.id)) return q;
-    return queue.shift() || q;
-  });
+  const result: CbtQuestionRow[] = [];
+  let pi = 0;
+  for (const q of currentPaper) {
+    if (isAnswered(q.id)) {
+      result.push(q);
+    } else if (pi < picked.length) {
+      result.push(picked[pi++]);
+    }
+  }
+  return result;
 }
