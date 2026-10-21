@@ -11,17 +11,13 @@ export async function uploadMessageMedia(
   contentType: string,
   pathPrefix: string,
 ): Promise<{ url: string; type: "image" | "audio" | "file"; inline?: boolean }> {
-  let kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
-  if (!kind || kind === "application/octet-stream" || kind === "video/webm") {
-    // MediaRecorder often yields empty/generic type for webm voice notes
-    kind = kind === "video/webm" ? "audio/webm" : (kind || "audio/webm");
-  }
+  const kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
   const isImage = kind.startsWith("image/");
   const isAudio =
     kind.startsWith("audio/") ||
     kind === "application/ogg" ||
-    kind === "audio/webm" ||
-    kind === "video/webm";
+    kind.includes("webm") ||
+    kind.includes("opus");
   const type: "image" | "audio" | "file" = isImage ? "image" : isAudio ? "audio" : "file";
   const ext = isImage
     ? kind.includes("png")
@@ -50,7 +46,7 @@ export async function uploadMessageMedia(
   for (const bucket of BUCKETS) {
     try {
       const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-        contentType: kind || "application/octet-stream",
+        contentType: kind || (isAudio ? "audio/webm" : "application/octet-stream"),
         upsert: true,
         cacheControl: "3600",
       });
@@ -65,12 +61,9 @@ export async function uploadMessageMedia(
     }
   }
 
-  // Inline fallback — voice notes / small images (max ~2.5MB so typical webm notes work)
-  if ((isAudio || isImage) && blob.size <= 2_500_000) {
-    const dataUrl = await blobToDataUrl(blob);
-    return { url: dataUrl, type, inline: true };
-  }
-  if (blob.size <= 1_200_000) {
+  // Inline fallback — voice notes / small images (max ~2.5MB so short voice notes still send)
+  const inlineLimit = isAudio ? 2_500_000 : 1_200_000;
+  if (blob.size <= inlineLimit) {
     const dataUrl = await blobToDataUrl(blob);
     return { url: dataUrl, type, inline: true };
   }
