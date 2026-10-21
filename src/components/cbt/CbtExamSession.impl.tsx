@@ -14,7 +14,7 @@ import { useSessionUser, readCachedSchoolBrand } from "@/lib/session";
 import { friendlyError } from "@/lib/friendly-error";
 import { fromExamSettingsRow, type ExamSettingsRow } from "@/lib/exam-security";
 import { parseExamMeta } from "@/lib/exam-meta";
-import { loadExamQuestionBank, prepareStudentPaper, reshuffleUnansweredPaper, type CbtQuestionRow } from "@/lib/cbt-load-questions";
+import { loadExamQuestionBank, prepareStudentPaper, reshuffleUnansweredPaper, ensureExamQuestionsLinked, type CbtQuestionRow } from "@/lib/cbt-load-questions";
 import { type DeviceCapabilities } from "@/lib/device-capabilities";
 import { toast } from "sonner";
 import { ExamCameraPip, type FaceSecurityEvent } from "@/components/cbt/ExamCameraPip";
@@ -266,16 +266,24 @@ export function CbtExamPage() {
 
   const questionsQ = useQuery({
     queryKey: ["cbt-questions", id, examQ.data?.course_id, examQ.data?.school_id],
-    // Start as soon as we have exam id — RPC can load by exam_id alone
-    enabled: Boolean(id),
-    staleTime: 60_000,
+    enabled: Boolean(id && examQ.data),
+    staleTime: 30_000,
+    retry: 2,
     queryFn: async () => {
       const exam = examQ.data;
-      return loadExamQuestionBank({
-        courseId: exam?.course_id ? String(exam.course_id) : "",
-        schoolId: exam?.school_id ? String(exam.school_id) : null,
-        examId: id || null,
-      });
+      const courseId = exam?.course_id ? String(exam.course_id) : "";
+      const schoolId = exam?.school_id ? String(exam.school_id) : null;
+      let rows = await loadExamQuestionBank({ courseId, schoolId, examId: id || null });
+      if ((!rows || rows.length === 0) && id && courseId && schoolId) {
+        try {
+          const linked = await ensureExamQuestionsLinked({
+            examId: id, courseId, schoolId,
+            maxQuestions: (exam as { questions_to_answer?: number | null })?.questions_to_answer ?? null,
+          });
+          if (linked > 0) rows = await loadExamQuestionBank({ courseId, schoolId, examId: id });
+        } catch (e) { console.warn("[cbt] auto-link questions", e); }
+      }
+      return rows;
     },
   });
 
