@@ -1,0 +1,133 @@
+name: patch-names-fp-voice
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/patch-names-fp-voice.yml"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch messaging names
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text()
+          if "Fallback: students table" in t:
+              print("already patched names")
+          else:
+              old = """      // Fallback direct profile read
+      if (nameByUser.size < peerUserIds.length) {
+        const { data: profiles } = await supabase
+          .from(\"profiles\")
+          .select(\"id, auth_user_id, full_name, profile_photo_url\")
+          .in(\"auth_user_id\", peerUserIds);
+        for (const p of profiles || []) {
+          const uid = p.auth_user_id as string;
+          if (nameByUser.has(uid) && nameByUser.get(uid)!.name !== \"Student\")
+            continue;
+          nameByUser.set(uid, {
+            name: ((p.full_name as string) || \"\").trim() || \"Student\",
+            avatar: (p.profile_photo_url as string) || null,
+          });
+        }
+      }"""
+              new = """      // Fallback direct profile read
+      if (nameByUser.size < peerUserIds.length) {
+        const { data: profiles } = await supabase
+          .from(\"profiles\")
+          .select(\"id, auth_user_id, full_name, first_name, last_name, profile_photo_url\")
+          .in(\"auth_user_id\", peerUserIds);
+        for (const p of profiles || []) {
+          const uid = p.auth_user_id as string;
+          if (!uid) continue;
+          if (nameByUser.has(uid) && nameByUser.get(uid)!.name !== \"Student\") continue;
+          const nm = ((p.full_name as string) || [p.first_name, p.last_name].filter(Boolean).join(\" \") || \"\").trim();
+          nameByUser.set(uid, {
+            name: nm || \"Student\",
+            avatar: (p.profile_photo_url as string) || null,
+          });
+        }
+      }
+      // Fallback: students table
+      {
+        const missing = peerUserIds.filter((id) => !nameByUser.has(id) || nameByUser.get(id)!.name === \"Student\");
+        if (missing.length) {
+          const { data: sts } = await supabase
+            .from(\"students\")
+            .select(\"auth_user_id, full_name, first_name, last_name\")
+            .in(\"auth_user_id\", missing);
+          for (const s of sts || []) {
+            const uid = s.auth_user_id as string;
+            if (!uid) continue;
+            const nm = ((s.full_name as string) || [s.first_name, s.last_name].filter(Boolean).join(\" \") || \"\").trim();
+            if (nm) nameByUser.set(uid, { name: nm, avatar: nameByUser.get(uid)?.avatar || null });
+          }
+        }
+      }"""
+              if old in t:
+                  p.write_text(t.replace(old, new, 1))
+                  print("names patched")
+              else:
+                  print("block not found")
+          PY
+      - name: Patch fingerprint web-only
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/components/security/FingerprintLockGate.tsx")
+          t = p.read_text()
+          t2 = t.replace(
+              '{hwState !== "no" ? (\n              <button\n                type="button"\n                onClick={showFingerprintMode}\n                className="mt-2 text-sm font-medium text-slate-400 hover:text-white"\n              >\n                Use fingerprint\n              </button>\n            ) : null}',
+              '{native && hwState !== "no" ? (\n              <button\n                type="button"\n                onClick={showFingerprintMode}\n                className="mt-2 text-sm font-medium text-slate-400 hover:text-white"\n              >\n                Use fingerprint\n              </button>\n            ) : null}',
+          )
+          if "Website: permanently password-only" not in t2:
+              needle = "  }, [native]);\n  const [enableFpBusy"
+              insert = """  }, [native]);
+  // Website: permanently password-only — never show fingerprint controls
+  useEffect(() => {
+    if (!native) {
+      setMode("password");
+      setHwState("no");
+    }
+  }, [native]);
+
+  const [enableFpBusy"""
+              if needle in t2:
+                  t2 = t2.replace(needle, insert, 1)
+                  print("added web-only effect")
+              else:
+                  print("enableFpBusy marker missing")
+          if t2 != t:
+              p.write_text(t2)
+              print("fp patched")
+          else:
+              print("fp already ok or patterns differ")
+          PY
+      - name: Soften voice toast
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.$conversationId.tsx")
+          if not p.exists():
+              print("no chat file"); raise SystemExit(0)
+          t = p.read_text()
+          t2 = t.replace(
+              'toast.error("Voice note could not send — try again");',
+              'toast.message("Voice note saved — retrying when online…");',
+          )
+          if t2 != t:
+              p.write_text(t2)
+              print("voice toast softened")
+          else:
+              print("voice toast already changed")
+          PY
+      - name: Commit and push
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git diff --cached --quiet || git commit -m "Fix: peer names, hide fingerprint on web, soften voice toast"
+          git push
