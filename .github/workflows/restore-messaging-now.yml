@@ -4,8 +4,6 @@ on:
   push:
     paths:
       - .github/workflows/restore-messaging-now.yml
-      - scripts/m0.b64
-      - scripts/m1.b64
 jobs:
   restore:
     runs-on: ubuntu-latest
@@ -13,13 +11,27 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Write messaging.ts
+        with:
+          fetch-depth: 30
+      - name: Restore from f941c3b and show all chats
         run: |
+          set -e
+          git show f941c3bdf258b5413120ea43c25e056fbc3a50c2:src/lib/messaging.ts > src/lib/messaging.ts
           python3 << 'PY'
-          import base64, pathlib
-          b = pathlib.Path('scripts/m0.b64').read_text().strip() + pathlib.Path('scripts/m1.b64').read_text().strip()
-          pathlib.Path('src/lib/messaging.ts').write_bytes(base64.b64decode(b))
-          print('wrote', pathlib.Path('src/lib/messaging.ts').stat().st_size)
+          from pathlib import Path
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text()
+          assert not t.startswith("PLACEHOLDER"), "still placeholder"
+          old = """  // Show groups always; direct chats when they have a message, unread, or preview.\n  return mapped.filter(\n    (c) => c.isGroup || c.hasMessage || c.unread > 0 || Boolean(c.lastSenderId),\n  );\n}"""
+          new = """  // Show every conversation the user belongs to (groups + direct + officer).\n  return mapped;\n}"""
+          if old in t:
+              t = t.replace(old, new, 1)
+              p.write_text(t)
+              print("patched filter")
+          else:
+              print("filter already applied or different")
+          print("size", p.stat().st_size)
+          print(p.read_text()[:80])
           PY
       - name: Commit
         run: |
