@@ -1,0 +1,31 @@
+name: Apply exam+chat fixes
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/apply_exam_chat_fixes.py
+      - .github/workflows/apply-exam-chat-fixes.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: python3 scripts/apply_exam_chat_fixes.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add \
+            src/lib/messaging.ts \
+            src/routes/student.messages.tsx \
+            src/components/cbt/CbtExamSession.impl.tsx \
+            "src/routes/student.messages.\$conversationId.tsx"
+          if git diff --cached --quiet; then
+            echo "no change"
+          else
+            git commit -m "fix: exam questions load, recent direct chats, message ticks (clock only while sending)"
+            git push
+          fi
