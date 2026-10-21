@@ -376,14 +376,30 @@ export async function ensureExamQuestionsLinked(opts: {
       .from("questions")
       .select("id, marks")
       .eq("course_id", courseId)
-      .eq("school_id", schoolId)
       .order("created_at", { ascending: true })
       .limit(300);
+    if (schoolId) q = q.eq("school_id", schoolId);
     if (statuses) q = q.in("status", statuses);
     const res = (await q) as { data: { id: string; marks: number | null }[] | null; error: { message: string } | null };
     if (!res.error && res.data?.length) {
       qs = res.data;
       break;
+    }
+  }
+  if (!qs?.length && schoolId) {
+    for (const statuses of [["active", "approved"], ["active", "approved", "pending"], null] as (string[] | null)[]) {
+      let q = sbLoose
+        .from("questions")
+        .select("id, marks")
+        .eq("course_id", courseId)
+        .order("created_at", { ascending: true })
+        .limit(300);
+      if (statuses) q = q.in("status", statuses);
+      const res = (await q) as { data: { id: string; marks: number | null }[] | null; error: { message: string } | null };
+      if (!res.error && res.data?.length) {
+        qs = res.data;
+        break;
+      }
     }
   }
   if (!qs?.length) return 0;

@@ -639,6 +639,24 @@ export function ConversationChat({
   }, [userId, conversationId, msgQuery.dataUpdatedAt]);
 
   const serverMsgs = msgQuery.data || [];
+
+  // Safety net: clear optimistic once server has matching client_id (stops stuck clocks)
+  useEffect(() => {
+    if (!serverMsgs.length) return;
+    const confirmed = new Set(
+      serverMsgs.map((m) => m.client_id).filter(Boolean) as string[],
+    );
+    const ids = new Set(serverMsgs.map((m) => m.id).filter(Boolean));
+    setOptimistic((prev) => {
+      if (!prev.length) return prev;
+      const next = prev.filter(
+        (o) =>
+          !(o.client_id && (confirmed.has(o.client_id) || ids.has(o.client_id) || ids.has(o.id))),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, [serverMsgs]);
+
   // Resolve sender display names (groups + reply labels)
   useEffect(() => {
     const rows = msgQuery.data || [];
@@ -672,9 +690,13 @@ export function ConversationChat({
     const byClient = new Set(
       serverMsgs.map((m) => m.client_id).filter(Boolean) as string[],
     );
-    const pending = optimistic.filter(
-      (o) => o.client_id && !byClient.has(o.client_id),
-    );
+    const byId = new Set(serverMsgs.map((m) => m.id).filter(Boolean));
+    const pending = optimistic.filter((o) => {
+      if (!o.client_id) return false;
+      if (byClient.has(o.client_id)) return false;
+      if (byId.has(o.client_id) || byId.has(o.id)) return false;
+      return true;
+    });
     return [...serverMsgs, ...pending].sort(
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
@@ -871,10 +893,10 @@ export function ConversationChat({
             }
             const up = await uploadMessageMedia(
               blob,
-              "audio/webm",
+              blob.type || "audio/webm",
               `campus/${conversationId}`,
             );
-            await sendCampusMessage({
+            const sent = await sendCampusMessage({
               conversationId,
               senderId: userId,
               attachmentUrl: up.url,
@@ -883,10 +905,44 @@ export function ConversationChat({
               durationSec,
               replyToId: replyId,
             });
-            void qc.invalidateQueries({
-              queryKey: ["campus-messages", conversationId],
-            });
+            try { removeOutbox(clientId); } catch {}
+            setOptimistic((prev) =>
+              prev.filter((m) => m.client_id !== clientId && m.id !== clientId),
+            );
+            if (sent?.id) {
+              qc.setQueryData(["campus-messages", conversationId], (old) => {
+                const list = Array.isArray(old) ? old.slice() : [];
+                const idx = list.findIndex(
+                  (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
+                );
+                if (idx >= 0) list[idx] = sent;
+                else list.push(sent);
+                return list.sort(
+                  (a, b) =>
+                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                );
+              });
+            }
+            void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
           } catch (e) {
+            console.warn("[voice] send failed", e);
+            try {
+              const { blobToDataUrlIfSmall } = await import("@/lib/message-outbox");
+              const dataUrl = await blobToDataUrlIfSmall(blob);
+              if (dataUrl) {
+                enqueueOutbox({
+                  clientId,
+                  kind: "campus_audio",
+                  text: "",
+                  mediaType: "audio",
+                  blobDataUrl: dataUrl,
+                  role: "student",
+                  userId,
+                  conversationId,
+                  durationSec,
+                });
+              }
+            } catch {}
             toast.error("Voice note could not send — try again");
           }
         })();
@@ -1041,7 +1097,7 @@ export function ConversationChat({
         return;
       }
       const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
-      await sendCampusMessage({
+      const sent = await sendCampusMessage({
         conversationId,
         senderId: userId,
         attachmentUrl: up.url,
@@ -1050,8 +1106,27 @@ export function ConversationChat({
         clientId,
         replyToId: replyId,
       });
-      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+      try { removeOutbox(clientId); } catch {}
+      setOptimistic((prev) =>
+        prev.filter((m) => m.client_id !== clientId && m.id !== clientId),
+      );
+      if (sent?.id) {
+        qc.setQueryData(["campus-messages", conversationId], (old) => {
+          const list = Array.isArray(old) ? old.slice() : [];
+          const idx = list.findIndex(
+            (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
+          );
+          if (idx >= 0) list[idx] = sent;
+          else list.push(sent);
+          return list.sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          );
+        });
+      }
+      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
     } catch (e) {
+      console.warn("[file] send failed", e);
       toast.error("Upload failed — try a smaller file");
     }
   };

@@ -274,10 +274,12 @@ export function CbtExamPage() {
       const courseId = exam?.course_id ? String(exam.course_id) : "";
       const schoolId = exam?.school_id ? String(exam.school_id) : null;
       let rows = await loadExamQuestionBank({ courseId, schoolId, examId: id || null });
-      if ((!rows || rows.length === 0) && id && courseId && schoolId) {
+      if ((!rows || rows.length === 0) && id && courseId) {
         try {
           const linked = await ensureExamQuestionsLinked({
-            examId: id, courseId, schoolId,
+            examId: id,
+            courseId,
+            schoolId: schoolId || "",
             maxQuestions: (exam as { questions_to_answer?: number | null })?.questions_to_answer ?? null,
           });
           if (linked > 0) rows = await loadExamQuestionBank({ courseId, schoolId, examId: id });
@@ -1609,6 +1611,18 @@ export function CbtExamPage() {
     );
   }
   if (!started) {
+    const questionsLoading = questionsQ.isLoading || questionsQ.isFetching;
+    if (questionsLoading && TOTAL === 0) {
+      return (
+        <div className="grid min-h-dvh place-items-center bg-white p-6 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-[#2563eb]" />
+            <p className="text-sm font-semibold text-slate-700">Loading exam questions…</p>
+            <p className="max-w-xs text-xs text-slate-500">Preparing your paper. This only takes a moment.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <ExamSecurityGate
         examTitle={previewMode ? `${exam.title} (Officer preview)` : exam.title}
@@ -1616,7 +1630,7 @@ export function CbtExamPage() {
         durationMinutes={exam.duration_minutes ?? 60}
         totalQuestions={TOTAL}
         security={security}
-        busy={mediaBusy}
+        busy={mediaBusy || questionsLoading}
         schoolLogoUrl={resolvedLogoUrl}
         schoolName={resolvedSchoolName}
         windowLabel={previewMode ? "Officer interactive preview" : formatExamWindow(exam.scheduled_start, exam.scheduled_end)}
