@@ -1,0 +1,21 @@
+name: Surgical msg exam fix
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/surgical-msg-exam-fix.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: python3 scripts/surgical_msg_exam_fix.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          if git diff --cached --quiet; then echo nochange; else git commit -m "fix: promote voice/media to ticks, exam auto-link questions, clear stuck clocks" && git push; fi
