@@ -302,9 +302,10 @@ export async function listMyConversations(
     };
   });
 
-  // Chats list: hide empty direct threads (opened but never messaged).
-  // Groups still appear so members can open and start chatting.
-  return mapped.filter((c) => c.isGroup || c.hasMessage);
+  // Show groups always; direct chats when they have a message, unread, or preview.
+  return mapped.filter(
+    (c) => c.isGroup || c.hasMessage || c.unread > 0 || Boolean(c.lastSenderId),
+  );
 }
 
 /** Get or create a 1:1 direct conversation between two users in the same school. */
@@ -645,6 +646,8 @@ export async function sendCampusMessage(opts: {
         console.warn("[sendCampusMessage] rpc returned no id", rpcMsg);
       } else {
       const preview = previewFromMessage(row);
+      // Always update conversation preview so direct chats appear in Recent
+      void touchConversation(opts.conversationId, opts.senderId, preview);
       void notifyMessageRecipients({
         conversationId: opts.conversationId,
         senderId: opts.senderId,
