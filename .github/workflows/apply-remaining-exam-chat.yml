@@ -1,0 +1,57 @@
+name: Apply remaining exam chat fixes
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/apply-remaining-exam-chat.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: |
+          python3 scripts/apply_exam_chat_fixes.py || true
+          python3 - <<'PY'
+          from pathlib import Path
+          # Inline critical remaining patches if script incomplete
+          def rep(path, old, new, label):
+              p = Path(path)
+              if not p.exists():
+                  print('no file', path); return
+              t = p.read_text()
+              if old not in t:
+                  print('MISS', label); return
+              p.write_text(t.replace(old, new, 1))
+              print('OK', label)
+          # CBT
+          p = Path('src/components/cbt/CbtExamSession.impl.tsx')
+          t = p.read_text()
+          t2 = t.replace(
+              'import { loadExamQuestionBank, prepareStudentPaper, reshuffleUnansweredPaper, type CbtQuestionRow } from "@/lib/cbt-load-questions";',
+              'import { loadExamQuestionBank, prepareStudentPaper, reshuffleUnansweredPaper, ensureExamQuestionsLinked, type CbtQuestionRow } from "@/lib/cbt-load-questions";',
+              1,
+          )
+          if t2 != t:
+              print('OK cbt-import')
+              t = t2
+          old_q = '''  const questionsQ = useQuery({\n    queryKey: ["cbt-questions", id, examQ.data?.course_id, examQ.data?.school_id],\n    // Start as soon as we have exam id — RPC can load by exam_id alone\n    enabled: Boolean(id),\n    staleTime: 60_000,\n    queryFn: async () => {\n      const exam = examQ.data;\n      return loadExamQuestionBank({\n        courseId: exam?.course_id ? String(exam.course_id) : "",\n        schoolId: exam?.school_id ? String(exam.school_id) : null,\n        examId: id || null,\n      });\n    },\n  });'''
+          new_q = '''  const questionsQ = useQuery({\n    queryKey: ["cbt-questions", id, examQ.data?.course_id, examQ.data?.school_id],\n    enabled: Boolean(id && examQ.data),\n    staleTime: 30_000,\n    retry: 2,\n    queryFn: async () => {\n      const exam = examQ.data;\n      const courseId = exam?.course_id ? String(exam.course_id) : "";\n      const schoolId = exam?.school_id ? String(exam.school_id) : null;\n      let rows = await loadExamQuestionBank({ courseId, schoolId, examId: id || null });\n      if ((!rows || rows.length === 0) && id && courseId && schoolId) {\n        try {\n          const linked = await ensureExamQuestionsLinked({\n            examId: id, courseId, schoolId,\n            maxQuestions: (exam as { questions_to_answer?: number | null })?.questions_to_answer ?? null,\n          });\n          if (linked > 0) rows = await loadExamQuestionBank({ courseId, schoolId, examId: id });\n        } catch (e) { console.warn("[cbt] auto-link questions", e); }\n      }\n      return rows;\n    },\n  });'''
+          if old_q in t:
+              t = t.replace(old_q, new_q, 1)
+              print('OK cbt-questions')
+          else:
+              print('MISS cbt-questions')
+          p.write_text(t)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/components/cbt/CbtExamSession.impl.tsx || true
+          if git diff --cached --quiet; then echo "no change"; else
+            git commit -m "fix: exam questions wait for meta + auto-link empty paper"
+            git push
+          fi
