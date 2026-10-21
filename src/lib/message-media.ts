@@ -13,7 +13,11 @@ export async function uploadMessageMedia(
 ): Promise<{ url: string; type: "image" | "audio" | "file"; inline?: boolean }> {
   const kind = (contentType || blob.type || "application/octet-stream").split(";")[0].trim();
   const isImage = kind.startsWith("image/");
-  const isAudio = kind.startsWith("audio/") || kind === "application/ogg";
+  const isAudio =
+    kind.startsWith("audio/") ||
+    kind === "application/ogg" ||
+    kind.includes("webm") ||
+    kind.includes("opus");
   const type: "image" | "audio" | "file" = isImage ? "image" : isAudio ? "audio" : "file";
   const ext = isImage
     ? kind.includes("png")
@@ -42,7 +46,7 @@ export async function uploadMessageMedia(
   for (const bucket of BUCKETS) {
     try {
       const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-        contentType: kind || "application/octet-stream",
+        contentType: kind || (isAudio ? "audio/webm" : "application/octet-stream"),
         upsert: true,
         cacheControl: "3600",
       });
@@ -57,8 +61,9 @@ export async function uploadMessageMedia(
     }
   }
 
-  // Inline fallback — voice notes / small images (max ~1.2MB)
-  if (blob.size <= 1_200_000) {
+  // Inline fallback — voice notes / small images (max ~3MB for voice)
+  const inlineLimit = isAudio ? 3_000_000 : 1_500_000;
+  if (blob.size <= inlineLimit) {
     const dataUrl = await blobToDataUrl(blob);
     return { url: dataUrl, type, inline: true };
   }
