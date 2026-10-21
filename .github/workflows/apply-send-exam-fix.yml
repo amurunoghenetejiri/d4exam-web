@@ -1,0 +1,46 @@
+name: Apply send + exam fixes
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/apply-send-exam-fix.yml
+      - scripts/fix-bundle/**
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write fixed sources
+        run: |
+          python3 << 'PY'
+          import json, base64
+          from pathlib import Path
+          man = json.loads(Path("scripts/fix-bundle/manifest.json").read_text())
+          for item in man:
+              raw = "".join(Path(p).read_text().strip() for p in item["parts"])
+              data = base64.b64decode(raw)
+              dest = Path(item["path"])
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(data)
+              print("wrote", item["path"], len(data))
+              assert len(data) == item["size"], (item["path"], len(data), item["size"])
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add \
+            "src/routes/student.messages.\$conversationId.tsx" \
+            "src/lib/message-media.ts" \
+            "src/lib/messaging.ts" \
+            "src/lib/cbt-load-questions.ts" \
+            "src/components/cbt/CbtExamSession.impl.tsx" \
+            "src/routes/student.messages.tsx"
+          if git diff --cached --quiet; then
+            echo "no change"
+          else
+            git commit -m "fix: messages send (voice/media ticks), all recent chats, exam questions load"
+            git push
+          fi
