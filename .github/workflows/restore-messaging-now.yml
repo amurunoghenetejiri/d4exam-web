@@ -1,0 +1,29 @@
+name: Restore messaging.ts
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/restore-messaging-now.yml
+      - scripts/m0.b64
+      - scripts/m1.b64
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write messaging.ts
+        run: |
+          python3 << 'PY'
+          import base64, pathlib
+          b = pathlib.Path('scripts/m0.b64').read_text().strip() + pathlib.Path('scripts/m1.b64').read_text().strip()
+          pathlib.Path('src/lib/messaging.ts').write_bytes(base64.b64decode(b))
+          print('wrote', pathlib.Path('src/lib/messaging.ts').stat().st_size)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts
+          if git diff --cached --quiet; then echo nochange; else git commit -m "fix: restore messaging.ts — list all recent chats (direct+group)" && git push; fi
