@@ -1,0 +1,296 @@
+name: Apply remaining UX fixes
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/apply-remaining-ux-fixes.yml
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch files
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+
+          # --- student.messages.tsx list status icons ---
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          old = """                {c.unread > 0 ? (
+                  <span className=\"ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-[#2563eb] px-1.5 text-[11px] font-bold text-white\">
+                    {c.unread > 99 ? \"99+\" : c.unread}
+                  </span>
+                ) : (c as { pendingSend?: boolean }).pendingSend ? (
+                  <Clock className=\"ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-[#2563eb]\" aria-label=\"Sending\" style={{ animationDuration: \"1.1s\" }} />
+                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                  <CheckCheck className=\"ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70\" aria-label=\"Sent\" />
+                ) : null}"""
+          new = """                {/* Status ONLY on the right — never next to the preview text */}
+                <span className=\"ml-auto flex shrink-0 items-center\">
+                  {c.unread > 0 ? (
+                    <span className=\"grid h-5 min-w-5 place-items-center rounded-full bg-[#2563eb] px-1.5 text-[11px] font-bold text-white\">
+                      {c.unread > 99 ? \"99+\" : c.unread}
+                    </span>
+                  ) : (c as { pendingSend?: boolean }).pendingSend ? (
+                    <Clock className=\"h-3.5 w-3.5 animate-spin text-[#2563eb]\" aria-label=\"Sending\" style={{ animationDuration: \"1.1s\" }} />
+                  ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                    <CheckCheck className=\"h-3.5 w-3.5 text-[#2563eb]/70\" aria-label=\"Sent\" />
+                  ) : null}
+                </span>"""
+          if old in t:
+              p.write_text(t.replace(old, new, 1))
+              print("OK list status")
+          else:
+              print("MISS list status")
+
+          # --- Fingerprint hide on web ---
+          p = Path("src/components/security/FingerprintLockGate.tsx")
+          t = p.read_text()
+          old = '{hwState !== "no" ? ('
+          # only the password-mode Use fingerprint one - more specific
+          old = """            {hwState !== \"no\" ? (
+              <button
+                type=\"button\"
+                onClick={showFingerprintMode}
+                className=\"mt-2 text-sm font-medium text-slate-400 hover:text-white\"
+              >
+                Use fingerprint
+              </button>
+            ) : null}"""
+          new = """            {native && hwState !== \"no\" ? (
+              <button
+                type=\"button\"
+                onClick={showFingerprintMode}
+                className=\"mt-2 text-sm font-medium text-slate-400 hover:text-white\"
+              >
+                Use fingerprint
+              </button>
+            ) : null}"""
+          if old in t:
+              p.write_text(t.replace(old, new, 1))
+              print("OK fingerprint")
+          else:
+              print("MISS fingerprint")
+
+          # --- Exam gate loading ---
+          p = Path("src/components/cbt/CbtExamSession.impl.tsx")
+          t = p.read_text()
+          old = """  if (!started) {
+    return (
+      <ExamSecurityGate
+        examTitle={previewMode ? `${exam.title} (Officer preview)` : exam.title}
+        courseLine={`${(exam as { courses?: { code?: string; name?: string } }).courses?.code ?? \"\"} · ${(exam as { courses?: { code?: string; name?: string } }).courses?.name ?? \"\"}`}
+        durationMinutes={exam.duration_minutes ?? 60}
+        totalQuestions={TOTAL}
+        security={security}
+        busy={mediaBusy}
+        schoolLogoUrl={resolvedLogoUrl}
+        schoolName={resolvedSchoolName}
+        windowLabel={previewMode ? \"Officer interactive preview\" : formatExamWindow(exam.scheduled_start, exam.scheduled_end)}
+        cancelTo={previewMode ? \"/officer/approvals\" : \"/student/examinations\"}
+        onStart={(opts) => void beginWithMedia(opts)}
+      />
+    );
+  }"""
+          new = """  if (!started) {
+    const questionsLoading = questionsQ.isLoading || questionsQ.isFetching;
+    if (questionsLoading && TOTAL === 0) {
+      return (
+        <div className=\"grid min-h-dvh place-items-center bg-white p-6 text-center\">
+          <div className=\"flex flex-col items-center gap-3\">
+            <Loader2 className=\"h-8 w-8 animate-spin text-[#2563eb]\" />
+            <p className=\"text-sm font-semibold text-slate-700\">Loading exam questions…</p>
+            <p className=\"max-w-xs text-xs text-slate-500\">Preparing your paper. This only takes a moment.</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <ExamSecurityGate
+        examTitle={previewMode ? `${exam.title} (Officer preview)` : exam.title}
+        courseLine={`${(exam as { courses?: { code?: string; name?: string } }).courses?.code ?? \"\"} · ${(exam as { courses?: { code?: string; name?: string } }).courses?.name ?? \"\"}`}
+        durationMinutes={exam.duration_minutes ?? 60}
+        totalQuestions={TOTAL}
+        security={security}
+        busy={mediaBusy || questionsLoading}
+        schoolLogoUrl={resolvedLogoUrl}
+        schoolName={resolvedSchoolName}
+        windowLabel={previewMode ? \"Officer interactive preview\" : formatExamWindow(exam.scheduled_start, exam.scheduled_end)}
+        cancelTo={previewMode ? \"/officer/approvals\" : \"/student/examinations\"}
+        onStart={(opts) => void beginWithMedia(opts)}
+      />
+    );
+  }"""
+          if old in t:
+              p.write_text(t.replace(old, new, 1))
+              print("OK exam")
+          else:
+              print("MISS exam")
+
+          # --- Chat voice promote ---
+          p = Path("src/routes/student.messages.$conversationId.tsx")
+          t = p.read_text()
+          old_v = '''            const up = await uploadMessageMedia(
+              blob,
+              "audio/webm",
+              `campus/${conversationId}`,
+            );
+            await sendCampusMessage({
+              conversationId,
+              senderId: userId,
+              attachmentUrl: up.url,
+              attachmentType: "audio",
+              clientId,
+              durationSec,
+              replyToId: replyId,
+            });
+            void qc.invalidateQueries({
+              queryKey: ["campus-messages", conversationId],
+            });
+          } catch (e) {
+            toast.error("Voice note could not send — try again");
+          }'''
+          new_v = '''            const up = await uploadMessageMedia(
+              blob,
+              blob.type || "audio/webm",
+              `campus/${conversationId}`,
+            );
+            const sent = await sendCampusMessage({
+              conversationId,
+              senderId: userId,
+              attachmentUrl: up.url,
+              attachmentType: "audio",
+              clientId,
+              durationSec,
+              replyToId: replyId,
+            });
+            setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId && m.id !== clientId));
+            if (sent?.id) {
+              qc.setQueryData(
+                ["campus-messages", conversationId],
+                (old) => {
+                  const list = Array.isArray(old) ? old.slice() : [];
+                  const idx = list.findIndex(
+                    (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
+                  );
+                  if (idx >= 0) list[idx] = sent;
+                  else list.push(sent);
+                  return list.sort(
+                    (a, b) =>
+                      new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                  );
+                },
+              );
+            }
+            void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+          } catch (e) {
+            toast.error("Voice note could not send — try again");
+          }'''
+          if old_v in t:
+              t = t.replace(old_v, new_v, 1)
+              print("OK voice")
+          else:
+              print("MISS voice")
+
+          old_f = '''      const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
+      await sendCampusMessage({
+        conversationId,
+        senderId: userId,
+        attachmentUrl: up.url,
+        attachmentType:
+          up.type === "image" ? "image" : up.type === "audio" ? "audio" : attType,
+        clientId,
+        replyToId: replyId,
+      });
+      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+    } catch (e) {
+      toast.error("Upload failed — try a smaller file");
+    }'''
+          new_f = '''      const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
+      const sent = await sendCampusMessage({
+        conversationId,
+        senderId: userId,
+        attachmentUrl: up.url,
+        attachmentType:
+          up.type === "image" ? "image" : up.type === "audio" ? "audio" : attType,
+        clientId,
+        replyToId: replyId,
+      });
+      setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId && m.id !== clientId));
+      if (sent?.id) {
+        qc.setQueryData(
+          ["campus-messages", conversationId],
+          (old) => {
+            const list = Array.isArray(old) ? old.slice() : [];
+            const idx = list.findIndex(
+              (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
+            );
+            if (idx >= 0) list[idx] = sent;
+            else list.push(sent);
+            return list.sort(
+              (a, b) =>
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+          },
+        );
+      }
+      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+    } catch (e) {
+      toast.error("Upload failed — try a smaller file");
+    }'''
+          if old_f in t:
+              t = t.replace(old_f, new_f, 1)
+              print("OK file")
+          else:
+              print("MISS file")
+
+          old_m = '''    const merged = useMemo(() => {
+    const byClient = new Set(
+      serverMsgs.map((m) => m.client_id).filter(Boolean) as string[],
+    );
+    const pending = optimistic.filter(
+      (o) => o.client_id && !byClient.has(o.client_id),
+    );
+    return [...serverMsgs, ...pending].sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+  }, [serverMsgs, optimistic]);'''
+          new_m = '''    const merged = useMemo(() => {
+    const byClient = new Set(
+      serverMsgs.map((m) => m.client_id).filter(Boolean) as string[],
+    );
+    const byId = new Set(serverMsgs.map((m) => m.id).filter(Boolean));
+    const pending = optimistic.filter((o) => {
+      if (!o.client_id) return false;
+      if (byClient.has(o.client_id)) return false;
+      if (byId.has(o.client_id)) return false;
+      return true;
+    });
+    return [...serverMsgs, ...pending].sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+  }, [serverMsgs, optimistic]);'''
+          if old_m in t:
+              t = t.replace(old_m, new_m, 1)
+              print("OK merged")
+          else:
+              print("MISS merged")
+
+          p.write_text(t)
+          print("done")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add \
+            "src/routes/student.messages.tsx" \
+            "src/routes/student.messages.\$conversationId.tsx" \
+            "src/components/cbt/CbtExamSession.impl.tsx" \
+            "src/components/security/FingerprintLockGate.tsx"
+          if git diff --cached --quiet; then echo nochange; else git commit -m "fix: message ticks clock→tick, exam questions loading, list status right-only, web no fingerprint" && git push; fi
