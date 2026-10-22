@@ -1,0 +1,32 @@
+name: restore-hub-v2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/restore-hub-v2.yml"
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore
+        run: |
+          set -e
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git checkout 3416a715364535e95fbbe016e23aadad06df848a -- src/routes/student.messages.tsx
+          sed -i 's/<CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-\[#2563eb\]\/70" aria-label="Sent" \/>/<Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" \/>/' src/routes/student.messages.tsx
+          if ! grep -q "  Check," src/routes/student.messages.tsx; then
+            sed -i 's/  CheckCheck,/  Check,\n  CheckCheck,/' src/routes/student.messages.tsx
+          fi
+          head -5 src/routes/student.messages.tsx
+          grep -n 'aria-label="Sent"' src/routes/student.messages.tsx | head -2
+          git add src/routes/student.messages.tsx
+          git status
+          git commit -m "fix: restore messages hub + one grey tick on chat list" || echo "no change"
+          git push origin HEAD:main
