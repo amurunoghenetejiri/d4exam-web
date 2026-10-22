@@ -1,0 +1,42 @@
+name: apply-hub-msg-from-payload
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/payloads/hub.tsx.gz.b64"
+      - ".github/payloads/messaging.ts.gz.b64"
+      - ".github/workflows/apply-hub-msg-from-payload.yml"
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode
+        run: |
+          python3 << 'PY'
+          import gzip, base64
+          from pathlib import Path
+          def dec(src, dest):
+              raw = Path(src).read_text().strip()
+              if raw.startswith('PLACEHOLDER'):
+                  raise SystemExit(f'payload not ready: {src}')
+              data = gzip.decompress(base64.b64decode(raw))
+              Path(dest).write_bytes(data)
+              print(dest, len(data))
+          dec('.github/payloads/hub.tsx.gz.b64', 'src/routes/student.messages.tsx')
+          dec('.github/payloads/messaging.ts.gz.b64', 'src/lib/messaging.ts')
+          hub = Path('src/routes/student.messages.tsx').read_text()
+          assert 'getOrCreateSelfChat' in Path('src/lib/messaging.ts').read_text()
+          assert 'title: c.title' in hub
+          assert 'selectedChatIds' in hub
+          print('OK')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx src/lib/messaging.ts
+          git diff --cached --quiet || git commit -m "fix: chat shows peer name, You/self-chat, pin and multi-select"
+          git push
