@@ -40,6 +40,7 @@ import {
   discoverStudents,
   listMyConversations,
   getOrCreateDirectConversation,
+  getOrCreateSelfChat,
   createGroup,
   listDepartmentOfficers,
   resolveMySchoolId,
@@ -413,6 +414,22 @@ function MessagesHub() {
       return all;
     },
   });
+
+
+  // ensure-you-chat
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = convQuery.data || [];
+        if (list.some((c) => c.title === "You")) return;
+        await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
+        if (!cancelled) void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+      } catch (e) { console.warn("[You]", e); }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, schoolId, schoolIdHint, convQuery.data, qc]);
 
   const conversations = convQuery.data || [];
   // Overlay pending outbox previews so unsent messages still appear on the list
@@ -1048,7 +1065,7 @@ function ConversationList({
   loading: boolean;
   error?: string | null;
   emptyLabel: string;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, seed?: { title?: string; peerUserId?: string }) => void;
   onEmptyAction?: () => void;
   emptyActionLabel?: string;
   onRetry?: () => void;
@@ -1119,7 +1136,7 @@ function ConversationList({
         <li key={c.id}>
           <button
             type="button"
-            onClick={() => onOpen(c.id)}
+            onClick={() => onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined })}
             className={cn(
               "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
               selectedId && selectedId === c.id

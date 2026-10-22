@@ -308,6 +308,27 @@ export async function listMyConversations(
   return mapped;
 }
 
+
+export async function getOrCreateSelfChat(userId: string, schoolId?: string | null): Promise<string> {
+  if (!userId) throw new Error("Sign in required");
+  const resolvedSchool = (await resolveMySchoolId(schoolId || null)) || schoolId || null;
+  const { data: memberships } = await supabase.from("conversation_members").select("conversation_id").eq("user_id", userId).is("left_at", null).limit(120);
+  const ids = (memberships || []).map((m) => m.conversation_id as string);
+  if (ids.length) {
+    const { data: convs } = await supabase.from("conversations").select("id, type, title").in("id", ids).eq("type", "direct");
+    for (const c of convs || []) {
+      const title = String((c as { title?: string }).title || "");
+      if (title === "You" || title === "__self__") return c.id as string;
+      const { count } = await supabase.from("conversation_members").select("user_id", { count: "exact", head: true }).eq("conversation_id", c.id).is("left_at", null);
+      if ((count || 0) === 1) return c.id as string;
+    }
+  }
+  if (!resolvedSchool) throw new Error("No school linked");
+  const { data: conv, error } = await supabase.from("conversations").insert({ school_id: resolvedSchool, type: "direct", title: "You", description: "Message yourself", created_by: userId, updated_at: new Date().toISOString() } as never).select("id").single();
+  if (error || !conv?.id) throw new Error(error?.message || "Could not create self chat");
+  await supabase.from("conversation_members").insert({ conversation_id: conv.id, user_id: userId, role: "owner" } as never);
+  return conv.id as string;
+}
 /** Get or create a 1:1 direct conversation between two users in the same school. */
 export async function getOrCreateDirectConversation(
   myUserId: string,
