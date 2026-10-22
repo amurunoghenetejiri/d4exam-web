@@ -1,0 +1,122 @@
+name: fix-ticks-officer-rpc
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-ticks-officer-rpc.yml"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+
+          # 1) Chat list: one grey tick (not blue double)
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          t2 = t.replace(
+              '<CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" aria-label="Sent" />',
+              '<Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" />',
+          )
+          if "  Check," not in t2 and "Check\n" not in t2:
+              t2 = t2.replace("  CheckCheck,\n", "  Check,\n  CheckCheck,\n", 1)
+          if t2 != t:
+              p.write_text(t2)
+              print("hub ticks fixed")
+          else:
+              print("hub ticks unchanged (maybe already fixed)")
+
+          # 2) messaging: prefer RPC for officer mirror
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text()
+          if "mirror_campus_dm_to_officer_report" in t:
+              print("messaging already uses RPC")
+          else:
+              needle = "async function mirrorCampusDmToOfficerReport(opts: {\n  conversationId: string;\n  senderId: string;\n  body: string | null;\n  attachmentUrl?: string | null;\n  attachmentType?: string | null;\n  preview: string;\n}) {\n  try {\n    const { data: conv } = await supabase"
+              insert = '''async function mirrorCampusDmToOfficerReport(opts: {
+  conversationId: string;
+  senderId: string;
+  body: string | null;
+  attachmentUrl?: string | null;
+  attachmentType?: string | null;
+  preview: string;
+}) {
+  try {
+    // Prefer SECURITY DEFINER RPC (works under RLS)
+    try {
+      const { data: rid, error: rpcErr } = await supabase.rpc("mirror_campus_dm_to_officer_report", {
+        p_conversation_id: opts.conversationId,
+        p_sender_id: opts.senderId,
+        p_body: opts.body || null,
+        p_attachment_url: opts.attachmentUrl || null,
+        p_attachment_type: opts.attachmentType || null,
+      } as never);
+      if (rpcErr) console.warn("[mirrorCampusDmToOfficerReport] rpc", rpcErr.message);
+      if (rid) {
+        const { data: members } = await supabase
+          .from("conversation_members")
+          .select("user_id")
+          .eq("conversation_id", opts.conversationId)
+          .is("left_at", null);
+        const peerIds = (members || [])
+          .map((m) => String((m as { user_id?: string }).user_id || ""))
+          .filter((id) => id && id !== opts.senderId);
+        const { data: roles } = peerIds.length
+          ? await supabase.from("user_roles").select("user_id, role").in("user_id", peerIds)
+          : { data: [] as { user_id?: string; role?: string }[] };
+        const officerIds = (roles || [])
+          .filter((r) => String((r as { role?: string }).role) === "examination_officer")
+          .map((r) => String((r as { user_id?: string }).user_id));
+        if (officerIds.length) {
+          let studentName = "Student";
+          let studentMatric = "";
+          try {
+            const { data: prof } = await supabase.from("profiles").select("full_name").eq("auth_user_id", opts.senderId).maybeSingle();
+            if (prof) studentName = ((prof as { full_name?: string }).full_name || "").trim() || studentName;
+            const { data: st } = await supabase.from("students").select("matric_number, full_name, profile_id").limit(5);
+            // best-effort name already from profile
+          } catch { /* ignore */ }
+          try {
+            const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+            const title = studentMatric ? `${studentName} · ${studentMatric}` : studentName;
+            await Promise.all(officerIds.map((oid) => dispatchPushToUser({
+              data: {
+                recipientUserId: oid,
+                title,
+                message: opts.preview || (opts.body || "New message").slice(0, 120),
+                link: "/officer/reports",
+                type: "officer_student_message",
+                callerName: studentName,
+                fromUserId: opts.senderId,
+                actionLabel: "Open",
+              } as never,
+            }).catch(() => null)));
+          } catch (e) { console.warn("[mirrorCampusDmToOfficerReport] push", e); }
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn("[mirrorCampusDmToOfficerReport] rpc exception", e);
+    }
+
+    const { data: conv } = await supabase'''
+              if needle in t:
+                  t = t.replace(needle, insert, 1)
+                  p.write_text(t)
+                  print("messaging RPC path added")
+              else:
+                  print("messaging needle missing")
+          print("done")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git diff --cached --quiet || git commit -m "fix: chat list one grey tick; officer mirror via SECURITY DEFINER RPC"
+          git push
