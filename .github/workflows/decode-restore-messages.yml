@@ -1,0 +1,41 @@
+name: decode-restore-messages
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/payloads/**"
+      - ".github/workflows/decode-restore-messages.yml"
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode payloads into routes
+        run: |
+          python3 << 'PY'
+          import gzip, base64
+          from pathlib import Path
+          def write(src, dest):
+              raw = Path(src).read_text().strip()
+              data = gzip.decompress(base64.b64decode(raw))
+              Path(dest).write_bytes(data)
+              print(dest, len(data))
+          write(".github/payloads/student.messages.tsx.gz.b64", "src/routes/student.messages.tsx")
+          write(".github/payloads/officer.reports.tsx.gz.b64", "src/routes/officer.reports.tsx")
+          hub = Path("src/routes/student.messages.tsx").read_bytes()
+          assert b"MessagesHub" in hub and b"PLACEHOLDER" not in hub
+          assert b'text-slate-400" aria-label="Sent"' in hub
+          off = Path("src/routes/officer.reports.tsx").read_text()
+          assert "resolvedSchoolId" in off or "officer-student-reports" in off
+          print("OK")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx src/routes/officer.reports.tsx
+          git status
+          git diff --cached --quiet || git commit -m "fix: restore messages hub (1 grey tick) + officer inbox schoolId"
+          git push
