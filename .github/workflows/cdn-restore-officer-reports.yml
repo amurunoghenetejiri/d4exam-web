@@ -1,0 +1,56 @@
+name: cdn-restore-officer-reports
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/cdn-restore-officer-reports.yml"
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore officer reports + schoolId fix
+        run: |
+          set -e
+          # Good version before accidental stub overwrite
+          curl -fsSL "https://cdn.jsdelivr.net/gh/amurunoghenetejiri/d4exam-web@3416a715364535e95fbbe016e23aadad06df848a/src/routes/officer.reports.tsx" -o src/routes/officer.reports.tsx
+          python3 << 'PY'
+          from pathlib import Path
+          op = Path("src/routes/officer.reports.tsx")
+          ot = op.read_text()
+          assert "officer-student-reports" in ot and len(ot) > 5000
+          if "resolvedSchoolId" not in ot:
+              old = "  const schoolId = user?.schoolId;\n  const userId = user?.userId;\n  const qc = useQueryClient();"
+              new = '''  const userId = user?.userId;\n  const qc = useQueryClient();\n  const [resolvedSchoolId, setResolvedSchoolId] = useState<string | null>(user?.schoolId || null);\n  useEffect(() => {\n    if (user?.schoolId) { setResolvedSchoolId(user.schoolId); return; }\n    if (!userId) return;\n    let cancelled = false;\n    void (async () => {\n      try {\n        const { data } = await supabase.from("profiles").select("school_id").eq("auth_user_id", userId).maybeSingle();\n        const sid = (data as { school_id?: string | null } | null)?.school_id || null;\n        if (!cancelled && sid) setResolvedSchoolId(sid);\n      } catch { /* ignore */ }\n    })();\n    return () => { cancelled = true; };\n  }, [userId, user?.schoolId]);\n  const schoolId = resolvedSchoolId || user?.schoolId || null;'''
+              if old in ot:
+                  ot = ot.replace(old, new, 1)
+                  print("schoolId resolve added")
+              else:
+                  print("WARN schoolId block missing")
+          ot = ot.replace(
+              'queryKey: ["officer-student-reports", schoolId],\n    enabled: Boolean(schoolId),',
+              'queryKey: ["officer-student-reports", schoolId, userId],\n    enabled: Boolean(userId),',
+              1,
+          )
+          # Remove hard empty return when no schoolId
+          ot = ot.replace("if (!schoolId) return [] as ReportRow[];\n      ", "")
+          # Make school_id filter optional: remove unconditional .eq so RLS returns all officer-visible rows
+          ot = ot.replace('.eq("school_id", schoolId)\n        .order', '.order')
+          ot = ot.replace(".eq(\"school_id\", schoolId)\n        .order", ".order")
+          while '.eq("school_id", schoolId)' in ot:
+              ot = ot.replace('.eq("school_id", schoolId)', '', 1)
+              print("stripped school eq")
+          op.write_text(ot)
+          print("officer restored", len(ot))
+          assert "SEE_FULL_FILE" not in ot
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/officer.reports.tsx
+          git status
+          git diff --cached --quiet || git commit -m "fix: restore officer reports page so student messages show in inbox"
+          git push
