@@ -604,6 +604,119 @@ async function notifyMessageRecipients(opts: {
   }
 }
 
+
+/** If this DM peer is an examination officer, mirror the message into student_officer_reports
+ *  so it appears on the officer panel, and push-notify the officer. */
+async function mirrorCampusDmToOfficerReport(opts: {
+  conversationId: string;
+  senderId: string;
+  body: string | null;
+  attachmentUrl?: string | null;
+  attachmentType?: string | null;
+  preview: string;
+}) {
+  try {
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("id, type, school_id")
+      .eq("id", opts.conversationId)
+      .maybeSingle();
+    if (!conv || (conv as { type?: string }).type !== "direct") return;
+
+    const { data: members } = await supabase
+      .from("conversation_members")
+      .select("user_id")
+      .eq("conversation_id", opts.conversationId)
+      .is("left_at", null);
+    const peerIds = (members || [])
+      .map((m) => String((m as { user_id?: string }).user_id || ""))
+      .filter((id) => id && id !== opts.senderId);
+    if (!peerIds.length) return;
+
+    const { data: roles } = await supabase
+      .from("user_roles")
+      .select("user_id, role")
+      .in("user_id", peerIds);
+    const officerIds = (roles || [])
+      .filter((r) => String((r as { role?: string }).role) === "examination_officer")
+      .map((r) => String((r as { user_id?: string }).user_id));
+    if (!officerIds.length) return;
+
+    let studentName = "Student";
+    let studentMatric: string | null = null;
+    let studentId: string | null = null;
+    let schoolId = (conv as { school_id?: string | null }).school_id || null;
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("id, full_name, school_id")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (prof) {
+        studentName = ((prof as { full_name?: string }).full_name || "").trim() || studentName;
+        schoolId = schoolId || (prof as { school_id?: string | null }).school_id || null;
+      }
+      const { data: st } = await supabase
+        .from("students")
+        .select("id, matric_number, school_id, full_name")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (st) {
+        studentId = (st as { id?: string }).id || null;
+        studentMatric = (st as { matric_number?: string | null }).matric_number || null;
+        schoolId = schoolId || (st as { school_id?: string | null }).school_id || null;
+        const sn = ((st as { full_name?: string }).full_name || "").trim();
+        if (sn) studentName = sn;
+      }
+    } catch { /* ignore */ }
+
+    const body = (opts.body || "").trim() || (opts.attachmentUrl ? "(attachment)" : "");
+    if (!body) return;
+
+    const reportRow: Record<string, unknown> = {
+      school_id: schoolId,
+      student_id: studentId,
+      student_user_id: opts.senderId,
+      student_name: studentName,
+      student_matric: studentMatric,
+      officer_user_id: officerIds[0] || null,
+      subject: "Message",
+      body,
+      status: "open",
+      attachment_url: opts.attachmentUrl || null,
+      attachment_type: opts.attachmentType || null,
+    };
+    const { error: insErr } = await supabase.from("student_officer_reports").insert(reportRow as never);
+    if (insErr) console.warn("[mirrorCampusDmToOfficerReport] insert", insErr.message);
+
+    try {
+      const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+      const title = studentMatric ? `${studentName} · ${studentMatric}` : studentName;
+      await Promise.all(
+        officerIds.map((oid) =>
+          dispatchPushToUser({
+            data: {
+              recipientUserId: oid,
+              title,
+              message: opts.preview || body.slice(0, 120),
+              link: "/officer/reports",
+              type: "officer_student_message",
+              callerName: studentName,
+              callerMatric: studentMatric || "",
+              fromUserId: opts.senderId,
+              actionLabel: "Open",
+            } as never,
+          }).catch(() => null),
+        ),
+      );
+    } catch (e) {
+      console.warn("[mirrorCampusDmToOfficerReport] push", e);
+    }
+  } catch (e) {
+    console.warn("[mirrorCampusDmToOfficerReport]", e);
+  }
+}
+
 /** Send a campus message (idempotent via client_id). */
 export async function sendCampusMessage(opts: {
   conversationId: string;
@@ -655,6 +768,14 @@ export async function sendCampusMessage(opts: {
         attachmentType: opts.attachmentType || null,
         messageId: msg.id,
       });
+      void mirrorCampusDmToOfficerReport({
+        conversationId: opts.conversationId,
+        senderId: opts.senderId,
+        body: opts.body || null,
+        attachmentUrl: opts.attachmentUrl || null,
+        attachmentType: opts.attachmentType || null,
+        preview,
+      });
       return msg;
       }
     }
@@ -674,6 +795,14 @@ export async function sendCampusMessage(opts: {
       preview,
       attachmentType: opts.attachmentType || null,
       messageId: (ins.data as CampusMessage).id,
+    });
+    void mirrorCampusDmToOfficerReport({
+      conversationId: opts.conversationId,
+      senderId: opts.senderId,
+      body: opts.body || null,
+      attachmentUrl: opts.attachmentUrl || null,
+      attachmentType: opts.attachmentType || null,
+      preview,
     });
     return ins.data as CampusMessage;
   }

@@ -617,6 +617,48 @@ function Page() {
         setComposeOpen(false);
         setInChat(true);
         setLocallyRead(false);
+        try {
+          const preview = (text.trim() || (attach ? "Attachment" : "New message")).slice(0, 120);
+          const studentName = session?.fullName || student?.fullName || "Student";
+          const { data: officerRoles } = await supabase
+            .from("user_roles")
+            .select("user_id")
+            .eq("role", "examination_officer");
+          const officerIds = [...new Set((officerRoles || []).map((r: { user_id?: string }) => String(r.user_id || "")).filter(Boolean))];
+          if (officerIds.length) {
+            const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+            const title = student?.matric ? `${studentName} · ${student.matric}` : studentName;
+            await Promise.all(
+              officerIds.map((oid: string) =>
+                dispatchPushToUser({
+                  data: {
+                    recipientUserId: oid,
+                    title,
+                    message: preview,
+                    link: "/officer/reports",
+                    type: "officer_student_message",
+                    callerName: studentName,
+                    fromUserId: userId || "",
+                    actionLabel: "Open",
+                  } as never,
+                }).catch(() => null),
+              ),
+            );
+            try {
+              await supabase.from("notifications").insert(
+                officerIds.map((oid: string) => ({
+                  user_id: oid,
+                  title: studentName,
+                  message: preview,
+                  type: "officer_student_message",
+                  link: "/officer/reports",
+                })) as never,
+              );
+            } catch { /* ignore */ }
+          }
+        } catch (ne) {
+          console.warn("[contact-officer] officer notify failed", ne);
+        }
         await qc.invalidateQueries({ queryKey: ["student-my-reports"] }); setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId)); try { removeOutbox(clientId); setFailedIds((s) => { const n = new Set(s); n.delete(clientId); return n; }); } catch {}
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not send");
