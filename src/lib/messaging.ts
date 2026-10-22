@@ -77,7 +77,7 @@ export type MessageTick = "none" | "pending" | "sent" | "delivered" | "read";
 /** WhatsApp-style status for the SENDER only. */
 export function computeMessageTick(
   m: CampusMessage,
-  opts: { mine: boolean; peerLastReadAt?: string | null },
+  opts: { mine: boolean; peerLastReadAt?: string | null; peerOnline?: boolean },
 ): MessageTick {
   if (!opts.mine) return "none";
   // Only optimistic local messages (not yet on server) show clock
@@ -90,9 +90,11 @@ export function computeMessageTick(
       return "read";
     }
   }
-  // Delivered to recipient device
+  // Delivered to recipient device (two grey ticks)
   if (m.delivered_at) return "delivered";
-  // On server, not yet delivered
+  // Peer currently online → delivered on their device
+  if (opts.peerOnline) return "delivered";
+  // On server, not yet delivered (one grey tick)
   return "sent";
 }
 

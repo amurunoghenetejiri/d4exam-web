@@ -1469,6 +1469,7 @@ export function ConversationChat({
             const tick: MessageTick = computeMessageTick(m, {
               mine,
               peerLastReadAt,
+              peerOnline: Boolean(peerOnline) && !meta?.isGroup,
             });
             const pending = tick === "pending";
 
@@ -1488,6 +1489,10 @@ export function ConversationChat({
                   touchAction: "pan-y",
                 }}
                 onTouchStart={(e) => {
+                  try {
+                    const tgt = e.target as HTMLElement | null;
+                    if (tgt?.closest?.("[data-d4-seek]")) return;
+                  } catch { /* ignore */ }
                   swipeRef.current = {
                     key: m.id,
                     x: e.touches[0]?.clientX ?? 0,
@@ -1535,7 +1540,8 @@ export function ConversationChat({
                   } catch {
                     /* ignore */
                   }
-                  const next = Math.max(-80, Math.min(80, rawX));
+                  // Reply only by swiping RIGHT (WhatsApp-style). Left is locked.
+                  const next = Math.max(0, Math.min(72, rawX));
                   s.dx = next;
                   // Direct style update path via state (throttled by equality)
                   setSwipeDx((prev) =>
@@ -1556,7 +1562,7 @@ export function ConversationChat({
                     delete n[m.id];
                     return n;
                   });
-                  if (wasH && Math.abs(dx) > 36) setReplyTo(m);
+                  if (wasH && dx > 56) setReplyTo(m);
                 }}
                 onTouchCancel={() => {
                   if (lpTimer.current) {

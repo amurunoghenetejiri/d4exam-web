@@ -85,13 +85,16 @@ function WaveBars({
       ref={trackRef}
       className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer")}
       style={onSeek ? { touchAction: "pan-y" } : undefined}
+      data-d4-seek="1"
       onPointerDown={(e) => {
         if (!onSeek) return;
+        e.stopPropagation();
         // Arm only - do NOT move board/ball on mere touch or click
         dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };
       }}
       onPointerMove={(e) => {
         if (!onSeek || !dragRef.current?.active) return;
+        e.stopPropagation();
         const d = dragRef.current;
         const dx = e.clientX - d.x;
         const dy = e.clientY - d.y;
