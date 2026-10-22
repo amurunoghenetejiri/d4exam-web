@@ -1,0 +1,85 @@
+name: fix-officer-recv-ticks-push
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-officer-recv-ticks-push.yml"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+
+          # ---------- 1) hub list ticks: one grey Check ----------
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          old = '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                  <CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" aria-label="Sent" />
+                ) : null}'''
+          new = '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                  <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" />
+                ) : null}'''
+          if old in t:
+              t = t.replace(old, new, 1)
+              if "  Check," not in t and "Check\n" not in t:
+                  t = t.replace("  CheckCheck,\n", "  Check,\n  CheckCheck,\n", 1)
+              p.write_text(t)
+              print("hub ticks: fixed to one grey Check")
+          elif 'text-slate-400" aria-label="Sent"' in t:
+              print("hub ticks: already grey Check")
+          else:
+              print("hub ticks: pattern missing")
+
+          # ---------- 2) messaging.ts: mirror DM to officer reports + notify ----------
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text()
+          if "mirrorCampusDmToOfficerReport" in t:
+              print("messaging: mirror already present")
+          else:
+              helper = '''\n/** If this DM peer is an examination officer, mirror the message into student_officer_reports\n *  so it appears on the officer panel, and push-notify the officer. */\nasync function mirrorCampusDmToOfficerReport(opts: {\n  conversationId: string;\n  senderId: string;\n  body: string | null;\n  attachmentUrl?: string | null;\n  attachmentType?: string | null;\n  preview: string;\n}) {\n  try {\n    const { data: conv } = await supabase\n      .from("conversations")\n      .select("id, type, school_id")\n      .eq("id", opts.conversationId)\n      .maybeSingle();\n    if (!conv || (conv as { type?: string }).type !== "direct") return;\n\n    const { data: members } = await supabase\n      .from("conversation_members")\n      .select("user_id")\n      .eq("conversation_id", opts.conversationId)\n      .is("left_at", null);\n    const peerIds = (members || [])\n      .map((m) => String((m as { user_id?: string }).user_id || ""))\n      .filter((id) => id && id !== opts.senderId);\n    if (!peerIds.length) return;\n\n    const { data: roles } = await supabase\n      .from("user_roles")\n      .select("user_id, role")\n      .in("user_id", peerIds);\n    const officerIds = (roles || [])\n      .filter((r) => String((r as { role?: string }).role) === "examination_officer")\n      .map((r) => String((r as { user_id?: string }).user_id));\n    if (!officerIds.length) return;\n\n    let studentName = "Student";\n    let studentMatric: string | null = null;\n    let studentId: string | null = null;\n    let schoolId = (conv as { school_id?: string | null }).school_id || null;\n    try {\n      const { data: prof } = await supabase\n        .from("profiles")\n        .select("id, full_name, school_id")\n        .eq("auth_user_id", opts.senderId)\n        .maybeSingle();\n      if (prof) {\n        studentName = ((prof as { full_name?: string }).full_name || "").trim() || studentName;\n        schoolId = schoolId || (prof as { school_id?: string | null }).school_id || null;\n      }\n      const { data: st } = await supabase\n        .from("students")\n        .select("id, matric_number, school_id, full_name")\n        .eq("auth_user_id", opts.senderId)\n        .maybeSingle();\n      if (st) {\n        studentId = (st as { id?: string }).id || null;\n        studentMatric = (st as { matric_number?: string | null }).matric_number || null;\n        schoolId = schoolId || (st as { school_id?: string | null }).school_id || null;\n        const sn = ((st as { full_name?: string }).full_name || "").trim();\n        if (sn) studentName = sn;\n      }\n    } catch { /* ignore */ }\n\n    const body = (opts.body || "").trim() || (opts.attachmentUrl ? "(attachment)" : "");\n    if (!body) return;\n\n    const reportRow: Record<string, unknown> = {\n      school_id: schoolId,\n      student_id: studentId,\n      student_user_id: opts.senderId,\n      student_name: studentName,\n      student_matric: studentMatric,\n      officer_user_id: officerIds[0] || null,\n      subject: "Message",\n      body,\n      status: "open",\n      attachment_url: opts.attachmentUrl || null,\n      attachment_type: opts.attachmentType || null,\n    };\n    const { error: insErr } = await supabase.from("student_officer_reports").insert(reportRow as never);\n    if (insErr) console.warn("[mirrorCampusDmToOfficerReport] insert", insErr.message);\n\n    try {\n      const { dispatchPushToUser } = await import("@/lib/push-send.functions");\n      const title = studentMatric ? `${studentName} · ${studentMatric}` : studentName;\n      await Promise.all(\n        officerIds.map((oid) =>\n          dispatchPushToUser({\n            data: {\n              recipientUserId: oid,\n              title,\n              message: opts.preview || body.slice(0, 120),\n              link: "/officer/reports",\n              type: "officer_student_message",\n              callerName: studentName,\n              callerMatric: studentMatric || "",\n              fromUserId: opts.senderId,\n              actionLabel: "Open",\n            } as never,\n          }).catch(() => null),\n        ),\n      );\n    } catch (e) {\n      console.warn("[mirrorCampusDmToOfficerReport] push", e);\n    }\n  } catch (e) {\n    console.warn("[mirrorCampusDmToOfficerReport]", e);\n  }\n}\n\n'''
+              marker = "/** Send a campus message (idempotent via client_id). */"
+              if marker not in t:
+                  print("messaging: sendCampusMessage marker missing")
+              else:
+                  t = t.replace(marker, helper + marker, 1)
+                  t = t.replace(
+                      """      void notifyMessageRecipients({\n        conversationId: opts.conversationId,\n        senderId: opts.senderId,\n        preview,\n        attachmentType: opts.attachmentType || null,\n        messageId: msg.id,\n      });\n      return msg;""",
+                      """      void notifyMessageRecipients({\n        conversationId: opts.conversationId,\n        senderId: opts.senderId,\n        preview,\n        attachmentType: opts.attachmentType || null,\n        messageId: msg.id,\n      });\n      void mirrorCampusDmToOfficerReport({\n        conversationId: opts.conversationId,\n        senderId: opts.senderId,\n        body: opts.body || null,\n        attachmentUrl: opts.attachmentUrl || null,\n        attachmentType: opts.attachmentType || null,\n        preview,\n      });\n      return msg;""",
+                      1,
+                  )
+                  t = t.replace(
+                      """    void notifyMessageRecipients({\n      conversationId: opts.conversationId,\n      senderId: opts.senderId,\n      preview,\n      attachmentType: opts.attachmentType || null,\n      messageId: (ins.data as CampusMessage).id,\n    });\n    return ins.data as CampusMessage;""",
+                      """    void notifyMessageRecipients({\n      conversationId: opts.conversationId,\n      senderId: opts.senderId,\n      preview,\n      attachmentType: opts.attachmentType || null,\n      messageId: (ins.data as CampusMessage).id,\n    });\n    void mirrorCampusDmToOfficerReport({\n      conversationId: opts.conversationId,\n      senderId: opts.senderId,\n      body: opts.body || null,\n      attachmentUrl: opts.attachmentUrl || null,\n      attachmentType: opts.attachmentType || null,\n      preview,\n    });\n    return ins.data as CampusMessage;""",
+                      1,
+                  )
+                  p.write_text(t)
+                  print("messaging: mirror + notify officer added")
+
+          # ---------- 3) contact-officer: push notify officers after insert ----------
+          p = Path("src/routes/student.contact-officer.tsx")
+          t = p.read_text()
+          old_success = '''        setInChat(true);\n        setLocallyRead(false);\n        await qc.invalidateQueries({ queryKey: ["student-my-reports"] });'''
+          new_success = '''        setInChat(true);\n        setLocallyRead(false);\n        try {\n          const preview = (text.trim() || (attach ? "Attachment" : "New message")).slice(0, 120);\n          const studentName = session?.fullName || student?.fullName || "Student";\n          const { data: officerRoles } = await supabase\n            .from("user_roles")\n            .select("user_id")\n            .eq("role", "examination_officer");\n          const officerIds = [...new Set((officerRoles || []).map((r: { user_id?: string }) => String(r.user_id || "")).filter(Boolean))];\n          if (officerIds.length) {\n            const { dispatchPushToUser } = await import("@/lib/push-send.functions");\n            const title = student?.matric ? `${studentName} · ${student.matric}` : studentName;\n            await Promise.all(\n              officerIds.map((oid: string) =>\n                dispatchPushToUser({\n                  data: {\n                    recipientUserId: oid,\n                    title,\n                    message: preview,\n                    link: "/officer/reports",\n                    type: "officer_student_message",\n                    callerName: studentName,\n                    fromUserId: userId || "",\n                    actionLabel: "Open",\n                  } as never,\n                }).catch(() => null),\n              ),\n            );\n            try {\n              await supabase.from("notifications").insert(\n                officerIds.map((oid: string) => ({\n                  user_id: oid,\n                  title: studentName,\n                  message: preview,\n                  type: "officer_student_message",\n                  link: "/officer/reports",\n                })) as never,\n              );\n            } catch { /* ignore */ }\n          }\n        } catch (ne) {\n          console.warn("[contact-officer] officer notify failed", ne);\n        }\n        await qc.invalidateQueries({ queryKey: ["student-my-reports"] });'''
+          if old_success in t:
+              t = t.replace(old_success, new_success, 1)
+              p.write_text(t)
+              print("contact-officer: officer push notify added")
+          else:
+              print("contact-officer: success block not found")
+
+          print("DONE")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git status
+          git diff --cached --quiet || git commit -m "fix: officer receives student DMs + push with name/preview; chat list one grey tick"
+          git push
