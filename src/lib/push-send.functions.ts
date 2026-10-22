@@ -527,6 +527,12 @@ export const dispatchChatMessagePush = createServerFn({ method: "POST" })
       .map((m) => String((m as { user_id?: string }).user_id || ""))
       .filter((id) => id && id !== data.senderId);
     if (!recipients.length) {
+      const onlySelf =
+        (members || []).length > 0 &&
+        (members || []).every((m) => String((m as { user_id?: string }).user_id || "") === data.senderId);
+      if (onlySelf) recipients.push(data.senderId);
+    }
+    if (!recipients.length) {
       return { sent: 0, failed: 0, skipped: true as const, reason: "no recipients" };
     }
     let sent = 0;
@@ -545,7 +551,7 @@ export const dispatchChatMessagePush = createServerFn({ method: "POST" })
             callerMatric: data.callerMatric || "",
             fromUserId: data.senderId,
             callerId: data.senderId,
-            actionLabel: "Reply",
+            actionLabel: "View message",
             messageId: data.messageId || "",
             attachmentType: data.attachmentType || "",
           },

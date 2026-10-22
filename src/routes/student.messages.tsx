@@ -220,6 +220,10 @@ function MessagesHub() {
   const schoolId = schoolQ.data || schoolIdHint || "";
 
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
+  const selectionMode = selectedChatIds.length > 0;
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("d4_pinned_chats") || "[]"); } catch { return []; } });
+  const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };
   const [isWide, setIsWide] = useState(false);
   const [leftPct, setLeftPct] = useState(38);
   const splitRef = useRef<HTMLDivElement | null>(null);
@@ -465,7 +469,7 @@ function MessagesHub() {
 
   const groups = conversationsWithPending.filter((c) => c.isGroup);
   // Chats tab = every conversation (students, officers, groups)
-  const allChats = conversationsWithPending;
+  const allChats = [...conversationsWithPending].sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" ? 1 : 0; const by = b.title === "You" ? 1 : 0; return by - ay; });
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -729,7 +733,19 @@ function MessagesHub() {
 
         {/* Search */}
         <div className="shrink-0 px-3 pt-3">
-          <div className="relative">
+          
+          {selectionMode ? (
+            <div className="sticky top-0 z-30 flex items-center gap-2 bg-[#0b1b3a] px-3 py-2.5 text-white">
+              <button type="button" className="px-2 font-bold" onClick={() => setSelectedChatIds([])}>✕</button>
+              <span className="flex-1 text-sm font-bold">{selectedChatIds.length} selected</span>
+              {selectedChatIds.length === 1 ? (
+                <button type="button" className="rounded-lg bg-white/15 px-2 py-1 text-xs font-semibold" onClick={() => { const id = selectedChatIds[0]; const next = pinnedIds.includes(id) ? pinnedIds.filter((x) => x !== id) : [id, ...pinnedIds]; persistPins(next); toast.success(pinnedIds.includes(id) ? "Unpinned" : "Pinned"); setSelectedChatIds([]); }}>Pin</button>
+              ) : null}
+              <button type="button" className="rounded-lg bg-white/15 px-2 py-1 text-xs font-semibold" onClick={() => { toast.message("Archived"); setSelectedChatIds([]); }}>Archive</button>
+              <button type="button" className="rounded-lg bg-rose-500 px-2 py-1 text-xs font-semibold" onClick={async () => { try { for (const id of selectedChatIds) { await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Delete</button>
+            </div>
+          ) : null}
+<div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               id="msg-global-search"
@@ -1136,7 +1152,9 @@ function ConversationList({
         <li key={c.id}>
           <button
             type="button"
-            onClick={() => onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined })}
+            onClick={() => { if (selectedChatIds.length > 0) { setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; } onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}
+            onContextMenu={(e) => { e.preventDefault(); setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]); }}
+            onTouchStart={() => { const timer = window.setTimeout(() => setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]), 480); const clear = () => clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
             className={cn(
               "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
               selectedId && selectedId === c.id
