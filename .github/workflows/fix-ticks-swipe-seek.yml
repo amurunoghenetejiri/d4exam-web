@@ -1,0 +1,130 @@
+name: fix-ticks-swipe-seek
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-ticks-swipe-seek.yml"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+
+          # 1) messaging.ts — computeMessageTick
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text()
+          if "peerOnline?: boolean" in t:
+              print("messaging already patched")
+          elif "On server, not yet delivered" in t:
+              t = t.replace(
+                  '''  // Delivered to recipient device\n  if (m.delivered_at) return "delivered";\n  // On server, not yet delivered\n  return "sent";\n}''',
+                  '''  // Delivered to recipient device (two grey ticks)\n  if (m.delivered_at) return "delivered";\n  // Peer currently online → delivered on their device\n  if (opts.peerOnline) return "delivered";\n  // On server, not yet delivered (one grey tick)\n  return "sent";\n}''',
+                  1,
+              )
+              t = t.replace(
+                  "opts: { mine: boolean; peerLastReadAt?: string | null },",
+                  "opts: { mine: boolean; peerLastReadAt?: string | null; peerOnline?: boolean },",
+                  1,
+              )
+              p.write_text(t)
+              print("messaging tick patched")
+          else:
+              print("messaging tick marker missing")
+
+          # 2) student.messages.tsx list ticks
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          if 'aria-label="Sent"' in t and 'Check className="ml-auto' in t and "text-slate-400" in t:
+              print("hub ticks already ok")
+          else:
+              t2 = t.replace(
+                  '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (\n                  <CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" aria-label="Sent" />\n                ) : null}''',
+                  '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (\n                  <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" />\n                ) : null}''',
+                  1,
+              )
+              if "Check," not in t2 and "Check\n" not in t2:
+                  t2 = t2.replace("  CheckCheck,\n", "  Check,\n  CheckCheck,\n", 1)
+              if t2 != t:
+                  p.write_text(t2)
+                  print("hub list ticks patched")
+              else:
+                  print("hub list ticks not found")
+
+          # 3) conversation chat — swipe + peerOnline + seek guard
+          p = Path("src/routes/student.messages.$conversationId.tsx")
+          t = p.read_text()
+          changed = False
+          if "peerOnline: Boolean(peerOnline)" not in t:
+              t = t.replace(
+                  '''            const tick: MessageTick = computeMessageTick(m, {\n              mine,\n              peerLastReadAt,\n            });''',
+                  '''            const tick: MessageTick = computeMessageTick(m, {\n              mine,\n              peerLastReadAt,\n              peerOnline: Boolean(peerOnline) && !meta?.isGroup,\n            });''',
+                  1,
+              )
+              changed = True
+              print("peerOnline in chat")
+          if "Math.max(-80, Math.min(80, rawX))" in t:
+              t = t.replace(
+                  "const next = Math.max(-80, Math.min(80, rawX));",
+                  "// Reply only by swiping RIGHT (WhatsApp-style). Left is locked.\n                  const next = Math.max(0, Math.min(72, rawX));",
+                  1,
+              )
+              changed = True
+              print("swipe range fixed")
+          if "Math.abs(dx) > 36) setReplyTo" in t:
+              t = t.replace(
+                  "if (wasH && Math.abs(dx) > 36) setReplyTo(m);",
+                  "if (wasH && dx > 56) setReplyTo(m);",
+                  1,
+              )
+              changed = True
+              print("swipe threshold fixed")
+          if 'closest?.("[data-d4-seek]")' not in t:
+              t = t.replace(
+                  '''                onTouchStart={(e) => {\n                  swipeRef.current = {''',
+                  '''                onTouchStart={(e) => {\n                  try {\n                    const tgt = e.target as HTMLElement | null;\n                    if (tgt?.closest?.("[data-d4-seek]")) return;\n                  } catch { /* ignore */ }\n                  swipeRef.current = {''',
+                  1,
+              )
+              changed = True
+              print("seek guard added")
+          if changed:
+              p.write_text(t)
+              print("chat written")
+          else:
+              print("chat already patched or markers missing")
+
+          # 4) MessageMedia seek bar
+          p = Path("src/components/messaging/MessageMedia.tsx")
+          t = p.read_text()
+          if "data-d4-seek" not in t:
+              t2 = t.replace(
+                  "onPointerDown={(e) => {\n        if (!onSeek) return;\n",
+                  'data-d4-seek="1"\n      onPointerDown={(e) => {\n        if (!onSeek) return;\n        e.stopPropagation();\n',
+                  1,
+              )
+              t2 = t2.replace(
+                  "onPointerMove={(e) => {\n        if (!onSeek || !dragRef.current?.active) return;\n",
+                  "onPointerMove={(e) => {\n        if (!onSeek || !dragRef.current?.active) return;\n        e.stopPropagation();\n",
+                  1,
+              )
+              if t2 != t:
+                  p.write_text(t2)
+                  print("MessageMedia seek patched")
+              else:
+                  print("MessageMedia pattern missing")
+          else:
+              print("MessageMedia already has data-d4-seek")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git status
+          git diff --cached --quiet || git commit -m "fix: WhatsApp-style ticks (1 grey/2 grey/2 blue), right-only swipe reply, voice seek without moving bubble"
+          git push
