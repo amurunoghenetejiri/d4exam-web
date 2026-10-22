@@ -1,0 +1,181 @@
+name: restore-hub-officer-inbox
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/restore-hub-officer-inbox.yml"
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore hub and fix officer + ticks
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import subprocess
+
+          # 1) Restore student.messages.tsx from last known good commit if placeholder
+          hub = Path("src/routes/student.messages.tsx")
+          cur = hub.read_text() if hub.exists() else ""
+          if "PLACEHOLDER" in cur or "MessagesHub" not in cur or len(cur) < 5000:
+              # Prefer 3416a715 (had mirror + most features)
+              for sha in [
+                  "3416a715364535e95fbbe016e23aadad06df848a",
+                  "075f21109e3ee5b13b24cad00533bf7e3518132c",
+                  "cbd8d53d9a292de81b7ecd830ac213cdd77d27f1",
+              ]:
+                  try:
+                      content = subprocess.check_output(
+                          ["git", "show", f"{sha}:src/routes/student.messages.tsx"],
+                          text=True,
+                          stderr=subprocess.DEVNULL,
+                      )
+                      if "MessagesHub" in content and len(content) > 5000:
+                          hub.write_text(content)
+                          print(f"restored hub from {sha[:8]} len={len(content)}")
+                          break
+                  except Exception as e:
+                      print("try", sha[:8], e)
+              else:
+                  print("FAILED to restore hub")
+          else:
+              print("hub already ok", len(cur))
+
+          # 2) Force one grey Check on list (not blue double)
+          t = hub.read_text()
+          old = '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                  <CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" aria-label="Sent" />
+                ) : null}'''
+          new = '''                ) : c.preview && c.lastSenderId && myId && c.lastSenderId === myId ? (
+                  <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" />
+                ) : null}'''
+          if old in t:
+              t = t.replace(old, new, 1)
+              if "  Check," not in t:
+                  t = t.replace("  CheckCheck,\n", "  Check,\n  CheckCheck,\n", 1)
+              hub.write_text(t)
+              print("hub ticks -> one grey Check")
+          elif 'text-slate-400" aria-label="Sent"' in t:
+              print("hub ticks already grey")
+          else:
+              # brute force any remaining blue CheckCheck for Sent
+              t2 = t.replace(
+                  '<CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" aria-label="Sent" />',
+                  '<Check className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Sent" />',
+              )
+              if t2 != t:
+                  if "  Check," not in t2:
+                      t2 = t2.replace("  CheckCheck,\n", "  Check,\n  CheckCheck,\n", 1)
+                  hub.write_text(t2)
+                  print("hub ticks brute fixed")
+              else:
+                  print("hub ticks pattern not found")
+
+          # 3) Officer reports: resolve schoolId + load without requiring session schoolId
+          op = Path("src/routes/officer.reports.tsx")
+          ot = op.read_text()
+          if "resolvedSchoolId" in ot:
+              print("officer schoolId already patched")
+          else:
+              old_s = '''  const schoolId = user?.schoolId;
+  const userId = user?.userId;
+  const qc = useQueryClient();'''
+              new_s = '''  const userId = user?.userId;
+  const qc = useQueryClient();
+  const [resolvedSchoolId, setResolvedSchoolId] = useState<string | null>(user?.schoolId || null);
+  useEffect(() => {
+    if (user?.schoolId) { setResolvedSchoolId(user.schoolId); return; }
+    if (!userId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await supabase.from("profiles").select("school_id").eq("auth_user_id", userId).maybeSingle();
+        const sid = (data as { school_id?: string | null } | null)?.school_id || null;
+        if (!cancelled && sid) setResolvedSchoolId(sid);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, user?.schoolId]);
+  const schoolId = resolvedSchoolId || user?.schoolId || null;'''
+              if old_s in ot:
+                  ot = ot.replace(old_s, new_s, 1)
+                  print("officer schoolId resolve added")
+              else:
+                  print("officer schoolId block missing")
+
+          # Fix list query to run when userId present even if schoolId slow
+          if 'enabled: Boolean(userId)' in ot and 'officer-student-reports' in ot:
+              print("officer listQ may already allow userId")
+          ot = ot.replace(
+              'queryKey: ["officer-student-reports", schoolId],\n    enabled: Boolean(schoolId),',
+              'queryKey: ["officer-student-reports", schoolId, userId],\n    enabled: Boolean(userId),',
+              1,
+          )
+          # Remove hard early return that empties when no schoolId
+          ot = ot.replace(
+              '''    queryFn: async () => {
+      if (!schoolId) return [] as ReportRow[];
+      const full = await supabase
+        .from("student_officer_reports")
+        .select(
+          "id, school_id, student_id, student_user_id, student_name, student_matric, exam_id, exam_title, exam_titles, subject, body, status, officer_reply, replied_at, created_at, officer_read_at, student_read_at, attachment_url, attachment_type",
+        )
+        .eq("school_id", schoolId)
+        .order("created_at", { ascending: true })
+        .limit(400);
+      if (full.error) {
+        const { data } = await supabase
+          .from("student_officer_reports")
+          .select(
+            "id, school_id, student_id, student_user_id, student_name, student_matric, exam_id, exam_title, exam_titles, subject, body, status, officer_reply, replied_at, created_at",
+          )
+          .eq("school_id", schoolId)
+          .order("created_at", { ascending: true })
+          .limit(400);
+        return (data ?? []) as ReportRow[];
+      }
+      return (full.data ?? []) as ReportRow[];
+    },''',
+              '''    queryFn: async () => {
+      let q = supabase
+        .from("student_officer_reports")
+        .select(
+          "id, school_id, student_id, student_user_id, student_name, student_matric, exam_id, exam_title, exam_titles, subject, body, status, officer_reply, replied_at, created_at, officer_read_at, student_read_at, attachment_url, attachment_type",
+        )
+        .order("created_at", { ascending: true })
+        .limit(400);
+      if (schoolId) q = q.eq("school_id", schoolId);
+      const full = await q;
+      if (full.error) {
+        let q2 = supabase
+          .from("student_officer_reports")
+          .select(
+            "id, school_id, student_id, student_user_id, student_name, student_matric, exam_id, exam_title, exam_titles, subject, body, status, officer_reply, replied_at, created_at",
+          )
+          .order("created_at", { ascending: true })
+          .limit(400);
+        if (schoolId) q2 = q2.eq("school_id", schoolId);
+        const { data } = await q2;
+        return (data ?? []) as ReportRow[];
+      }
+      return (full.data ?? []) as ReportRow[];
+    },''',
+              1,
+          )
+          op.write_text(ot)
+          print("officer.reports written")
+          print("DONE")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git status
+          git diff --cached --quiet || git commit -m "fix: restore messages hub, one grey tick on list, officer inbox loads student messages"
+          git push
