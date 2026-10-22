@@ -1,0 +1,63 @@
+name: sed-title-fix
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/sed-title-fix.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sed critical fixes
+        run: |
+          set -e
+          # 1) Pass title when opening chat from list
+          python3 -c "
+          from pathlib import Path
+          p = Path('src/routes/student.messages.tsx')
+          t = p.read_text()
+          t2 = t.replace('onClick={() => onOpen(c.id)}', 'onClick={() => onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined })}', 1)
+          t2 = t2.replace('onOpen: (id: string) => void;', 'onOpen: (id: string, seed?: { title?: string; peerUserId?: string }) => void;', 1)
+          if t2 == t:
+              print('WARN: onOpen pattern not found')
+          else:
+              p.write_text(t2)
+              print('title seed fixed')
+          "
+          # 2) Append getOrCreateSelfChat if missing
+          python3 -c "
+          from pathlib import Path
+          p = Path('src/lib/messaging.ts')
+          t = p.read_text()
+          if 'getOrCreateSelfChat' in t:
+              print('self already')
+          else:
+              fn = '''\nexport async function getOrCreateSelfChat(userId: string, schoolId?: string | null): Promise<string> {\n  if (!userId) throw new Error(\"Sign in required\");\n  const resolvedSchool = (await resolveMySchoolId(schoolId || null)) || schoolId || null;\n  const { data: memberships } = await supabase.from(\"conversation_members\").select(\"conversation_id\").eq(\"user_id\", userId).is(\"left_at\", null).limit(120);\n  const ids = (memberships || []).map((m) => m.conversation_id as string);\n  if (ids.length) {\n    const { data: convs } = await supabase.from(\"conversations\").select(\"id, type, title\").in(\"id\", ids).eq(\"type\", \"direct\");\n    for (const c of convs || []) {\n      const title = String((c as { title?: string }).title || \"\");\n      if (title === \"You\" || title === \"__self__\") return c.id as string;\n      const { count } = await supabase.from(\"conversation_members\").select(\"user_id\", { count: \"exact\", head: true }).eq(\"conversation_id\", c.id).is(\"left_at\", null);\n      if ((count || 0) === 1) return c.id as string;\n    }\n  }\n  if (!resolvedSchool) throw new Error(\"No school linked\");\n  const { data: conv, error } = await supabase.from(\"conversations\").insert({ school_id: resolvedSchool, type: \"direct\", title: \"You\", description: \"Message yourself\", created_by: userId, updated_at: new Date().toISOString() } as never).select(\"id\").single();\n  if (error || !conv?.id) throw new Error(error?.message || \"Could not create self chat\");\n  await supabase.from(\"conversation_members\").insert({ conversation_id: conv.id, user_id: userId, role: \"owner\" } as never);\n  return conv.id as string;\n}\n'''
+              t = t.replace('/** Get or create a 1:1 direct conversation between two users in the same school. */', fn + '/** Get or create a 1:1 direct conversation between two users in the same school. */', 1)
+              p.write_text(t)
+              print('self chat added')
+          "
+          # 3) Import + ensure You in hub
+          python3 -c "
+          from pathlib import Path
+          p = Path('src/routes/student.messages.tsx')
+          t = p.read_text()
+          if 'getOrCreateSelfChat' not in t:
+              t = t.replace('getOrCreateDirectConversation,\n  createGroup,', 'getOrCreateDirectConversation,\n  getOrCreateSelfChat,\n  createGroup,')
+          if 'ensure-you-chat' not in t:
+              effect = '''\n  // ensure-you-chat\n  useEffect(() => {\n    if (!userId) return;\n    let cancelled = false;\n    void (async () => {\n      try {\n        const list = convQuery.data || [];\n        if (list.some((c) => c.title === \"You\")) return;\n        await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);\n        if (!cancelled) void qc.invalidateQueries({ queryKey: [\"campus-conversations\", userId] });\n      } catch (e) { console.warn(\"[You]\", e); }\n    })();\n    return () => { cancelled = true; };\n  }, [userId, schoolId, schoolIdHint, convQuery.data, qc]);\n'''
+              t = t.replace('  const conversations = convQuery.data || [];', effect + '\n  const conversations = convQuery.data || [];', 1)
+          p.write_text(t)
+          print('hub you import', 'getOrCreateSelfChat' in t)
+          "
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git status
+          git diff --cached --quiet || git commit -m "fix: open chat with peer name; add You (message yourself)"
+          git push
