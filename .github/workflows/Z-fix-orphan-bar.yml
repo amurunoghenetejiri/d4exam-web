@@ -1,0 +1,50 @@
+name: Z-fix-orphan-bar
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-orphan-bar.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove orphaned JSX
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text(encoding="utf-8")
+          # Remove leftover sticky-bar tail after incomplete strip
+          pattern = re.compile(
+              r"\n\s*<button type=\"button\" className=\"rounded-lg bg-white/15[^>]*>Archive</button>\n"
+              r"\s*<button type=\"button\" className=\"rounded-lg bg-rose-500[^>]*>Delete</button>\n"
+              r"\s*</div>\n"
+              r"\s*\) : null\}\n",
+              re.M,
+          )
+          t2, n = pattern.subn("\n", t, count=1)
+          if n == 0:
+              # broader
+              pattern2 = re.compile(
+                  r"\n\s*<button type=\"button\"[^>]*>Archive</button>\n"
+                  r"\s*<button type=\"button\"[^>]*>Delete</button>\n"
+                  r"\s*</div>\n"
+                  r"\s*\) : null\}\n",
+              )
+              t2, n = pattern2.subn("\n", t, count=1)
+          if n == 0:
+              raise SystemExit("orphan pattern not found")
+          # Validate with a simple check: no lone ') : null}' after Search comment area
+          p.write_text(t2, encoding="utf-8")
+          print("OK removed", n)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: remove orphan sticky-bar JSX so Vercel builds"
+          git push
