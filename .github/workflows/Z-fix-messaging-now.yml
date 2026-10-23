@@ -1,0 +1,56 @@
+name: Z-fix-messaging-now
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-messaging-now.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 80
+      - name: Restore messaging.ts
+        run: |
+          set -e
+          # Last known-good full file before accidental overwrite
+          git show c427451259c83d851e04d156a409963b6d7138c5:src/lib/messaging.ts > src/lib/messaging.ts
+          wc -c src/lib/messaging.ts
+          grep -q "export async function sendCampusMessage" src/lib/messaging.ts
+          grep -q "export async function listMyConversations" src/lib/messaging.ts
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text(encoding="utf-8")
+          assert "sendCampusMessage" in t and "listMyConversations" in t
+          old = '''  if (!resolvedSchool) throw new Error("No school linked");
+  const { data: conv, error } = await supabase.from("conversations").insert({ school_id: resolvedSchool, type: "direct", title: "You", description: "Message yourself", created_by: userId, updated_at: new Date().toISOString() } as never).select("id").single();
+  if (error || !conv?.id) throw new Error(error?.message || "Could not create self chat");
+  await supabase.from("conversation_members").insert({ conversation_id: conv.id, user_id: userId, role: "owner" } as never);
+  return conv.id as string;'''
+          new = '''  // Prefer SECURITY DEFINER RPC (bypasses conversations RLS)
+  const { data: rpcId, error: rpcErr } = await supabase.rpc("get_or_create_self_chat", { p_school_id: resolvedSchool || null });
+  if (!rpcErr && rpcId) return rpcId as string;
+  throw new Error(rpcErr?.message || "Could not create self chat");'''
+          if old in t:
+              t = t.replace(old, new, 1)
+              print("self-chat RPC patched")
+          else:
+              print("self-chat insert pattern not found (ok if already RPC)")
+          p.write_text(t, encoding="utf-8")
+          print("OK", len(t))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts
+          git status
+          if git diff --cached --quiet; then
+            echo nothing
+          else
+            git commit -m "fix: restore full messaging.ts + Me self-chat RPC"
+            git push
+          fi
