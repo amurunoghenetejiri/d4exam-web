@@ -1,0 +1,79 @@
+name: fix-open-only
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-open-only.yml"
+concurrency:
+  group: fix-open-only
+  cancel-in-progress: true
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Minimal open fix
+        run: |
+          python3 -c '
+          from pathlib import Path
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          # CRITICAL: setSelectedChatIds is out of scope in ConversationList → ReferenceError on every click
+          a = "setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; } onOpen(c.id"
+          b = "/* selection via parent only */ onOpen(c.id"
+          t2 = t.replace(a, b)
+          # long-press: no-op instead of crash
+          t2 = t2.replace(
+              "setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id])",
+              "void 0",
+          )
+          # Me row inject
+          if "chatsWithMe" not in t2:
+              t2 = t2.replace(
+                  "  }, [allChats, groups, search, tab]);",
+                  """  }, [allChats, groups, search, tab]);
+  const chatsWithMe = useMemo(() => {
+    const list = [...filteredChats];
+    if (userId && !list.some((c) => c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf)) {
+      list.unshift({ id: "__me__", type: "direct" as const, title: "You", subtitle: "Message yourself", preview: "", avatar_url: null, time: null, unread: 0, isGroup: false, peerUserId: userId, hasMessage: false, isSelf: true } as ConversationListItem & { isSelf?: boolean });
+    }
+    return list;
+  }, [filteredChats, userId]);
+""",
+                  1,
+              )
+              t2 = t2.replace("items={filteredChats}", "items={chatsWithMe}", 1)
+          if "__me__" in t2 and "id === \"__me__\"" not in t2:
+              t2 = t2.replace(
+                  "if (!id) return;\n      // Inline chat view",
+                  """if (!id) return;
+      if (id === "__me__") {
+        void (async () => {
+          try {
+            const realId = await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
+            try { sessionStorage.setItem(`d4_chat_title_${realId}`, "Me"); } catch {}
+            setActiveChatId(realId);
+            try { appNavigate(`/student/messages/${realId}`); } catch {}
+            try { void navigate({ to: "/student/messages/$conversationId", params: { conversationId: realId } }); } catch {}
+            void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+          } catch (e) { toast.error(e instanceof Error ? e.message : "Could not open Me"); }
+        })();
+        return;
+      }
+      // Inline chat view""",
+                  1,
+              )
+          t2 = t2.replace("{c.title}\n                  {c.isGroup ? (", "{(c.title === \"You\" || (c as { isSelf?: boolean }).isSelf) ? \"Me\" : c.title}\n                  {c.isGroup ? (", 1)
+          p.write_text(t2)
+          assert "setSelectedChatIds((prev) => prev.includes(c.id)" not in t2
+          print("OK", len(t2))
+          '
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: restore opening chats on click; always show Me"
+          git push origin HEAD:main
