@@ -1,0 +1,29 @@
+name: run-whatsapp-me-select
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix_whatsapp_me_select.py"
+      - ".github/workflows/run-whatsapp-me-select.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply
+        run: python3 scripts/fix_whatsapp_me_select.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          git diff --cached --stat || true
+          if git diff --cached --quiet; then
+            echo nothing
+          else
+            git commit -m "feat: Name (You) Me chat, WA-style select header, pin/archive"
+            git push
+          fi
