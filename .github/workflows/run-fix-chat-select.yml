@@ -1,0 +1,21 @@
+name: run-fix-chat-select
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix_chat_select_bridge.py"
+      - ".github/workflows/run-fix-chat-select.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix_chat_select_bridge.py
+      - run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: long-press multi-select chats via bridge"
+          git push
