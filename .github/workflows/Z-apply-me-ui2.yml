@@ -1,0 +1,24 @@
+name: Z-apply-me-ui2
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-apply-me-ui2.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply
+        run: |
+          set -e
+          python3 -m py_compile scripts/fix_me_rls_ui.py
+          python3 scripts/fix_me_rls_ui.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts src/routes/student.messages.tsx
+          git status
+          if git diff --cached --quiet; then echo nothing; else git commit -m "fix: Me chat RPC, Name (You), menu z-index, filter cards" && git push; fi
