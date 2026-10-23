@@ -1,0 +1,38 @@
+name: Z-fix-jsx-inline
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-jsx-inline.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix fragment
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text(encoding="utf-8")
+          broken = "{(tab === \"chats\" || tab === \"groups\") && (\n            \n              {/* Archived chats row */}\n"
+          fixed = "{(tab === \"chats\" || tab === \"groups\") && (\n            <>\n              {/* Archived chats row */}\n"
+          if broken not in t:
+              raise SystemExit("broken pattern not found")
+          t = t.replace(broken, fixed, 1)
+          close_b = "              selectedId={activeChatId}\n            />\n          )}\n\n          {tab === \"students\""
+          close_f = "              selectedId={activeChatId}\n            />\n            </>\n          )}\n\n          {tab === \"students\""
+          if close_b not in t:
+              raise SystemExit("close pattern not found")
+          t = t.replace(close_b, close_f, 1)
+          p.write_text(t, encoding="utf-8")
+          print("OK")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: JSX fragment so Vercel build succeeds"
+          git push
