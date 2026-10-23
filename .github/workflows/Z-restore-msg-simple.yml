@@ -1,0 +1,39 @@
+name: Z-restore-msg-simple
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-restore-msg-simple.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore messaging.ts
+        run: |
+          set -eux
+          GOOD=c427451259c83d851e04d156a409963b6d7138c5
+          git show ${GOOD}:src/lib/messaging.ts > src/lib/messaging.ts
+          BYTES=$(wc -c < src/lib/messaging.ts)
+          echo "restored $BYTES bytes"
+          test "$BYTES" -gt 40000
+          grep -q "export async function sendCampusMessage" src/lib/messaging.ts
+          grep -q "export async function listMyConversations" src/lib/messaging.ts
+          grep -q "export async function getPeerLastReadAt" src/lib/messaging.ts
+          grep -q "export async function markMessagesDelivered" src/lib/messaging.ts
+      - name: Commit and push
+        run: |
+          set -eux
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts
+          git status
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "fix: restore full messaging.ts from good commit"
+            git push
+          fi
