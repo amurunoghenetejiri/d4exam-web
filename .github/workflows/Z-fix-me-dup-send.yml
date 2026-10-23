@@ -1,0 +1,140 @@
+name: Z-fix-me-dup-send
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-me-dup-send.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply fixes
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+
+          hub = Path("src/routes/student.messages.tsx")
+          chat = Path("src/routes/student.messages.$conversationId.tsx")
+          t = hub.read_text(encoding="utf-8")
+
+          if "PinOff" not in t:
+              t = t.replace(
+                  "  Pin,\n  Archive,\n  VolumeX,\n  Trash2,",
+                  "  Pin,\n  PinOff,\n  Archive,\n  ArchiveRestore,\n  Star,\n  Ban,\n  VolumeX,\n  Trash2,",
+                  1,
+              )
+              print("imports")
+
+          if 'if (!showArchived && tab !== "groups"' not in t:
+              n = t.replace(
+                  'if (tab !== "groups" && userId && !list.some(',
+                  'if (!showArchived && tab !== "groups" && userId && !list.some(',
+                  1,
+              )
+              t = n
+              print("inject guard", n is not None)
+
+          if "ARCHIVED_STRIP_ME" not in t:
+              needle = "const list = tab === \"groups\" ? groups : allChats;\n    if (!q) {"
+              rep = (
+                  "let list = tab === \"groups\" ? groups : allChats;\n"
+                  "    const meLabel = myDisplayName ? `${d4TwoNames(myDisplayName)} (You)` : \"You\";\n"
+                  "    const isSelfRow = (c: { id?: string; title?: string; isSelf?: boolean }) =>\n"
+                  "      c.id === \"__me__\" || c.title === \"You\" || c.title === \"Me\" ||\n"
+                  "      (typeof c.title === \"string\" && c.title.includes(\"(You)\")) || Boolean(c.isSelf);\n"
+                  "    list = list.map((c) => {\n"
+                  "      if (!isSelfRow(c as { isSelf?: boolean; title?: string; id?: string })) return c;\n"
+                  "      return { ...c, title: meLabel, avatar_url: myNavPhoto || c.avatar_url, isSelf: true } as typeof c;\n"
+                  "    });\n"
+                  "    { let seen = false; list = list.filter((c) => {\n"
+                  "      if (!isSelfRow(c as { isSelf?: boolean; title?: string; id?: string })) return true;\n"
+                  "      if (seen) return false; seen = true; return true;\n"
+                  "    }); }\n"
+                  "    // ARCHIVED_STRIP_ME\n"
+                  "    if (showArchived || tab === \"groups\") {\n"
+                  "      list = list.filter((c) => !isSelfRow(c as { isSelf?: boolean; title?: string; id?: string }));\n"
+                  "    }\n"
+                  "    if (!q) {"
+              )
+              if needle in t:
+                  t = t.replace(needle, rep, 1)
+                  print("map dedupe strip")
+              else:
+                  print("needle miss")
+
+          t = t.replace(
+              'onOpen(c.id, { title: (c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title, peerUserId: c.peerUserId || undefined });',
+              'onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined });',
+          )
+          t = t.replace(
+              '{(c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title}',
+              '{c.title}',
+          )
+
+          if "PinOff className" not in t:
+              t = t.replace(
+                  '}}><Pin className="h-5 w-5" /></button>',
+                  '}}>{selectedChatIds.length > 0 && selectedChatIds.every((id) => pinnedIds.includes(id)) ? <PinOff className="h-5 w-5" /> : <Pin className="h-5 w-5" />}</button>',
+                  1,
+              )
+              print("pinoff")
+
+          if ">{showArchived ? <ArchiveRestore" not in t:
+              t = t.replace(
+                  '}}><Archive className="h-5 w-5" /></button>',
+                  '}}>{showArchived ? <ArchiveRestore className="h-5 w-5" /> : <Archive className="h-5 w-5" />}</button>',
+                  1,
+              )
+              print("archive restore")
+
+          old_icon = '{key === "archived" ? <Archive className="h-3.5 w-3.5" /> : key === "unread" ? <Bell className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}'
+          new_icon = '{key === "archived" ? <Archive className="h-3.5 w-3.5" /> : key === "unread" ? <Bell className="h-3.5 w-3.5" /> : key === "starred" || key === "favorites" ? <Star className="h-3.5 w-3.5" /> : key === "blocked" ? <Ban className="h-3.5 w-3.5 text-rose-500" /> : key === "deleted" ? <Trash2 className="h-3.5 w-3.5 text-rose-500" /> : <MessageSquare className="h-3.5 w-3.5" />}'
+          if old_icon in t:
+              t = t.replace(old_icon, new_icon, 1)
+              print("icons")
+
+          t = t.replace(
+              "}, [allChats, groups, search, tab]);",
+              "}, [allChats, groups, search, tab, showArchived, myDisplayName, myNavPhoto, userId]);",
+              1,
+          )
+
+          hub.write_text(t, encoding="utf-8")
+          print("hub", len(t))
+
+          ct = chat.read_text(encoding="utf-8")
+          if "FAST_TEXT_SEND" not in ct:
+              idx = ct.find("const doSendText = async () => {")
+              if idx < 0:
+                  print("no doSendText")
+              else:
+                  end = ct.find("\n  const onFile", idx)
+                  block = ct[idx:end]
+                  block2 = block.replace("sendLock.current = true;", "/* FAST_TEXT_SEND no lock */", 1)
+                  block2 = block2.replace("sendLock.current = false;", "/* FAST_TEXT_SEND */", 1)
+                  block2 = block2.replace(
+                      "    try {\n      if (typeof navigator !== \"undefined\" && navigator.onLine === false) {\n        toast.message(\"Waiting for connection — queued\");\n        return;\n      }\n      const sent = await sendCampusMessage({",
+                      "    if (typeof navigator !== \"undefined\" && navigator.onLine === false) {\n      toast.message(\"Waiting for connection — queued\");\n      return;\n    }\n    void (async () => {\n    try {\n      const sent = await sendCampusMessage({",
+                      1,
+                  )
+                  block2 = block2.replace(
+                      "    } finally {\n      /* FAST_TEXT_SEND */\n    }\n  };",
+                      "    } finally {\n      /* FAST_TEXT_SEND */\n    }\n    })();\n  };",
+                      1,
+                  )
+                  ct = ct[:idx] + block2 + ct[end:]
+                  chat.write_text(ct, encoding="utf-8")
+                  print("chat", len(ct))
+          else:
+              print("chat already")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx "src/routes/student.messages.\$conversationId.tsx"
+          git status
+          if git diff --cached --quiet; then echo nothing; else git commit -m "fix: Me not in Archived, one Name(You), pin/unarchive icons, faster text" && git push; fi
