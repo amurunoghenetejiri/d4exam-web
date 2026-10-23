@@ -1,0 +1,20 @@
+name: Z-fix-jsx-fragment
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix_jsx_fragment.py"
+      - ".github/workflows/Z-fix-jsx-fragment.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix_jsx_fragment.py
+      - run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          if git diff --cached --quiet; then echo nothing; else git commit -m "fix: wrap chat list body in JSX fragment for build" && git push; fi
