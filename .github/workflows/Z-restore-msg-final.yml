@@ -1,0 +1,68 @@
+name: Z-restore-msg-final
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-restore-msg-final.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore messaging.ts from good commit
+        run: |
+          set -eux
+          GOOD=c427451259c83d851e04d156a409963b6d7138c5
+          git cat-file -e ${GOOD}:src/lib/messaging.ts
+          git show ${GOOD}:src/lib/messaging.ts > src/lib/messaging.ts
+          BYTES=$(wc -c < src/lib/messaging.ts)
+          echo "restored $BYTES bytes"
+          test "$BYTES" -gt 40000
+          grep -q "export async function sendCampusMessage" src/lib/messaging.ts
+          grep -q "export async function listMyConversations" src/lib/messaging.ts
+          grep -q "export async function getPeerLastReadAt" src/lib/messaging.ts
+          # Patch self-chat to use SECURITY DEFINER RPC
+          python3 -c '
+from pathlib import Path
+p = Path("src/lib/messaging.ts")
+t = p.read_text(encoding="utf-8")
+old = """  if (!resolvedSchool) throw new Error(\"No school linked\");\n  const { data: conv, error } = await supabase.from(\"conversations\").insert({ school_id: resolvedSchool, type: \"direct\", title: \"You\", description: \"Message yourself\", created_by: userId, updated_at: new Date().toISOString() } as never).select(\"id\").single();\n  if (error || !conv?.id) throw new Error(error?.message || \"Could not create self chat\");\n  await supabase.from(\"conversation_members\").insert({ conversation_id: conv.id, user_id: userId, role: \"owner\" } as never);\n  return conv.id as string;"""
+# use real newlines
+old = (
+"  if (!resolvedSchool) throw new Error(\"No school linked\");\n"
+"  const { data: conv, error } = await supabase.from(\"conversations\").insert({ school_id: resolvedSchool, type: \"direct\", title: \"You\", description: \"Message yourself\", created_by: userId, updated_at: new Date().toISOString() } as never).select(\"id\").single();\n"
+"  if (error || !conv?.id) throw new Error(error?.message || \"Could not create self chat\");\n"
+"  await supabase.from(\"conversation_members\").insert({ conversation_id: conv.id, user_id: userId, role: \"owner\" } as never);\n"
+"  return conv.id as string;"
+)
+new = (
+"  // Prefer SECURITY DEFINER RPC (bypasses conversations RLS)\n"
+"  const { data: rpcId, error: rpcErr } = await supabase.rpc(\"get_or_create_self_chat\", { p_school_id: resolvedSchool || null });\n"
+"  if (!rpcErr && rpcId) return rpcId as string;\n"
+"  throw new Error(rpcErr?.message || \"Could not create self chat\");"
+)
+if old in t:
+    t = t.replace(old, new, 1)
+    print("RPC patched")
+else:
+    print("RPC pattern skipped")
+p.write_text(t, encoding="utf-8")
+print("final", len(t))
+'
+      - name: Commit and push
+        run: |
+          set -eux
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts
+          git status
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "fix: restore full messaging.ts + Me self-chat RPC"
+            git push
+          fi
