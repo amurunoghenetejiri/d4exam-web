@@ -1,0 +1,28 @@
+name: run-fix-chat-click
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix_chat_list_click.py"
+      - ".github/workflows/run-fix-chat-click.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply script
+        run: python3 scripts/fix_chat_list_click.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "fix: chat list opens on click; Me always visible"
+            git push
+          fi
