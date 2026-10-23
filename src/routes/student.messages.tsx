@@ -892,7 +892,7 @@ function MessagesHub() {
         {/* List body */}
         <div className="relative z-10 mt-2 min-h-0 flex-1 overflow-y-auto bg-transparent pb-20 sm:mt-3">
           {(tab === "chats" || tab === "groups") && (
-            
+            <>
               {/* Archived chats row */}
               {!showArchived && archivedIds.length > 0 && tab === "chats" ? (
                 <button type="button" onClick={() => setShowArchived(true)} className="mx-3 mb-1 flex items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm">
@@ -925,6 +925,7 @@ function MessagesHub() {
               onRetry={() => void convQuery.refetch()}
               selectedId={activeChatId}
             />
+            </>
           )}
 
           {tab === "students" && (
