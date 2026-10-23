@@ -1,0 +1,145 @@
+name: fix-click-v2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-click-v2.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+          print("file", len(t))
+
+          # Add props to destructuring after selectedId,
+          if "onToggleSelect" not in t:
+              t = t.replace(
+                  "  onRetry,\n  selectedId,\n}: {",
+                  "  onRetry,\n  selectedId,\n  selectedChatIds = [],\n  onToggleSelect,\n  onEnterSelect,\n  selectionMode = false,\n  pinnedIds = [],\n}: {",
+                  1,
+              )
+              t = t.replace(
+                  "  selectedId?: string | null;\n}) {",
+                  "  selectedId?: string | null;\n  selectedChatIds?: string[];\n  onToggleSelect?: (id: string) => void;\n  onEnterSelect?: (id: string) => void;\n  selectionMode?: boolean;\n  pinnedIds?: string[];\n}) {",
+                  1,
+              )
+              print("props added")
+
+          # Replace setSelectedChatIds inside list with callbacks
+          n1 = t.count("setSelectedChatIds")
+          t = t.replace(
+              "setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])",
+              "onToggleSelect?.(c.id)",
+          )
+          t = t.replace(
+              "setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id])",
+              "onEnterSelect?.(c.id)",
+          )
+          # also pattern with length check that still uses setSelectedChatIds for toggle
+          t = t.replace(
+              "if (selectedChatIds.length > 0) { setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; }",
+              "if (selectionMode || (selectedChatIds && selectedChatIds.length > 0)) { onToggleSelect?.(c.id); return; }",
+          )
+          print("setSelectedChatIds remaining", t.count("setSelectedChatIds"), "was", n1)
+
+          # Pass from parent
+          if "onToggleSelect={" not in t:
+              t = t.replace(
+                  "onOpen={openConversation}",
+                  """onOpen={openConversation}
+              selectedChatIds={selectedChatIds}
+              selectionMode={selectionMode}
+              pinnedIds={pinnedIds}
+              onToggleSelect={(id) => setSelectedChatIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])}
+              onEnterSelect={(id) => setSelectedChatIds((prev) => prev.includes(id) ? prev : [...prev, id])}""",
+                  1,
+              )
+              print("parent props")
+
+          # Me always
+          if "chatsWithMe" not in t:
+              t = t.replace(
+                  "  }, [allChats, groups, search, tab]);",
+                  """  }, [allChats, groups, search, tab]);
+  const chatsWithMe = useMemo(() => {
+    const list = [...filteredChats];
+    if (!list.some((c) => c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf) && userId) {
+      list.unshift({
+        id: "__me__",
+        type: "direct" as const,
+        title: "You",
+        subtitle: "Message yourself",
+        preview: "",
+        avatar_url: null,
+        time: null,
+        unread: 0,
+        isGroup: false,
+        peerUserId: userId,
+        hasMessage: false,
+        isSelf: true,
+      } as ConversationListItem & { isSelf?: boolean });
+    }
+    return list;
+  }, [filteredChats, userId]);
+""",
+                  1,
+              )
+              t = t.replace("items={filteredChats}", "items={chatsWithMe}", 1)
+              print("me row")
+
+          if 'id === "__me__"' not in t:
+              t = t.replace(
+                  "if (!id) return;\n      // Inline chat view",
+                  """if (!id) return;
+      if (id === "__me__") {
+        void (async () => {
+          try {
+            const realId = await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
+            try { sessionStorage.setItem(`d4_chat_title_${realId}`, "Me"); } catch {}
+            setActiveChatId(realId);
+            try { appNavigate(`/student/messages/${realId}`); } catch {}
+            try { void navigate({ to: "/student/messages/$conversationId", params: { conversationId: realId } }); } catch {}
+            void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not open Me chat");
+          }
+        })();
+        return;
+      }
+      // Inline chat view""",
+                  1,
+              )
+              t = t.replace("[navigate],", "[navigate, userId, schoolId, schoolIdHint, qc],", 1)
+              print("open me")
+
+          # Label Me
+          if '? "Me" : c.title' not in t:
+              t = t.replace(
+                  "{c.title}\n                  {c.isGroup ? (",
+                  "{(c.title === \"You\" || (c as { isSelf?: boolean }).isSelf) ? \"Me\" : c.title}\n                  {c.isGroup ? (",
+                  1,
+              )
+
+          p.write_text(t)
+          # sanity
+          assert "onToggleSelect" in t
+          assert "chatsWithMe" in t or "__me__" in t
+          print("SUCCESS", len(t))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          git diff --cached --quiet || git commit -m "fix: chat list click and long-press select; always show Me"
+          git push
