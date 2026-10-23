@@ -832,11 +832,7 @@ function MessagesHub() {
         <div className="shrink-0 px-3 pt-3">
           
           
-              <button type="button" className="rounded-lg bg-white/15 px-2 py-1 text-xs font-semibold" onClick={() => { toast.message("Archived"); setSelectedChatIds([]); }}>Archive</button>
-              <button type="button" className="rounded-lg bg-rose-500 px-2 py-1 text-xs font-semibold" onClick={async () => { try { for (const id of selectedChatIds) { await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Delete</button>
-            </div>
-          ) : null}
-<div className="relative">
+              <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               id="msg-global-search"
