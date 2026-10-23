@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WhatsApp-style Me row, selection header, pin icon, archive row."""
+"""WhatsApp-style Me row, selection header, pin, archive."""
 from pathlib import Path
 import re
 
@@ -9,7 +9,6 @@ def main() -> None:
     t = HUB.read_text(encoding="utf-8")
     orig = t
 
-    # Imports
     if "Trash2" not in t:
         t = t.replace(
             "  Clock,\n} from \"lucide-react\";",
@@ -17,7 +16,6 @@ def main() -> None:
             1,
         )
 
-    # myDisplayName
     if "myDisplayName" not in t:
         t = t.replace(
             "const [myNavPhoto, setMyNavPhoto] = useState<string | null>(session?.avatarUrl || null);",
@@ -30,7 +28,6 @@ def main() -> None:
             1,
         )
 
-    # archived state
     if "archivedIds" not in t:
         t = t.replace(
             'const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };',
@@ -38,8 +35,7 @@ def main() -> None:
             1,
         )
 
-    # Me title Name (You)
-    if "(You)`" not in t and "(You)" not in t[t.find("__me__"):t.find("__me__")+200] if "__me__" in t else "":
+    if 'title: "You",' in t and "myDisplayName ?" not in t:
         t = t.replace(
             'title: "You",\n          subtitle: "Message yourself",\n          preview: "",\n          avatar_url: null,',
             'title: myDisplayName ? `${myDisplayName} (You)` : "You",\n          subtitle: "Message yourself",\n          preview: "",\n          avatar_url: myNavPhoto,',
@@ -51,9 +47,8 @@ def main() -> None:
         'sessionStorage.setItem(`d4_chat_title_${realId}`, myDisplayName ? `${myDisplayName} (You)` : "You")',
     )
 
-    # Remove sticky select bar under search
     t2 = re.sub(
-        r"\{selectionMode \? \(\s*<div className=\"sticky top-0[\s\S]*?\) : null\}",
+        r'\{selectionMode \? \(\s*<div className="sticky top-0[\s\S]*?\) : null\}',
         "",
         t,
         count=1,
@@ -62,7 +57,6 @@ def main() -> None:
         t = t2
         print("removed sticky bar")
 
-    # WA selection header
     if "data-wa-select-header" not in t:
         old = (
             '        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">\n'
@@ -117,7 +111,6 @@ def main() -> None:
         else:
             print("WARN header not found")
 
-    # Filter archived
     if "showArchived ? archivedIds" not in t:
         old_all = 'const allChats = [...conversationsWithPending].sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" ? 1 : 0; const by = b.title === "You" ? 1 : 0; return by - ay; });'
         new_all = 'const allChats = [...conversationsWithPending].filter((c) => showArchived ? archivedIds.includes(c.id) : !archivedIds.includes(c.id)).sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" || a.title.includes("(You)") || (a as { isSelf?: boolean }).isSelf ? 1 : 0; const by = b.title === "You" || b.title.includes("(You)") || (b as { isSelf?: boolean }).isSelf ? 1 : 0; if (ay !== by) return by - ay; return 0; });'
@@ -125,22 +118,20 @@ def main() -> None:
             t = t.replace(old_all, new_all, 1)
             print("allChats")
 
-    # Archived row
     if "setShowArchived(true)" not in t:
         row = (
-            "\n              {/* Archived chats row */}\n"
-            "              {!showArchived && archivedIds.length > 0 && tab === \"chats\" ? (\n"
-            "                <button type=\"button\" onClick={() => setShowArchived(true)} className=\"mx-3 mb-1 flex items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm\">\n"
-            "                  <span className=\"grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-600\"><Archive className=\"h-5 w-5\" /></span>\n"
-            "                  <span className=\"flex-1 text-[15px] font-semibold text-slate-900\">Archived</span>\n"
-            "                  <span className=\"text-xs font-bold text-slate-400\">{archivedIds.length}</span>\n"
-            "                </button>\n"
-            "              ) : null}\n"
+            '\n              {/* Archived chats row */}\n'
+            '              {!showArchived && archivedIds.length > 0 && tab === "chats" ? (\n'
+            '                <button type="button" onClick={() => setShowArchived(true)} className="mx-3 mb-1 flex items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm">\n'
+            '                  <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-600"><Archive className="h-5 w-5" /></span>\n'
+            '                  <span className="flex-1 text-[15px] font-semibold text-slate-900">Archived</span>\n'
+            '                  <span className="text-xs font-bold text-slate-400">{archivedIds.length}</span>\n'
+            '                </button>\n'
+            '              ) : null}\n'
         )
         t = t.replace("<ConversationList", row + "              <ConversationList", 1)
         print("archived row")
 
-    # Pin helper + icon
     if "d4IsPinned" not in t:
         t = t.replace(
             "function d4SelectBridge() {",
@@ -154,13 +145,13 @@ def main() -> None:
         )
         print("pin icon")
 
-    # Header title Archived
-    if 'showArchived ? "Archived"' not in t and "showArchived ? 'Archived'" not in t:
+    if "showArchived ? " not in t:
         t = t.replace(
             ">\n              D4Chat\n            </h1>",
-            '>\n              {showArchived ? "Archived" : "D4Chat"}\n            </h1>',
+            ">\n              {showArchived ? 'Archived' : 'D4Chat'}\n            </h1>",
             1,
         )
+        print("title")
 
     if t == orig:
         print("NO_CHANGE")
