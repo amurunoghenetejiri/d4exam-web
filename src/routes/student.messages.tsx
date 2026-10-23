@@ -509,17 +509,22 @@ function MessagesHub() {
 
   const groups = conversationsWithPending.filter((c) => c.isGroup);
   // Chats tab = every conversation (students, officers, groups)
-  const allChats = [...conversationsWithPending].filter((c) => showArchived ? archivedIds.includes(c.id) : !archivedIds.includes(c.id)).sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" || a.title.includes("(You)") || (a as { isSelf?: boolean }).isSelf ? 1 : 0; const by = b.title === "You" || b.title.includes("(You)") || (b as { isSelf?: boolean }).isSelf ? 1 : 0; if (ay !== by) return by - ay; return 0; });
+  const allChats = [...conversationsWithPending].filter((c) => {
+      const isMe = c.id === "__me__" || c.title === "You" || c.title === "Me" || (typeof c.title === "string" && c.title.includes("(You)")) || (c as { isSelf?: boolean }).isSelf;
+      if (isMe && showArchived) return false;
+      if (showArchived) return archivedIds.includes(c.id) && !isMe;
+      return !archivedIds.includes(c.id);
+    }).sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" || a.title.includes("(You)") || (a as { isSelf?: boolean }).isSelf ? 1 : 0; const by = b.title === "You" || b.title.includes("(You)") || (b as { isSelf?: boolean }).isSelf ? 1 : 0; if (ay !== by) return by - ay; return 0; });
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = tab === "groups" ? groups : allChats;
     if (!q) {
-      if (userId && !list.some((c) => c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf)) {
+      if (tab !== "groups" && userId && !list.some((c) => c.title === "You" || c.title === "Me" || (typeof c.title === "string" && c.title.includes("(You)")) || (c as { isSelf?: boolean }).isSelf)) {
         return [{
           id: "__me__",
           type: "direct" as const,
-          title: myDisplayName ? `${myDisplayName} (You)` : "You",
+          title: myDisplayName ? `${d4TwoNames(myDisplayName)} (You)` : "You",
           subtitle: "Message yourself",
           preview: "",
           avatar_url: myNavPhoto,
@@ -548,7 +553,7 @@ function MessagesHub() {
         void (async () => {
           try {
             const realId = await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
-            try { sessionStorage.setItem(`d4_chat_title_${realId}`, myDisplayName ? `${myDisplayName} (You)` : "You"); } catch { /* */ }
+            try { sessionStorage.setItem(`d4_chat_title_${realId}`, myDisplayName ? `${d4TwoNames(myDisplayName)} (You)` : "You"); } catch { /* */ }
             setActiveChatId(realId);
             try { appNavigate(`/student/messages/${realId}`); } catch { /* */ }
             try {
@@ -702,25 +707,25 @@ function MessagesHub() {
       </div>
       {/* Navy header */}
       <header
-        className="relative z-10 shrink-0 bg-[#0b1b3a] text-white"
+        className="relative z-[100] shrink-0 bg-[#0b1b3a] text-white"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
         {selectionMode ? (
-          <div className="relative flex items-center gap-0.5 px-2 pb-3 pt-2.5" data-wa-select-header>
+          <div className="relative z-[120] flex items-center gap-0.5 px-2 pb-3 pt-2.5" data-wa-select-header>
             <button type="button" onClick={() => { setSelectedChatIds([]); setSelectMenuOpen(false); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
             <span className="min-w-[1.25rem] flex-1 text-lg font-bold tabular-nums">{selectedChatIds.length}</span>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => { const next=[...pinnedIds]; for (const id of selectedChatIds) { if (!next.includes(id)) next.unshift(id); } persistPins(next); toast.success("Pinned"); setSelectedChatIds([]); }}><Pin className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => { const allPinned = selectedChatIds.length > 0 && selectedChatIds.every((id) => pinnedIds.includes(id)); let next = [...pinnedIds]; if (allPinned) { next = next.filter((id) => !selectedChatIds.includes(id)); toast.success("Unpinned"); } else { for (const id of selectedChatIds) { if (!next.includes(id)) next.unshift(id); } toast.success("Pinned"); } persistPins(next); setSelectedChatIds([]); }}><Pin className="h-5 w-5" /></button>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Delete" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}><Trash2 className="h-5 w-5" /></button>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Mute" onClick={() => { toast.message("Muted"); setSelectedChatIds([]); }}><VolumeX className="h-5 w-5" /></button>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => { const next=[...new Set([...archivedIds, ...selectedChatIds.filter((id)=>id!=="__me__")])]; persistArchives(next); toast.success("Archived"); setSelectedChatIds([]); }}><Archive className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => { if (showArchived) { const next = archivedIds.filter((id) => !selectedChatIds.includes(id)); persistArchives(next); toast.success("Unarchived"); } else { const next=[...new Set([...archivedIds, ...selectedChatIds.filter((id)=>id!=="__me__")])]; persistArchives(next); toast.success("Archived"); } setSelectedChatIds([]); }}><Archive className="h-5 w-5" /></button>
             <div className="relative">
               <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" onClick={() => setSelectMenuOpen((v)=>!v)} aria-label="More"><MoreVertical className="h-5 w-5" /></button>
               {selectMenuOpen ? (
-                <div className="absolute right-0 top-11 z-50 min-w-[200px] rounded-xl bg-[#1e293b] py-1 shadow-xl ring-1 ring-white/10">
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={async () => { try { const now=new Date().toISOString(); for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ last_read_at: now } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Marked as read"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Mark as read</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => { setSelectedChatIds(conversationsWithPending.filter((c)=>!archivedIds.includes(c.id)).map((c)=>c.id)); setSelectMenuOpen(false); }}>Select all</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => { toast.message("Added to favorites"); setSelectMenuOpen(false); setSelectedChatIds([]); }}>Add to Favorites</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-rose-300 hover:bg-white/10" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("campus_messages").update({ deleted_at: new Date().toISOString() } as never).eq("conversation_id", id); } toast.success("Chats cleared"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Clear chats</button>
+                <div className="absolute right-0 top-11 z-[300] min-w-[210px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-2xl">
+                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-800 hover:bg-slate-100" onClick={async () => { try { const now=new Date().toISOString(); for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ last_read_at: now } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Marked as read"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Mark as read</button>
+                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-800 hover:bg-slate-100" onClick={() => { setSelectedChatIds(conversationsWithPending.filter((c)=>!archivedIds.includes(c.id)).map((c)=>c.id)); setSelectMenuOpen(false); }}>Select all</button>
+                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-800 hover:bg-slate-100" onClick={() => { toast.message("Added to favorites"); setSelectMenuOpen(false); setSelectedChatIds([]); }}>Add to Favorites</button>
+                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm font-medium text-rose-600 hover:bg-rose-50" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("campus_messages").update({ deleted_at: new Date().toISOString() } as never).eq("conversation_id", id); } toast.success("Chats cleared"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Clear chats</button>
                 </div>
               ) : null}
             </div>
@@ -843,60 +848,52 @@ function MessagesHub() {
             />
           </div>
         </div>
-
-        {/* Quick action cards — slim on mobile */}
-        <div className="shrink-0 px-2.5 pt-2.5 sm:px-3 sm:pt-3">
-          <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-            <QuickCard
-              icon={<Users className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
-              title="Create Group"
-              shortTitle="Create Group"
-              subtitle="Study · Discuss · Grow"
-              onClick={() => setCreateOpen(true)}
-            />
-            <QuickCard
-              icon={<UserPlus className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
-              title="Find Students"
-              shortTitle="Find Students"
-              subtitle="Connect with peers"
-              onClick={() => {
-                setTab("students");
-                setFindOpen(true);
-              }}
-            />
-            <QuickCard
-              icon={<Shield className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
-              title="Department Officers"
-              shortTitle="Officer"
-              subtitle="Get help & support"
-              onClick={openOfficer}
-            />
-            <QuickCard
-              icon={<GraduationCap className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
-              title="My Department"
-              shortTitle="My Department"
-              subtitle="View all members"
-              onClick={() => {
-                setTab("students");
-                setDeptOpen(true);
-                setSearch("");
-              }}
-            />
+        {/* Filter cards - horizontal scroll */}
+        <div className="shrink-0 px-2.5 pt-2 sm:px-3" data-filter-cards>
+          <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {([
+              ["archived", "Archived", archivedIds.length],
+              ["unread", "Unread", conversationsWithPending.reduce((n, c) => n + (c.unread || 0), 0)],
+              ["starred", "Starred", 0],
+              ["favorites", "Favorites", 0],
+              ["blocked", "Blocked", 0],
+              ["deleted", "Deleted", 0],
+            ] as const).map(([key, label, count]) => {
+              const active = key === "archived" && showArchived;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    if (key === "archived") setShowArchived((v) => !v);
+                    else if (key === "unread") {
+                      setShowArchived(false);
+                      toast.message("Showing unread chats");
+                    } else toast.message(`${label} - coming soon`);
+                  }}
+                  className={
+                    "flex h-12 min-w-[6.75rem] shrink-0 items-center gap-2 rounded-2xl border px-2.5 text-left shadow-sm transition active:scale-[0.98] " +
+                    (active ? "border-[#2563eb] bg-[#dbeafe]" : "border-blue-100 bg-white hover:border-[#2563eb]/40")
+                  }
+                >
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[#eff6ff] text-[#2563eb]">
+                    {key === "archived" ? <Archive className="h-3.5 w-3.5" /> : key === "unread" ? <Bell className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[11px] font-bold text-slate-900">{label}</span>
+                    <span className="block text-[10px] font-semibold text-slate-500">{count}</span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* List body */}
+
         <div className="relative z-10 mt-2 min-h-0 flex-1 overflow-y-auto bg-transparent pb-20 sm:mt-3">
           {(tab === "chats" || tab === "groups") && (
             <>
-              {/* Archived chats row */}
-              {!showArchived && archivedIds.length > 0 && tab === "chats" ? (
-                <button type="button" onClick={() => setShowArchived(true)} className="mx-3 mb-1 flex items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm">
-                  <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-600"><Archive className="h-5 w-5" /></span>
-                  <span className="flex-1 text-[15px] font-semibold text-slate-900">Archived</span>
-                  <span className="text-xs font-bold text-slate-400">{archivedIds.length}</span>
-                </button>
-              ) : null}
               <ConversationList
               items={filteredChats}
               loading={convQuery.isLoading}
@@ -1164,6 +1161,7 @@ function QuickCard({
 }
 
 
+function d4TwoNames(full: string) { const parts = (full || "").trim().split(/\s+/).filter(Boolean); return parts.slice(0, 2).join(" ") || full || "You"; }
 function d4IsPinned(id: string) { try { const raw = localStorage.getItem("d4_pinned_chats"); return raw ? (JSON.parse(raw) as string[]).includes(id) : false; } catch { return false; } }
 function d4SelectBridge() {
   try {
@@ -1272,7 +1270,7 @@ function ConversationList({
             onContextMenu={(e) => { e.preventDefault(); d4SelectBridge()?.enter(c.id); }}
             onTouchStart={() => { const timer = window.setTimeout(() => { d4SelectBridge()?.enter(c.id); try { navigator.vibrate?.(10); } catch {} }, 450); const clear = () => window.clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
             className={cn(
-              "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
+              "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left shadow-sm transition active:scale-[0.99]",
               ((d4SelectBridge()?.ids || []).includes(c.id) || (selectedId && selectedId === c.id))
                 ? "border-[#2563eb] bg-[#dbeafe] ring-1 ring-[#2563eb]/30"
                 : "border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white hover:border-[#2563eb]/40",

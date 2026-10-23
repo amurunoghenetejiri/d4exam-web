@@ -323,11 +323,10 @@ export async function getOrCreateSelfChat(userId: string, schoolId?: string | nu
       if ((count || 0) === 1) return c.id as string;
     }
   }
-  if (!resolvedSchool) throw new Error("No school linked");
-  const { data: conv, error } = await supabase.from("conversations").insert({ school_id: resolvedSchool, type: "direct", title: "You", description: "Message yourself", created_by: userId, updated_at: new Date().toISOString() } as never).select("id").single();
-  if (error || !conv?.id) throw new Error(error?.message || "Could not create self chat");
-  await supabase.from("conversation_members").insert({ conversation_id: conv.id, user_id: userId, role: "owner" } as never);
-  return conv.id as string;
+  // Prefer SECURITY DEFINER RPC (bypasses conversations RLS)
+  const { data: rpcId, error: rpcErr } = await supabase.rpc("get_or_create_self_chat", { p_school_id: resolvedSchool || null });
+  if (!rpcErr && rpcId) return rpcId as string;
+  throw new Error(rpcErr?.message || "Could not create self chat");
 }
 /** Get or create a 1:1 direct conversation between two users in the same school. */
 export async function getOrCreateDirectConversation(
