@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """WhatsApp-style Me row, selection header, pin icon, archive row."""
 from pathlib import Path
+import re
 
 HUB = Path(__file__).resolve().parents[1] / "src" / "routes" / "student.messages.tsx"
 
@@ -8,15 +9,15 @@ def main() -> None:
     t = HUB.read_text(encoding="utf-8")
     orig = t
 
-    # --- Imports for Pin, Archive, VolumeX, PinOff ---
-    if "Pin," not in t and "Pin " not in t:
+    # Imports
+    if "Trash2" not in t:
         t = t.replace(
             "  Clock,\n} from \"lucide-react\";",
             "  Clock,\n  Pin,\n  Archive,\n  VolumeX,\n  Trash2,\n} from \"lucide-react\";",
             1,
         )
 
-    # --- myDisplayName state ---
+    # myDisplayName
     if "myDisplayName" not in t:
         t = t.replace(
             "const [myNavPhoto, setMyNavPhoto] = useState<string | null>(session?.avatarUrl || null);",
@@ -29,287 +30,137 @@ def main() -> None:
             1,
         )
 
-    # --- archivedIds state ---
+    # archived state
     if "archivedIds" not in t:
         t = t.replace(
-            "const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem(\"d4_pinned_chats\", JSON.stringify(ids)); } catch {} };",
-            """const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };
-  const [archivedIds, setArchivedIds] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("d4_archived_chats") || "[]"); } catch { return []; } });
-  const persistArchives = (ids: string[]) => { setArchivedIds(ids); try { localStorage.setItem("d4_archived_chats", JSON.stringify(ids)); } catch {} };
-  const [showArchived, setShowArchived] = useState(false);
-  const [selectMenuOpen, setSelectMenuOpen] = useState(false);""",
+            'const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };',
+            'const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };\n  const [archivedIds, setArchivedIds] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("d4_archived_chats") || "[]"); } catch { return []; } });\n  const persistArchives = (ids: string[]) => { setArchivedIds(ids); try { localStorage.setItem("d4_archived_chats", JSON.stringify(ids)); } catch {} };\n  const [showArchived, setShowArchived] = useState(false);\n  const [selectMenuOpen, setSelectMenuOpen] = useState(false);',
             1,
         )
 
-    # --- Me row: Name (You) with photo ---
-    old_me = '''          id: "__me__",
-          type: "direct" as const,
-          title: "You",
-          subtitle: "Message yourself",
-          preview: "",
-          avatar_url: null,'''
-    new_me = '''          id: "__me__",
-          type: "direct" as const,
-          title: myDisplayName ? `${myDisplayName} (You)` : "You",
-          subtitle: "Message yourself",
-          preview: "",
-          avatar_url: myNavPhoto,'''
-    if old_me in t:
-        t = t.replace(old_me, new_me, 1)
-        # deps for useMemo of filtered chats - need myDisplayName, myNavPhoto
+    # Me title Name (You)
+    if "(You)`" not in t and "(You)" not in t[t.find("__me__"):t.find("__me__")+200] if "__me__" in t else "":
         t = t.replace(
-            "  }, [allChats, groups, search, tab]);",
-            "  }, [allChats, groups, search, tab, userId, myDisplayName, myNavPhoto]);",
+            'title: "You",\n          subtitle: "Message yourself",\n          preview: "",\n          avatar_url: null,',
+            'title: myDisplayName ? `${myDisplayName} (You)` : "You",\n          subtitle: "Message yourself",\n          preview: "",\n          avatar_url: myNavPhoto,',
             1,
         )
 
-    # Also update isSelf check for Name (You)
-    t = t.replace(
-        'c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf',
-        'c.title === "You" || c.title === "Me" || c.title.includes("(You)") || (c as { isSelf?: boolean }).isSelf',
-    )
-
-    # Open Me with proper title
     t = t.replace(
         'sessionStorage.setItem(`d4_chat_title_${realId}`, "Me")',
         'sessionStorage.setItem(`d4_chat_title_${realId}`, myDisplayName ? `${myDisplayName} (You)` : "You")',
     )
 
-    # Label in list: Name (You) not just Me
-    t = t.replace(
-        '{(c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title}',
-        '{(c as { isSelf?: boolean }).isSelf || c.title === "You" || c.title.includes("(You)") ? (c.title.includes("(You)") ? c.title : (myDisplayName ? `${myDisplayName} (You)` : "You")) : c.title}',
+    # Remove sticky select bar under search
+    t2 = re.sub(
+        r"\{selectionMode \? \(\s*<div className=\"sticky top-0[\s\S]*?\) : null\}",
+        "",
+        t,
+        count=1,
     )
+    if t2 != t:
+        t = t2
+        print("removed sticky bar")
 
-    # Filter out archived from main list unless showArchived
-    if "archivedIds.includes" not in t[t.find("const allChats"):t.find("const allChats")+400]:
-        t = t.replace(
-            "const allChats = [...conversationsWithPending].sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === \"You\" ? 1 : 0; const by = b.title === \"You\" ? 1 : 0; return by - ay; });",
-            """const allChats = [...conversationsWithPending]
-    .filter((c) => showArchived ? archivedIds.includes(c.id) : !archivedIds.includes(c.id))
-    .sort((a, b) => {
-      const ap = pinnedIds.includes(a.id) ? 1 : 0;
-      const bp = pinnedIds.includes(b.id) ? 1 : 0;
-      if (ap !== bp) return bp - ap;
-      const ay = a.title === "You" || a.title.includes("(You)") || (a as { isSelf?: boolean }).isSelf ? 1 : 0;
-      const by = b.title === "You" || b.title.includes("(You)") || (b as { isSelf?: boolean }).isSelf ? 1 : 0;
-      if (ay !== by) return by - ay;
-      return 0;
-    });""",
-            1,
+    # WA selection header
+    if "data-wa-select-header" not in t:
+        old = (
+            '        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">\n'
+            '          <button\n'
+            '            type="button"\n'
+            '            onClick={() => navigate({ to: "/student" })}\n'
+            '            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"\n'
+            '            aria-label="Back"\n'
+            '          >\n'
+            '            <ArrowLeft className="h-5 w-5" />\n'
+            '          </button>'
         )
-
-    # --- Replace selection sticky bar with nothing (header handles it) ---
-    old_bar = '''          {selectionMode ? (
-            <div className="sticky top-0 z-30 flex items-center gap-2 bg-[#0b1b3a] px-3 py-2.5 text-white">
-              <button type="button" className="px-2 font-bold" onClick={() => setSelectedChatIds([])}>✕</button>
-              <span className="flex-1 text-sm font-bold">{selectedChatIds.length} selected</span>
-              {selectedChatIds.length === 1 ? (
-                <button type="button" className="rounded-lg bg-white/15 px-2 py-1 text-xs font-semibold" onClick={() => { const id = selectedChatIds[0]; const next = pinnedIds.includes(id) ? pinnedIds.filter((x) => x !== id) : [id, ...pinnedIds]; persistPins(next); toast.success(pinnedIds.includes(id) ? "Unpinned" : "Pinned"); setSelectedChatIds([]); }}>Pin</button>
-              ) : null}
-              <button type="button" className="rounded-lg bg-white/15 px-2 py-1 text-xs font-semibold" onClick={() => { toast.message("Archived"); setSelectedChatIds([]); }}>Archive</button>
-              <button type="button" className="rounded-lg bg-rose-500 px-2 py-1 text-xs font-semibold" onClick={async () => { try { for (const id of selectedChatIds) { await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Delete</button>
-            </div>
-          ) : null}'''
-    if old_bar in t:
-        t = t.replace(old_bar, "", 1)
-
-    # --- WhatsApp-style selection header (replace normal header content when selecting) ---
-    if "selectionMode ? (" not in t[t.find("Navy header"):t.find("Navy header")+1200] if "Navy header" in t else "":
-        old_header_inner = '''        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
-          <button
-            type="button"
-            onClick={() => navigate({ to: "/student" })}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>'''
-        # We'll replace a larger block - the whole header flex row
-        pass
-
-    # Inject selection header by replacing the header's children block more carefully
-    marker = '{/* Navy header */}'
-    if marker in t and "WA-select-header" not in t:
-        # Find header opening and replace its inner content start with conditional
-        hdr = '''{/* Navy header */}
-      <header
-        className="relative z-10 shrink-0 bg-[#0b1b3a] text-white"
-        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-      >
-        {selectionMode ? (
-          <div className="relative flex items-center gap-1 px-2 pb-3 pt-2.5 sm:px-3" data-wa-select-header>
-            <button type="button" onClick={() => { setSelectedChatIds([]); setSelectMenuOpen(false); }} className="grid h-10 w-10 place-items-center rounded-full text-white/90 hover:bg-white/10" aria-label="Cancel selection">
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <span className="min-w-[1.5rem] flex-1 text-lg font-bold tabular-nums">{selectedChatIds.length}</span>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => {
-              const next = [...pinnedIds];
-              for (const id of selectedChatIds) {
-                if (!next.includes(id)) next.unshift(id);
-              }
-              persistPins(next);
-              toast.success(selectedChatIds.length === 1 ? "Chat pinned" : "Chats pinned");
-              setSelectedChatIds([]);
-            }}><Pin className="h-5 w-5" /></button>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Delete" onClick={async () => {
-              try {
-                for (const id of selectedChatIds) {
-                  if (id === "__me__") continue;
-                  await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId);
-                }
-                toast.success("Deleted");
-                setSelectedChatIds([]);
-                void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-              } catch (e) { toast.error(e instanceof Error ? e.message : "Delete failed"); }
-            }}><Trash2 className="h-5 w-5" /></button>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Mute" onClick={() => { toast.message("Muted"); setSelectedChatIds([]); }}><VolumeX className="h-5 w-5" /></button>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => {
-              const next = [...new Set([...archivedIds, ...selectedChatIds.filter((id) => id !== "__me__")])];
-              persistArchives(next);
-              toast.success("Archived");
-              setSelectedChatIds([]);
-            }}><Archive className="h-5 w-5" /></button>
-            <div className="relative">
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="More" onClick={() => setSelectMenuOpen((v) => !v)}>
-                <MoreVertical className="h-5 w-5" />
-              </button>
-              {selectMenuOpen ? (
-                <div className="absolute right-0 top-11 z-50 min-w-[200px] overflow-hidden rounded-xl bg-[#1e293b] py-1 shadow-xl ring-1 ring-white/10">
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={async () => {
-                    try {
-                      const now = new Date().toISOString();
-                      for (const id of selectedChatIds) {
-                        if (id === "__me__") continue;
-                        await supabase.from("conversation_members").update({ last_read_at: now } as never).eq("conversation_id", id).eq("user_id", userId);
-                      }
-                      toast.success("Marked as read");
-                      setSelectedChatIds([]);
-                      setSelectMenuOpen(false);
-                      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                  }}>Mark as read</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => {
-                    const ids = (showArchived ? conversationsWithPending.filter((c) => archivedIds.includes(c.id)) : conversationsWithPending.filter((c) => !archivedIds.includes(c.id))).map((c) => c.id);
-                    setSelectedChatIds(ids);
-                    setSelectMenuOpen(false);
-                  }}>Select all</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => { toast.message("Added to favorites"); setSelectMenuOpen(false); setSelectedChatIds([]); }}>Add to Favorites</button>
-                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-rose-300 hover:bg-white/10" onClick={async () => {
-                    try {
-                      for (const id of selectedChatIds) {
-                        if (id === "__me__") continue;
-                        await supabase.from("campus_messages").update({ deleted_at: new Date().toISOString() } as never).eq("conversation_id", id);
-                      }
-                      toast.success("Chats cleared");
-                      setSelectedChatIds([]);
-                      setSelectMenuOpen(false);
-                      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                  }}>Clear chats</button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
-          <button
-            type="button"
-            onClick={() => showArchived ? setShowArchived(false) : navigate({ to: "/student" })}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>'''
-        old_hdr_start = '''{/* Navy header */}
-      <header
-        className="relative z-10 shrink-0 bg-[#0b1b3a] text-white"
-        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-      >
-        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
-          <button
-            type="button"
-            onClick={() => navigate({ to: "/student" })}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>'''
-        if old_hdr_start in t:
-            t = t.replace(old_hdr_start, hdr, 1)
-            # Close the selectionMode ternary before </header>
-            t = t.replace(
-                "        </div>\n      </header>\n\n      <div className=\"relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden\">",
-                "        </div>\n        )}\n      </header>\n\n      <div className=\"relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden\">",
-                1,
-            )
-            print("selection header")
+        new = (
+            '        {selectionMode ? (\n'
+            '          <div className="relative flex items-center gap-0.5 px-2 pb-3 pt-2.5" data-wa-select-header>\n'
+            '            <button type="button" onClick={() => { setSelectedChatIds([]); setSelectMenuOpen(false); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>\n'
+            '            <span className="min-w-[1.25rem] flex-1 text-lg font-bold tabular-nums">{selectedChatIds.length}</span>\n'
+            '            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => { const next=[...pinnedIds]; for (const id of selectedChatIds) { if (!next.includes(id)) next.unshift(id); } persistPins(next); toast.success("Pinned"); setSelectedChatIds([]); }}><Pin className="h-5 w-5" /></button>\n'
+            '            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Delete" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}><Trash2 className="h-5 w-5" /></button>\n'
+            '            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Mute" onClick={() => { toast.message("Muted"); setSelectedChatIds([]); }}><VolumeX className="h-5 w-5" /></button>\n'
+            '            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => { const next=[...new Set([...archivedIds, ...selectedChatIds.filter((id)=>id!=="__me__")])]; persistArchives(next); toast.success("Archived"); setSelectedChatIds([]); }}><Archive className="h-5 w-5" /></button>\n'
+            '            <div className="relative">\n'
+            '              <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" onClick={() => setSelectMenuOpen((v)=>!v)} aria-label="More"><MoreVertical className="h-5 w-5" /></button>\n'
+            '              {selectMenuOpen ? (\n'
+            '                <div className="absolute right-0 top-11 z-50 min-w-[200px] rounded-xl bg-[#1e293b] py-1 shadow-xl ring-1 ring-white/10">\n'
+            '                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={async () => { try { const now=new Date().toISOString(); for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ last_read_at: now } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Marked as read"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Mark as read</button>\n'
+            '                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => { setSelectedChatIds(conversationsWithPending.filter((c)=>!archivedIds.includes(c.id)).map((c)=>c.id)); setSelectMenuOpen(false); }}>Select all</button>\n'
+            '                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10" onClick={() => { toast.message("Added to favorites"); setSelectMenuOpen(false); setSelectedChatIds([]); }}>Add to Favorites</button>\n'
+            '                  <button type="button" className="block w-full px-4 py-2.5 text-left text-sm text-rose-300 hover:bg-white/10" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("campus_messages").update({ deleted_at: new Date().toISOString() } as never).eq("conversation_id", id); } toast.success("Chats cleared"); setSelectedChatIds([]); setSelectMenuOpen(false); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}>Clear chats</button>\n'
+            '                </div>\n'
+            '              ) : null}\n'
+            '            </div>\n'
+            '          </div>\n'
+            '        ) : (\n'
+            '        <div className="flex items-center gap-2.5 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">\n'
+            '          <button\n'
+            '            type="button"\n'
+            '            onClick={() => showArchived ? setShowArchived(false) : navigate({ to: "/student" })}\n'
+            '            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"\n'
+            '            aria-label="Back"\n'
+            '          >\n'
+            '            <ArrowLeft className="h-5 w-5" />\n'
+            '          </button>'
+        )
+        if old in t:
+            t = t.replace(old, new, 1)
+            close_old = "        </div>\n      </header>\n\n      <div className=\"relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden\">"
+            close_new = "        </div>\n        )}\n      </header>\n\n      <div className=\"relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden\">"
+            if close_old in t:
+                t = t.replace(close_old, close_new, 1)
+            print("header")
         else:
-            print("WARN header start not found")
+            print("WARN header not found")
 
-    # --- Archived row above list ---
-    if "Archived chats row" not in t:
-        archived_row = '''
-              {!showArchived && archivedIds.length > 0 && tab === "chats" ? (
-                <button type="button" onClick={() => setShowArchived(true)} className="mx-3 mb-1 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm active:scale-[0.99]">
-                  <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-600"><Archive className="h-5 w-5" /></span>
-                  <span className="flex-1 text-[15px] font-semibold text-slate-900">Archived</span>
-                  <span className="text-xs font-bold text-slate-400">{archivedIds.length}</span>
-                </button>
-              ) : null}
-              {showArchived ? (
-                <div className="mx-3 mb-2 flex items-center gap-2">
-                  <p className="text-sm font-bold text-slate-700">Archived chats</p>
-                  <button type="button" className="ml-auto text-xs font-semibold text-[#2563eb]" onClick={() => setShowArchived(false)}>Back to chats</button>
-                </div>
-              ) : null}
-'''
-        # Insert before ConversationList usage
-        if "<ConversationList" in t:
-            t = t.replace("<ConversationList", archived_row + "              <ConversationList", 1)
-            print("archived row")
+    # Filter archived
+    if "showArchived ? archivedIds" not in t:
+        old_all = 'const allChats = [...conversationsWithPending].sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" ? 1 : 0; const by = b.title === "You" ? 1 : 0; return by - ay; });'
+        new_all = 'const allChats = [...conversationsWithPending].filter((c) => showArchived ? archivedIds.includes(c.id) : !archivedIds.includes(c.id)).sort((a, b) => { const ap = pinnedIds.includes(a.id) ? 1 : 0; const bp = pinnedIds.includes(b.id) ? 1 : 0; if (ap !== bp) return bp - ap; const ay = a.title === "You" || a.title.includes("(You)") || (a as { isSelf?: boolean }).isSelf ? 1 : 0; const by = b.title === "You" || b.title.includes("(You)") || (b as { isSelf?: boolean }).isSelf ? 1 : 0; if (ay !== by) return by - ay; return 0; });'
+        if old_all in t:
+            t = t.replace(old_all, new_all, 1)
+            print("allChats")
 
-    # Pin icon in list title area - after title text
-    if "pinnedIds.includes(c.id)" not in t[t.find("function ConversationList"):] if "function ConversationList" in t else True:
-        # ConversationList doesn't have pinnedIds - show via title prefix from parent
-        # Parent already can pass - add pin in title from list mapping
-        pass
+    # Archived row
+    if "setShowArchived(true)" not in t:
+        row = (
+            "\n              {/* Archived chats row */}\n"
+            "              {!showArchived && archivedIds.length > 0 && tab === \"chats\" ? (\n"
+            "                <button type=\"button\" onClick={() => setShowArchived(true)} className=\"mx-3 mb-1 flex items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-3 py-3 text-left shadow-sm\">\n"
+            "                  <span className=\"grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-600\"><Archive className=\"h-5 w-5\" /></span>\n"
+            "                  <span className=\"flex-1 text-[15px] font-semibold text-slate-900\">Archived</span>\n"
+            "                  <span className=\"text-xs font-bold text-slate-400\">{archivedIds.length}</span>\n"
+            "                </button>\n"
+            "              ) : null}\n"
+        )
+        t = t.replace("<ConversationList", row + "              <ConversationList", 1)
+        print("archived row")
 
-    # Add pin emoji in title when rendering - use pinnedIds from parent via data attribute on items
-    # Simpler: in ConversationList title line, check pinnedIds from window
+    # Pin helper + icon
     if "d4IsPinned" not in t:
         t = t.replace(
             "function d4SelectBridge() {",
-            """function d4IsPinned(id: string) {
-  try {
-    const raw = localStorage.getItem("d4_pinned_chats");
-    const ids = raw ? (JSON.parse(raw) as string[]) : [];
-    return ids.includes(id);
-  } catch { return false; }
-}
-function d4SelectBridge() {
-""",
+            'function d4IsPinned(id: string) { try { const raw = localStorage.getItem("d4_pinned_chats"); return raw ? (JSON.parse(raw) as string[]).includes(id) : false; } catch { return false; } }\nfunction d4SelectBridge() {',
             1,
         )
         t = t.replace(
-            '{(c as { isSelf?: boolean }).isSelf || c.title === "You" || c.title.includes("(You)") ? (c.title.includes("(You)") ? c.title : (myDisplayName ? `${myDisplayName} (You)` : "You")) : c.title}',
-            '{(c as { isSelf?: boolean }).isSelf || c.title === "You" || c.title.includes("(You)") ? (c.title.includes("(You)") ? c.title : "You") : c.title}',
+            '<span className="shrink-0 text-[11px] text-slate-400">\n                  {formatListTime(c.time)}\n                </span>',
+            '<span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-400">\n                  {d4IsPinned(c.id) ? <Pin className="h-3 w-3 text-slate-500" /> : null}\n                  {formatListTime(c.time)}\n                </span>',
             1,
         )
-        # Add pin icon next to time
-        if "d4IsPinned(c.id)" not in t:
-            t = t.replace(
-                '<span className="shrink-0 text-[11px] text-slate-400">\n                  {formatListTime(c.time)}\n                </span>',
-                '<span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-400">\n                  {d4IsPinned(c.id) ? <Pin className="h-3 w-3 text-slate-500" /> : null}\n                  {formatListTime(c.time)}\n                </span>',
-                1,
-            )
+        print("pin icon")
 
-    # Title h1 when showArchived
-    t = t.replace(
-        ">\n              D4Chat\n            </h1>",
-        ">\n              {showArchived ? "Archived" : "D4Chat"}\n            </h1>",
-        1,
-    )
+    # Header title Archived
+    if 'showArchived ? "Archived"' not in t and "showArchived ? 'Archived'" not in t:
+        t = t.replace(
+            ">\n              D4Chat\n            </h1>",
+            '>\n              {showArchived ? "Archived" : "D4Chat"}\n            </h1>',
+            1,
+        )
 
     if t == orig:
         print("NO_CHANGE")
