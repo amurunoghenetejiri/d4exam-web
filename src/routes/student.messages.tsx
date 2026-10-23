@@ -32,7 +32,11 @@ import {
   Video,
   Clock,
   Pin,
+  PinOff,
   Archive,
+  ArchiveRestore,
+  Star,
+  Ban,
   VolumeX,
   Trash2,
 } from "lucide-react";
@@ -518,9 +522,25 @@ function MessagesHub() {
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = tab === "groups" ? groups : allChats;
+    let list = tab === "groups" ? groups : allChats;
+    const meLabel = myDisplayName ? `${d4TwoNames(myDisplayName)} (You)` : "You";
+    const isSelfRow = (c: { id?: string; title?: string; isSelf?: boolean }) =>
+      c.id === "__me__" || c.title === "You" || c.title === "Me" ||
+      (typeof c.title === "string" && c.title.includes("(You)")) || Boolean(c.isSelf);
+    list = list.map((c) => {
+      if (!isSelfRow(c as { isSelf?: boolean; title?: string; id?: string })) return c;
+      return { ...c, title: meLabel, avatar_url: myNavPhoto || c.avatar_url, isSelf: true } as typeof c;
+    });
+    { let seen = false; list = list.filter((c) => {
+      if (!isSelfRow(c as { isSelf?: boolean; title?: string; id?: string })) return true;
+      if (seen) return false; seen = true; return true;
+    }); }
+    // ARCHIVED_STRIP_ME
+    if (showArchived || tab === "groups") {
+      list = list.filter((c) => !isSelfRow(c as { isSelf?: boolean; title?: string; id?: string }));
+    }
     if (!q) {
-      if (tab !== "groups" && userId && !list.some((c) => c.title === "You" || c.title === "Me" || (typeof c.title === "string" && c.title.includes("(You)")) || (c as { isSelf?: boolean }).isSelf)) {
+      if (!showArchived && tab !== "groups" && userId && !list.some((c) => c.title === "You" || c.title === "Me" || (typeof c.title === "string" && c.title.includes("(You)")) || (c as { isSelf?: boolean }).isSelf)) {
         return [{
           id: "__me__",
           type: "direct" as const,
@@ -544,7 +564,7 @@ function MessagesHub() {
         c.preview.toLowerCase().includes(q) ||
         (c.subtitle || "").toLowerCase().includes(q),
     );
-  }, [allChats, groups, search, tab]);
+  }, [allChats, groups, search, tab, showArchived, myDisplayName, myNavPhoto, userId]);
 
   const openConversation = useCallback(
     (id: string, seed?: { title?: string; peerUserId?: string }) => {
@@ -714,10 +734,10 @@ function MessagesHub() {
           <div className="relative z-[120] flex items-center gap-0.5 px-2 pb-3 pt-2.5" data-wa-select-header>
             <button type="button" onClick={() => { setSelectedChatIds([]); setSelectMenuOpen(false); }} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
             <span className="min-w-[1.25rem] flex-1 text-lg font-bold tabular-nums">{selectedChatIds.length}</span>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => { const allPinned = selectedChatIds.length > 0 && selectedChatIds.every((id) => pinnedIds.includes(id)); let next = [...pinnedIds]; if (allPinned) { next = next.filter((id) => !selectedChatIds.includes(id)); toast.success("Unpinned"); } else { for (const id of selectedChatIds) { if (!next.includes(id)) next.unshift(id); } toast.success("Pinned"); } persistPins(next); setSelectedChatIds([]); }}><Pin className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Pin" onClick={() => { const allPinned = selectedChatIds.length > 0 && selectedChatIds.every((id) => pinnedIds.includes(id)); let next = [...pinnedIds]; if (allPinned) { next = next.filter((id) => !selectedChatIds.includes(id)); toast.success("Unpinned"); } else { for (const id of selectedChatIds) { if (!next.includes(id)) next.unshift(id); } toast.success("Pinned"); } persistPins(next); setSelectedChatIds([]); }}>{selectedChatIds.length > 0 && selectedChatIds.every((id) => pinnedIds.includes(id)) ? <PinOff className="h-5 w-5" /> : <Pin className="h-5 w-5" />}</button>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Delete" onClick={async () => { try { for (const id of selectedChatIds) { if (id==="__me__") continue; await supabase.from("conversation_members").update({ left_at: new Date().toISOString() } as never).eq("conversation_id", id).eq("user_id", userId); } toast.success("Deleted"); setSelectedChatIds([]); void qc.invalidateQueries({ queryKey: ["campus-conversations"] }); } catch (e) { toast.error(e instanceof Error ? e.message : "Fail"); } }}><Trash2 className="h-5 w-5" /></button>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Mute" onClick={() => { toast.message("Muted"); setSelectedChatIds([]); }}><VolumeX className="h-5 w-5" /></button>
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => { if (showArchived) { const next = archivedIds.filter((id) => !selectedChatIds.includes(id)); persistArchives(next); toast.success("Unarchived"); } else { const next=[...new Set([...archivedIds, ...selectedChatIds.filter((id)=>id!=="__me__")])]; persistArchives(next); toast.success("Archived"); } setSelectedChatIds([]); }}><Archive className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" aria-label="Archive" onClick={() => { if (showArchived) { const next = archivedIds.filter((id) => !selectedChatIds.includes(id)); persistArchives(next); toast.success("Unarchived"); } else { const next=[...new Set([...archivedIds, ...selectedChatIds.filter((id)=>id!=="__me__")])]; persistArchives(next); toast.success("Archived"); } setSelectedChatIds([]); }}>{showArchived ? <ArchiveRestore className="h-5 w-5" /> : <Archive className="h-5 w-5" />}</button>
             <div className="relative">
               <button type="button" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10" onClick={() => setSelectMenuOpen((v)=>!v)} aria-label="More"><MoreVertical className="h-5 w-5" /></button>
               {selectMenuOpen ? (
@@ -877,7 +897,7 @@ function MessagesHub() {
                   }
                 >
                   <span className="grid h-8 w-8 place-items-center rounded-full bg-[#eff6ff] text-[#2563eb]">
-                    {key === "archived" ? <Archive className="h-3.5 w-3.5" /> : key === "unread" ? <Bell className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                    {key === "archived" ? <Archive className="h-3.5 w-3.5" /> : key === "unread" ? <Bell className="h-3.5 w-3.5" /> : key === "starred" || key === "favorites" ? <Star className="h-3.5 w-3.5" /> : key === "blocked" ? <Ban className="h-3.5 w-3.5 text-rose-500" /> : key === "deleted" ? <Trash2 className="h-3.5 w-3.5 text-rose-500" /> : <MessageSquare className="h-3.5 w-3.5" />}
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-[11px] font-bold text-slate-900">{label}</span>
@@ -1266,7 +1286,7 @@ function ConversationList({
         <li key={c.id}>
           <button
             type="button"
-            onClick={() => { const b = d4SelectBridge(); if (b && (b.mode || (b.ids && b.ids.length > 0))) { b.toggle(c.id); return; } onOpen(c.id, { title: (c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title, peerUserId: c.peerUserId || undefined }); }}
+            onClick={() => { const b = d4SelectBridge(); if (b && (b.mode || (b.ids && b.ids.length > 0))) { b.toggle(c.id); return; } onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}
             onContextMenu={(e) => { e.preventDefault(); d4SelectBridge()?.enter(c.id); }}
             onTouchStart={() => { const timer = window.setTimeout(() => { d4SelectBridge()?.enter(c.id); try { navigator.vibrate?.(10); } catch {} }, 450); const clear = () => window.clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
             className={cn(
@@ -1302,7 +1322,7 @@ function ConversationList({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
                 <p className="truncate font-semibold text-slate-900">
-                  {(c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title}
+                  {c.title}
                   {c.isGroup ? (
                     <span className="ml-1.5 rounded-full bg-[#2563eb]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#2563eb]">
                       Group

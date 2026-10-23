@@ -982,7 +982,7 @@ export function ConversationChat({
     setText("");
     setReplyTo(null);
     scrollToEnd();
-    sendLock.current = true;
+    /* FAST_TEXT_SEND no lock */
     // Always persist to outbox until server confirms — survives leave/reopen
     enqueueOutbox({
       clientId,
@@ -993,11 +993,12 @@ export function ConversationChat({
       conversationId,
       replyToId: replyId || undefined,
     });
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      toast.message("Waiting for connection — queued");
+      return;
+    }
+    void (async () => {
     try {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        toast.message("Waiting for connection — queued");
-        return;
-      }
       const sent = await sendCampusMessage({
         conversationId,
         senderId: userId,
@@ -1044,8 +1045,9 @@ export function ConversationChat({
         toast.error(short);
       }
     } finally {
-      sendLock.current = false;
+      /* FAST_TEXT_SEND */
     }
+    })();
   };
 
   const onFile = async (file: File) => {
