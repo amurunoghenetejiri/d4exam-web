@@ -1,0 +1,28 @@
+name: Z-apply-wa-me2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix_whatsapp_me_select.py"
+      - ".github/workflows/Z-apply-wa-me2.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply
+        run: python3 scripts/fix_whatsapp_me_select.py
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          if git diff --cached --quiet; then
+            echo nothing
+          else
+            git commit -m "feat: Name (You), WA select bar, pin/archive"
+            git push
+          fi
