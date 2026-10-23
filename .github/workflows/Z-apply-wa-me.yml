@@ -1,0 +1,22 @@
+name: Z-apply-wa-me
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-apply-wa-me.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and run patch script
+        run: |
+          set -e
+          curl -fsSL -o /tmp/patch.py "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/main/scripts/fix_whatsapp_me_select.py"
+          python3 /tmp/patch.py
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          if git diff --cached --quiet; then echo nothing; else git commit -m "feat: Name (You), WA select bar, pin/archive" && git push; fi
