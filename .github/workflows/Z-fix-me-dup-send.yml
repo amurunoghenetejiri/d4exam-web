@@ -29,13 +29,12 @@ jobs:
               print("imports")
 
           if 'if (!showArchived && tab !== "groups"' not in t:
-              n = t.replace(
+              t = t.replace(
                   'if (tab !== "groups" && userId && !list.some(',
                   'if (!showArchived && tab !== "groups" && userId && !list.some(',
                   1,
               )
-              t = n
-              print("inject guard", n is not None)
+              print("inject guard")
 
           if "ARCHIVED_STRIP_ME" not in t:
               needle = "const list = tab === \"groups\" ? groups : allChats;\n    if (!q) {"
@@ -63,7 +62,7 @@ jobs:
                   t = t.replace(needle, rep, 1)
                   print("map dedupe strip")
               else:
-                  print("needle miss")
+                  print("needle miss", "const list = tab" in t)
 
           t = t.replace(
               'onOpen(c.id, { title: (c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title, peerUserId: c.peerUserId || undefined });',
@@ -96,11 +95,12 @@ jobs:
               t = t.replace(old_icon, new_icon, 1)
               print("icons")
 
-          t = t.replace(
-              "}, [allChats, groups, search, tab]);",
-              "}, [allChats, groups, search, tab, showArchived, myDisplayName, myNavPhoto, userId]);",
-              1,
-          )
+          if "showArchived, myDisplayName, myNavPhoto, userId" not in t:
+              t = t.replace(
+                  "}, [allChats, groups, search, tab]);",
+                  "}, [allChats, groups, search, tab, showArchived, myDisplayName, myNavPhoto, userId]);",
+                  1,
+              )
 
           hub.write_text(t, encoding="utf-8")
           print("hub", len(t))
