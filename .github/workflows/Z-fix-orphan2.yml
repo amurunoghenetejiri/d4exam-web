@@ -1,0 +1,48 @@
+name: Z-fix-orphan2
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-orphan2.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text(encoding="utf-8")
+          start = t.find('<button type="button" className="rounded-lg bg-white/15')
+          if start < 0:
+              raise SystemExit("start not found")
+          # only the orphan near Search section
+          search_marker = "{/* Search */}"
+          sm = t.find(search_marker)
+          if sm < 0 or start < sm:
+              # find start after Search
+              start = t.find('<button type="button" className="rounded-lg bg-white/15', sm)
+          if start < 0:
+              raise SystemExit("start after search not found")
+          end = t.find(") : null}", start)
+          if end < 0:
+              raise SystemExit("end not found")
+          end = end + len(") : null}")
+          # also eat following newline
+          if end < len(t) and t[end] == "\n":
+              end += 1
+          print("removing", start, end, repr(t[start:start+40]), "...", repr(t[end-20:end]))
+          t2 = t[:start] + t[end:]
+          p.write_text(t2, encoding="utf-8")
+          print("OK", len(t), "->", len(t2))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: remove orphan sticky-bar remnant (build fix)"
+          git push
