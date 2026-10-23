@@ -1,0 +1,36 @@
+name: apply-hub-click-fix
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/payloads/hub-click-fix.tsx.gz.b64"
+      - ".github/workflows/apply-hub-click-fix.yml"
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode hub
+        run: |
+          python3 << 'INNER'
+          import gzip, base64
+          from pathlib import Path
+          raw = Path(".github/payloads/hub-click-fix.tsx.gz.b64").read_text().strip()
+          data = gzip.decompress(base64.b64decode(raw))
+          Path("src/routes/student.messages.tsx").write_bytes(data)
+          text = data.decode()
+          assert "onToggleSelect" in text
+          assert "onEnterSelect" in text
+          assert "__me__" in text
+          assert "setSelectedChatIds" not in text[text.find("function ConversationList"):text.find("function ConversationList")+3000]
+          print("OK", len(data))
+          INNER
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git diff --cached --quiet || git commit -m "fix: chat list open/select works; always show Me"
+          git push
