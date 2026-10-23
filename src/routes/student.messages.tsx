@@ -222,6 +222,34 @@ function MessagesHub() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
   const selectionMode = selectedChatIds.length > 0;
+  useEffect(() => {
+    const w = window as unknown as {
+      __d4ChatSelectBridge?: {
+        ids: string[];
+        mode: boolean;
+        toggle: (id: string) => void;
+        enter: (id: string) => void;
+      };
+    };
+    w.__d4ChatSelectBridge = {
+      ids: selectedChatIds,
+      mode: selectionMode,
+      toggle: (id: string) =>
+        setSelectedChatIds((prev) =>
+          prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+        ),
+      enter: (id: string) =>
+        setSelectedChatIds((prev) => (prev.includes(id) ? prev : [...prev, id])),
+    };
+    return () => {
+      try {
+        delete w.__d4ChatSelectBridge;
+      } catch {
+        /* */
+      }
+    };
+  }, [selectedChatIds, selectionMode]);
+
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("d4_pinned_chats") || "[]"); } catch { return []; } });
   const persistPins = (ids: string[]) => { setPinnedIds(ids); try { localStorage.setItem("d4_pinned_chats", JSON.stringify(ids)); } catch {} };
   const [isWide, setIsWide] = useState(false);
@@ -1101,6 +1129,24 @@ function QuickCard({
   );
 }
 
+
+function d4SelectBridge() {
+  try {
+    return (
+      window as unknown as {
+        __d4ChatSelectBridge?: {
+          ids: string[];
+          mode: boolean;
+          toggle: (id: string) => void;
+          enter: (id: string) => void;
+        };
+      }
+    ).__d4ChatSelectBridge;
+  } catch {
+    return undefined;
+  }
+}
+
 function ConversationList({
   items,
   loading,
@@ -1187,12 +1233,12 @@ function ConversationList({
         <li key={c.id}>
           <button
             type="button"
-            onClick={() => { onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}
-            onContextMenu={(e) => { e.preventDefault(); void 0; }}
-            onTouchStart={() => { const timer = window.setTimeout(() => void 0, 480); const clear = () => clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
+            onClick={() => { const b = d4SelectBridge(); if (b && (b.mode || (b.ids && b.ids.length > 0))) { b.toggle(c.id); return; } onOpen(c.id, { title: (c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title, peerUserId: c.peerUserId || undefined }); }}
+            onContextMenu={(e) => { e.preventDefault(); d4SelectBridge()?.enter(c.id); }}
+            onTouchStart={() => { const timer = window.setTimeout(() => { d4SelectBridge()?.enter(c.id); try { navigator.vibrate?.(10); } catch {} }, 450); const clear = () => window.clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
             className={cn(
               "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
-              selectedId && selectedId === c.id
+              ((d4SelectBridge()?.ids || []).includes(c.id) || (selectedId && selectedId === c.id))
                 ? "border-[#2563eb] bg-[#dbeafe] ring-1 ring-[#2563eb]/30"
                 : "border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white hover:border-[#2563eb]/40",
             )}
