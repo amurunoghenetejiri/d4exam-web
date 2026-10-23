@@ -1,0 +1,208 @@
+name: fix-click-scope
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-click-scope.yml"
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix scope bug
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.messages.tsx")
+          t = p.read_text()
+
+          # --- ConversationList signature ---
+          old = """function ConversationList({
+  items,
+  loading,
+  error,
+  emptyLabel,
+  onOpen,
+  onEmptyAction,
+  emptyActionLabel,
+  onRetry,
+  selectedId,
+}: {
+  items: ConversationListItem[];
+  loading: boolean;
+  error?: string | null;
+  emptyLabel: string;
+  onOpen: (id: string, seed?: { title?: string; peerUserId?: string }) => void;
+  onEmptyAction?: () => void;
+  emptyActionLabel?: string;
+  onRetry?: () => void;
+  selectedId?: string | null;
+}) {"""
+          new = """function ConversationList({
+  items,
+  loading,
+  error,
+  emptyLabel,
+  onOpen,
+  onEmptyAction,
+  emptyActionLabel,
+  onRetry,
+  selectedId,
+  selectedChatIds = [],
+  onToggleSelect,
+  onEnterSelect,
+  selectionMode = false,
+  pinnedIds = [],
+}: {
+  items: ConversationListItem[];
+  loading: boolean;
+  error?: string | null;
+  emptyLabel: string;
+  onOpen: (id: string, seed?: { title?: string; peerUserId?: string }) => void;
+  onEmptyAction?: () => void;
+  emptyActionLabel?: string;
+  onRetry?: () => void;
+  selectedId?: string | null;
+  selectedChatIds?: string[];
+  onToggleSelect?: (id: string) => void;
+  onEnterSelect?: (id: string) => void;
+  selectionMode?: boolean;
+  pinnedIds?: string[];
+}) {"""
+          if old not in t:
+              raise SystemExit("ConversationList signature not found")
+          t = t.replace(old, new, 1)
+
+          # --- Replace broken handlers that call setSelectedChatIds (undefined in this scope) ---
+          t = t.replace(
+              "onClick={() => { if (selectedChatIds.length > 0) { setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; } onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}",
+              "onClick={() => { if (selectionMode || (selectedChatIds && selectedChatIds.length > 0)) { onToggleSelect?.(c.id); return; } onOpen(c.id, { title: c.title === \"You\" ? \"Me\" : c.title, peerUserId: c.peerUserId || undefined }); }}",
+              1,
+          )
+          t = t.replace(
+              "onContextMenu={(e) => { e.preventDefault(); setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]); }}",
+              "onContextMenu={(e) => { e.preventDefault(); onEnterSelect?.(c.id); }}",
+              1,
+          )
+          t = t.replace(
+              'onTouchStart={() => { const timer = window.setTimeout(() => setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]), 480); const clear = () => clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}',
+              'onTouchStart={() => { const timer = window.setTimeout(() => { onEnterSelect?.(c.id); try { navigator.vibrate?.(10); } catch {} }, 450); const clear = () => window.clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); window.addEventListener("touchcancel", clear, { once: true }); }}',
+              1,
+          )
+
+          # --- Pass props from parent ---
+          if "onToggleSelect=" not in t:
+              t = t.replace(
+                  "onOpen={openConversation}",
+                  """onOpen={openConversation}
+              selectedChatIds={selectedChatIds}
+              selectionMode={selectionMode}
+              pinnedIds={pinnedIds}
+              onToggleSelect={(id) => setSelectedChatIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])}
+              onEnterSelect={(id) => setSelectedChatIds((prev) => prev.includes(id) ? prev : [...prev, id])}""",
+                  1,
+              )
+
+          # Highlight
+          t = t.replace(
+              'selectedId && selectedId === c.id\n                ? "border-[#2563eb] bg-[#dbeafe] ring-1 ring-[#2563eb]/30"',
+              '(selectedChatIds.includes(c.id) || (selectedId && selectedId === c.id))\n                ? "border-[#2563eb] bg-[#dbeafe] ring-1 ring-[#2563eb]/30"',
+              1,
+          )
+
+          # Me label
+          t = t.replace(
+              '{c.title}\n                  {c.isGroup ? (',
+              '{(c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title}\n                  {c.isGroup ? (',
+              1,
+          )
+
+          # Always inject Me row
+          if "chatsWithMe" not in t:
+              inj = '''
+  const chatsWithMe = useMemo(() => {
+    const list = [...filteredChats];
+    if (!list.some((c) => c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf) && userId) {
+      list.unshift({
+        id: "__me__",
+        type: "direct" as const,
+        title: "You",
+        subtitle: "Message yourself",
+        preview: "",
+        avatar_url: null,
+        time: null,
+        unread: 0,
+        isGroup: false,
+        peerUserId: userId,
+        hasMessage: false,
+        isSelf: true,
+      } as ConversationListItem & { isSelf?: boolean });
+    }
+    return list;
+  }, [filteredChats, userId]);
+'''
+              t = t.replace(
+                  "  }, [allChats, groups, search, tab]);",
+                  "  }, [allChats, groups, search, tab]);" + inj,
+                  1,
+              )
+              t = t.replace("items={filteredChats}", "items={chatsWithMe}", 1)
+
+          # open __me__
+          if 'id === "__me__"' not in t:
+              t = t.replace(
+                  """  const openConversation = useCallback(
+    (id: string, seed?: { title?: string; peerUserId?: string }) => {
+      if (!id) return;
+      // Inline chat view — works even when route matching fails on APK""",
+                  """  const openConversation = useCallback(
+    (id: string, seed?: { title?: string; peerUserId?: string }) => {
+      if (!id) return;
+      if (id === "__me__") {
+        void (async () => {
+          try {
+            const realId = await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
+            try { sessionStorage.setItem(`d4_chat_title_${realId}`, "Me"); } catch {}
+            setActiveChatId(realId);
+            try { appNavigate(`/student/messages/${realId}`); } catch {}
+            try { void navigate({ to: "/student/messages/$conversationId", params: { conversationId: realId } }); } catch {}
+            void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not open Me chat");
+          }
+        })();
+        return;
+      }
+      // Inline chat view — works even when route matching fails on APK""",
+                  1,
+              )
+              t = t.replace(
+                  "    [navigate],\n  );\n\n  const startDirect",
+                  "    [navigate, userId, schoolId, schoolIdHint, qc],\n  );\n\n  const startDirect",
+                  1,
+              )
+
+          # Verify ConversationList no longer references setSelectedChatIds
+          start = t.find("function ConversationList")
+          end = t.find("\nfunction ", start + 10)
+          body = t[start:end]
+          if "setSelectedChatIds" in body:
+              raise SystemExit("FAILED: setSelectedChatIds still in ConversationList")
+          if "onToggleSelect" not in body:
+              raise SystemExit("FAILED: onToggleSelect missing in ConversationList")
+          print("ConversationList OK")
+
+          p.write_text(t)
+          print("wrote", len(t))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/routes/student.messages.tsx
+          git status
+          git diff --cached --stat || true
+          git diff --cached --quiet || git commit -m "fix: chat list click/select works (ConversationList props); always show Me"
+          git push
