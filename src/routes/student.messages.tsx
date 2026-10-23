@@ -474,7 +474,25 @@ function MessagesHub() {
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = tab === "groups" ? groups : allChats;
-    if (!q) return list;
+    if (!q) {
+      if (userId && !list.some((c) => c.title === "You" || c.title === "Me" || (c as { isSelf?: boolean }).isSelf)) {
+        return [{
+          id: "__me__",
+          type: "direct" as const,
+          title: "You",
+          subtitle: "Message yourself",
+          preview: "",
+          avatar_url: null,
+          time: null,
+          unread: 0,
+          isGroup: false,
+          peerUserId: userId,
+          hasMessage: false,
+          isSelf: true,
+        } as ConversationListItem & { isSelf?: boolean }, ...list];
+      }
+      return list;
+    }
     return list.filter(
       (c) =>
         c.title.toLowerCase().includes(q) ||
@@ -486,6 +504,23 @@ function MessagesHub() {
   const openConversation = useCallback(
     (id: string, seed?: { title?: string; peerUserId?: string }) => {
       if (!id) return;
+      if (id === "__me__") {
+        void (async () => {
+          try {
+            const realId = await getOrCreateSelfChat(userId, schoolId || schoolIdHint || null);
+            try { sessionStorage.setItem(`d4_chat_title_${realId}`, "Me"); } catch { /* */ }
+            setActiveChatId(realId);
+            try { appNavigate(`/student/messages/${realId}`); } catch { /* */ }
+            try {
+              void navigate({ to: "/student/messages/$conversationId", params: { conversationId: realId } });
+            } catch { /* */ }
+            void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not open Me chat");
+          }
+        })();
+        return;
+      }
       // Inline chat view — works even when route matching fails on APK
       if (seed?.title) {
         try {
@@ -508,7 +543,7 @@ function MessagesHub() {
         /* ignore */
       }
     },
-    [navigate],
+    [navigate, userId, schoolId, schoolIdHint, qc],
   );
 
   const startDirect = useCallback(
@@ -1152,9 +1187,9 @@ function ConversationList({
         <li key={c.id}>
           <button
             type="button"
-            onClick={() => { if (selectedChatIds.length > 0) { setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; } onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}
-            onContextMenu={(e) => { e.preventDefault(); setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]); }}
-            onTouchStart={() => { const timer = window.setTimeout(() => setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id]), 480); const clear = () => clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
+            onClick={() => { onOpen(c.id, { title: c.title, peerUserId: c.peerUserId || undefined }); }}
+            onContextMenu={(e) => { e.preventDefault(); void 0; }}
+            onTouchStart={() => { const timer = window.setTimeout(() => void 0, 480); const clear = () => clearTimeout(timer); window.addEventListener("touchend", clear, { once: true }); window.addEventListener("touchmove", clear, { once: true }); }}
             className={cn(
               "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
               selectedId && selectedId === c.id
@@ -1188,7 +1223,7 @@ function ConversationList({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
                 <p className="truncate font-semibold text-slate-900">
-                  {c.title}
+                  {(c.title === "You" || (c as { isSelf?: boolean }).isSelf) ? "Me" : c.title}
                   {c.isGroup ? (
                     <span className="ml-1.5 rounded-full bg-[#2563eb]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#2563eb]">
                       Group
