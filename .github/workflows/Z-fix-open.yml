@@ -1,0 +1,45 @@
+name: Z-fix-open
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-fix-open.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          set -eux
+          F=src/routes/student.messages.tsx
+          # Remove the out-of-scope setSelectedChatIds call that crashes every click
+          python3 -c "
+          from pathlib import Path
+          p=Path('$F')
+          t=p.read_text()
+          t=t.replace('if (selectedChatIds.length > 0) { setSelectedChatIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]); return; } ','')
+          t=t.replace('setSelectedChatIds((prev) => prev.includes(c.id) ? prev : [...prev, c.id])','void(0)')
+          if 'chatsWithMe' not in t:
+            t=t.replace('items={filteredChats}','items={filteredChats /* Me injected below */}')
+            # inject Me unshift into filteredChats useMemo return
+            t=t.replace(
+              'return list.filter(\n      (c) =>\n        c.title.toLowerCase().includes(q) ||\n        c.preview.toLowerCase().includes(q) ||\n        (c.subtitle || \"\").toLowerCase().includes(q),\n    );',
+              '''let out = list.filter((c) => c.title.toLowerCase().includes(q) || c.preview.toLowerCase().includes(q) || (c.subtitle || \"\").toLowerCase().includes(q));\n    if (userId && !out.some((c) => c.title === \"You\" || (c as any).isSelf)) {\n      out = [{ id: \"__me__\", type: \"direct\" as const, title: \"You\", subtitle: \"Message yourself\", preview: \"\", avatar_url: null, time: null, unread: 0, isGroup: false, peerUserId: userId, hasMessage: false, isSelf: true } as any, ...out];\n    }\n    return out;'''
+            )
+            # also when !q return list
+            t=t.replace('if (!q) return list;','if (!q) {\n      if (userId && !list.some((c) => c.title === \"You\" || (c as any).isSelf)) {\n        return [{ id: \"__me__\", type: \"direct\" as const, title: \"You\", subtitle: \"Message yourself\", preview: \"\", avatar_url: null, time: null, unread: 0, isGroup: false, peerUserId: userId, hasMessage: false, isSelf: true } as any, ...list];\n      }\n      return list;\n    }')
+          t=t.replace('{c.title}','{(c.title===\"You\"||(c as any).isSelf)?\"Me\":c.title}',1)
+          # open __me__
+          if 'id === \"__me__\"' not in t:
+            t=t.replace('if (!id) return;','if (!id) return;\n      if (id === \"__me__\") { void getOrCreateSelfChat(userId, schoolId || schoolIdHint || null).then((realId) => { try { sessionStorage.setItem(`d4_chat_title_${realId}`, \"Me\"); } catch {} setActiveChatId(realId); try { appNavigate(`/student/messages/${realId}`); } catch {} try { void navigate({ to: \"/student/messages/$conversationId\", params: { conversationId: realId } }); } catch {} }); return; }')
+          p.write_text(t)
+          print('patched', 'setSelectedChatIds((prev) => prev.includes(c.id)' in t)
+          "
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add src/routes/student.messages.tsx
+          git commit -m "fix: restore chat open on click; show Me" || echo nochange
+          git push
