@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AccountSuspendedRouteImport } from './routes/account-suspended'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as ApplicationStatusRouteImport } from './routes/application-status'
 import { Route as FeaturesRouteImport } from './routes/features'
@@ -118,6 +119,11 @@ const IndexRoute = IndexRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountSuspendedRoute = AccountSuspendedRouteImport.update({
+  id: '/account-suspended',
+  path: '/account-suspended',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -615,6 +621,7 @@ const TeacherExamPaperIdRoute = TeacherExamPaperIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account-suspended': typeof AccountSuspendedRoute
   '/admin': typeof AdminRouteWithChildren
   '/application-status': typeof ApplicationStatusRoute
   '/features': typeof FeaturesRoute
@@ -717,6 +724,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account-suspended': typeof AccountSuspendedRoute
   '/application-status': typeof ApplicationStatusRoute
   '/features': typeof FeaturesRoute
   '/forgot-app-password': typeof ForgotAppPasswordRoute
@@ -814,6 +822,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account-suspended': typeof AccountSuspendedRoute
   '/admin': typeof AdminRouteWithChildren
   '/application-status': typeof ApplicationStatusRoute
   '/features': typeof FeaturesRoute
@@ -918,6 +927,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/account-suspended'
     | '/admin'
     | '/application-status'
     | '/features'
@@ -1020,6 +1030,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/account-suspended'
     | '/application-status'
     | '/features'
     | '/forgot-app-password'
@@ -1116,6 +1127,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/account-suspended'
     | '/admin'
     | '/application-status'
     | '/features'
@@ -1219,6 +1231,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  AccountSuspendedRoute: typeof AccountSuspendedRoute
   AdminRoute: typeof AdminRouteWithChildren
   ApplicationStatusRoute: typeof ApplicationStatusRoute
   FeaturesRoute: typeof FeaturesRoute
@@ -1254,6 +1267,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account-suspended': {
+      id: '/account-suspended'
+      path: '/account-suspended'
+      fullPath: '/account-suspended'
+      preLoaderRoute: typeof AccountSuspendedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -2180,6 +2200,7 @@ const TeacherRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  AccountSuspendedRoute: AccountSuspendedRoute,
   AdminRoute: AdminRouteWithChildren,
   ApplicationStatusRoute: ApplicationStatusRoute,
   FeaturesRoute: FeaturesRoute,
