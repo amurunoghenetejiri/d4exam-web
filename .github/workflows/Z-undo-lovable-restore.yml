@@ -1,0 +1,145 @@
+name: Z-undo-lovable-restore
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-undo-lovable-restore.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore live backend + UI patches
+        run: |
+          set -e
+          GOOD=3979d80e731c43d880b4e2a77611a5cc280f66b7
+
+          # --- Restore critical files Lovable broke ---
+          for f in \
+            src/integrations/supabase/client.ts \
+            src/integrations/supabase/previewAuthStorage.ts \
+            src/integrations/supabase/types.ts \
+            src/native/networkService.ts \
+            .env \
+            src/routes/student.messages.tsx \
+            "src/routes/student.messages.\$conversationId.tsx" \
+            src/lib/messaging.ts
+          do
+            if git cat-file -e "${GOOD}:$f" 2>/dev/null; then
+              git show "${GOOD}:$f" > "$f"
+              echo "restored $f"
+            else
+              echo "skip missing $f"
+            fi
+          done
+
+          # Force live project IDs in .env (never Lovable project)
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path(".env")
+          if p.exists():
+              t = p.read_text(encoding="utf-8")
+              t = t.replace("ekrsihvhtbqtfmrkgpta", "unojhweoayjxirngcmrm")
+              t = t.replace("https://ekrsihvhtbqtfmrkgpta.supabase.co", "https://unojhweoayjxirngcmrm.supabase.co")
+              # Drop Lovable publishable key if present — client.ts hardcodes the real anon JWT
+              lines = []
+              for line in t.splitlines():
+                  if line.startswith("SUPABASE_PUBLISHABLE_KEY=sb_publishable_Zbz") or line.startswith("VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_Zbz"):
+                      continue
+                  lines.append(line)
+              p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+              print("env cleaned")
+          PY
+
+          # Ensure client.ts points at live project
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/integrations/supabase/client.ts")
+          t = p.read_text(encoding="utf-8")
+          if "ekrsihvhtbqtfmrkgpta" in t or "sb_publishable_Zbz" in t:
+              raise SystemExit("client still has Lovable project!")
+          if "unojhweoayjxirngcmrm" not in t:
+              raise SystemExit("client missing live project")
+          print("client OK")
+          PY
+
+          # --- UI: Favorites = Heart; hide calls on Me/self chat; self avatar ---
+          python3 << 'PY'
+          from pathlib import Path
+
+          hub = Path("src/routes/student.messages.tsx")
+          chat = Path("src/routes/student.messages.$conversationId.tsx")
+
+          ht = hub.read_text(encoding="utf-8")
+          if "Heart" not in ht:
+              ht = ht.replace(
+                  "  Star,\n  Ban,",
+                  "  Star,\n  Heart,\n  Ban,",
+                  1,
+              )
+          # Favorites filter card uses Heart (love), starred keeps Star
+          ht = ht.replace(
+              'key === "starred" || key === "favorites" ? <Star className="h-3.5 w-3.5" />',
+              'key === "starred" ? <Star className="h-3.5 w-3.5" /> : key === "favorites" ? <Heart className="h-3.5 w-3.5 text-rose-500" />',
+          )
+          hub.write_text(ht, encoding="utf-8")
+          print("hub heart")
+
+          ct = chat.read_text(encoding="utf-8")
+
+          # Detect self-chat for header: title includes (You) or You or no peer
+          if "const isSelfChat" not in ct:
+              # Insert after meta is defined near displayTitle usage
+              needle = "  const meta = metaQuery.data;"
+              if needle in ct:
+                  ct = ct.replace(
+                      needle,
+                      needle + "\n  const isSelfChat = Boolean(\n    meta && !meta.isGroup && (\n      (meta.title || \"\").includes(\"(You)\") ||\n      meta.title === \"You\" ||\n      meta.title === \"Me\" ||\n      (!(meta as { peerUserId?: string }).peerUserId && (meta as { memberCount?: number }).memberCount === 1)\n    )\n  );",
+                      1,
+                  )
+                  print("isSelfChat flag")
+
+          # Hide phone/video call buttons on self chat
+          if "isSelfChat" in ct and "!isSelfChat &&" not in ct:
+              # Wrap the call button group - look for aria-label Voice call parent
+              ct = ct.replace(
+                  'aria-label={meta?.isGroup ? "Group voice call" : "Voice call"}',
+                  'aria-label={meta?.isGroup ? "Group voice call" : "Voice call"}\n            data-self-hide={isSelfChat ? "1" : undefined}',
+                  1,
+              )
+              # Conditional render: find the div containing both Phone and Video buttons
+              # Safer: add className hidden when isSelfChat on each button
+              ct = ct.replace(
+                  'className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"\n            aria-label={meta?.isGroup ? "Group voice call" : "Voice call"}',
+                  'className={cn("grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10", isSelfChat && "hidden")}\n            aria-label={meta?.isGroup ? "Group voice call" : "Voice call"}',
+                  1,
+              )
+              ct = ct.replace(
+                  'className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"\n            aria-label={meta?.isGroup ? "Group video call" : "Video call"}',
+                  'className={cn("grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10", isSelfChat && "hidden")}\n            aria-label={meta?.isGroup ? "Group video call" : "Video call"}',
+                  1,
+              )
+              print("hide calls")
+
+          chat.write_text(ct, encoding="utf-8")
+          print("chat", len(ct))
+          PY
+
+          # Verify messaging still has self-chat RPC
+          grep -q 'get_or_create_self_chat' src/lib/messaging.ts && echo messaging_rpc_ok
+          grep -q 'unojhweoayjxirngcmrm' src/integrations/supabase/client.ts && echo supabase_ok
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add -A
+          git status
+          if git diff --cached --quiet; then
+            echo nothing
+          else
+            git commit -m "fix: undo Lovable backend; restore live Supabase; Heart favorites; hide self-chat calls"
+            git push
+          fi
