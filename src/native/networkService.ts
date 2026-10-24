@@ -2,6 +2,7 @@
  * Network status — browser online/offline + real connectivity probe.
  * Capacitor Network can replace this later without UI changes.
  */
+import { D4_SUPABASE_URL } from "@/integrations/supabase/client";
 
 export type NetworkStatus = {
   connected: boolean;
@@ -47,7 +48,7 @@ export async function probeConnectivity(timeoutMs = 4000): Promise<boolean> {
   // Probe the real remote backend origin in that case.
   const remoteBase =
     (import.meta as unknown as { env?: Record<string, string | undefined> }).env
-      ?.VITE_SUPABASE_URL ?? "";
+      ?.VITE_SUPABASE_URL || D4_SUPABASE_URL;
   let localShell = false;
   try {
     localShell = /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(window.location.origin);
