@@ -7,9 +7,9 @@ import { brokeredPreviewStorage } from './previewAuthStorage';
  * Single source of truth for the live project.
  * Never mix URL/key from different projects (causes "Invalid API key").
  */
-export const D4_SUPABASE_URL = 'https://unojhweoayjxirngcmrm.supabase.co';
+export const D4_SUPABASE_URL = 'https://ekrsihvhtbqtfmrkgpta.supabase.co';
 export const D4_SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVub2pod2VvYXlqeGlybmdjbXJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNzIzMzksImV4cCI6MjEwNjk0ODMzOX0.2uf62fYsG1r7wt675RPpDRTuAPdeyvkX5_hU6hCQucQ';
+  'sb_publishable_ZbzNy-uKpEknujQ8EnqsTA_DD-gvBU5';
 
 function isNativeAppShell(): boolean {
   try {
