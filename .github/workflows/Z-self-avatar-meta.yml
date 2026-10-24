@@ -1,0 +1,93 @@
+name: Z-self-avatar-meta
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/Z-self-avatar-meta.yml"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch getConversationMeta for self
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/lib/messaging.ts")
+          t = p.read_text(encoding="utf-8")
+          if "SELF_AVATAR_META" in t:
+              print("already")
+              raise SystemExit(0)
+          old = '''  const myRole =
+    (members || []).find((m) => m.user_id === myUserId)?.role || "member";
+
+  return {
+    id: conv.id as string,
+    type: conv.type as string,
+    isGroup: conv.type === "group",
+    title:
+      conv.type === "group"
+        ? (conv.title as string) || "Group"
+        : peerName || (conv.title as string) || "Chat",
+    subtitle:
+      conv.type === "group"
+        ? `${(members || []).length} members · ${(conv.group_kind as string) || "study"}`
+        : "",
+    avatar: (conv.avatar_url as string) || peerAvatar,
+    peerUserId: peerIds[0] || null,'''
+          new = '''  const myRole =
+    (members || []).find((m) => m.user_id === myUserId)?.role || "member";
+
+  // SELF_AVATAR_META — sole-member / Me chat uses own profile photo + Name (You)
+  let selfTitle: string | null = null;
+  let selfAvatar: string | null = null;
+  const isSelfOnly =
+    conv.type === "direct" &&
+    !peerIds.length &&
+    (members || []).length <= 1;
+  if (isSelfOnly && myUserId) {
+    try {
+      const { data: meProf } = await supabase
+        .from("profiles")
+        .select("full_name, profile_photo_url")
+        .eq("auth_user_id", myUserId)
+        .maybeSingle();
+      const full = ((meProf as { full_name?: string } | null)?.full_name || "").trim();
+      const parts = full.split(/\\s+/).filter(Boolean).slice(0, 2);
+      selfTitle = parts.length ? `${parts.join(" ")} (You)` : "You";
+      selfAvatar = (meProf as { profile_photo_url?: string } | null)?.profile_photo_url || null;
+    } catch {
+      selfTitle = "You";
+    }
+  }
+
+  return {
+    id: conv.id as string,
+    type: conv.type as string,
+    isGroup: conv.type === "group",
+    title:
+      conv.type === "group"
+        ? (conv.title as string) || "Group"
+        : selfTitle || peerName || (conv.title as string) || "Chat",
+    subtitle:
+      conv.type === "group"
+        ? `${(members || []).length} members · ${(conv.group_kind as string) || "study"}`
+        : isSelfOnly
+          ? "Message yourself"
+          : "",
+    avatar: (conv.avatar_url as string) || peerAvatar || selfAvatar,
+    peerUserId: peerIds[0] || null,'''
+          if old not in t:
+              raise SystemExit("pattern missing")
+          p.write_text(t.replace(old, new, 1), encoding="utf-8")
+          print("ok")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.local"
+          git add src/lib/messaging.ts
+          git diff --cached --quiet || git commit -m "fix: Me chat header shows own profile photo + Name (You)"
+          git push
