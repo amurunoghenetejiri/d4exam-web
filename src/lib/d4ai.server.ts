@@ -2,23 +2,34 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
-  assertD4AiOwner,
-  resolveGithubToken,
+  GITHUB_TOOLS_FOR_OLLAMA,
   runGithubTool,
-  GITHUB_TOOLS_OLLAMA,
 } from "@/lib/d4ai-github.server";
 
-const messageSchemaFixed = z.object({
+const OWNER_EMAILS = () =>
+  (process.env.D4AI_OWNER_EMAILS || "amurundestiny@gmail.com")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+function isOwnerEmail(email: string | null | undefined) {
+  const e = String(email || "").trim().toLowerCase();
+  return Boolean(e && OWNER_EMAILS().includes(e));
+}
+
+const messageSchema = z.object({
   role: z.enum(["user", "assistant", "system", "tool"]),
   content: z.string().max(48000),
+  tool_calls: z.array(z.unknown()).optional(),
+  tool_name: z.string().optional(),
 });
 
 const chatInputSchema = z.object({
-  messages: z.array(messageSchemaFixed).min(1).max(24),
+  messages: z.array(messageSchema).min(1).max(24),
   images: z.array(z.string().max(8_000_000)).max(3).optional(),
   documentText: z.string().max(60_000).optional(),
   documentName: z.string().max(200).optional(),
-  githubToken: z.string().max(4000).optional(),
+  githubToken: z.string().min(8).max(400).optional(),
   enableGithubTools: z.boolean().optional(),
 });
 
@@ -33,15 +44,6 @@ function textModel() {
 function visionModel() {
   return process.env.D4AI_VISION_MODEL || "d4ai-vision";
 }
-
-type OllamaMsg = {
-  role: string;
-  content: string;
-  images?: string[];
-  tool_calls?: {
-    function: { name: string; arguments: Record<string, unknown> | string };
-  }[];
-};
 
 async function ollamaChat(body: Record<string, unknown>) {
   const url = `${baseUrl()}/api/chat`;
@@ -59,7 +61,13 @@ async function ollamaChat(body: Record<string, unknown>) {
       throw new Error(`D4AI server error (${res.status}). ${t.slice(0, 200) || "Try again."}`);
     }
     return (await res.json()) as {
-      message?: OllamaMsg;
+      message?: {
+        role?: string;
+        content?: string;
+        tool_calls?: {
+          function?: { name?: string; arguments?: string | Record<string, unknown> };
+        }[];
+      };
       response?: string;
       error?: string;
     };
@@ -68,44 +76,20 @@ async function ollamaChat(body: Record<string, unknown>) {
   }
 }
 
-function parseToolArgs(args: Record<string, unknown> | string): Record<string, unknown> {
-  if (typeof args === "string") {
-    try {
-      return JSON.parse(args) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
-  return args || {};
-}
-
-/** Proxy chat to Oracle Ollama; owner may use GitHub tools. */
 export const d4aiChat = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => chatInputSchema.parse(data))
   .handler(async ({ data, context }) => {
     const userEmail = (context as { userEmail?: string | null }).userEmail;
+    const owner = isOwnerEmail(userEmail);
+    const useGh =
+      owner && Boolean(data.enableGithubTools) && Boolean(data.githubToken?.trim());
+
     const hasImages = Boolean(data.images?.length);
     const hasDoc = Boolean(data.documentText?.trim());
     const model = hasImages && !hasDoc ? visionModel() : textModel();
 
-    let isOwner = false;
-    try {
-      assertD4AiOwner(userEmail);
-      isOwner = true;
-    } catch {
-      isOwner = false;
-    }
-
-    const ghToken =
-      isOwner && data.enableGithubTools ? resolveGithubToken(data.githubToken) : null;
-    const useGithub = Boolean(ghToken);
-
-    const messages: OllamaMsg[] = data.messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
+    const messages = data.messages.map((m) => ({ ...m }));
     if (data.documentText?.trim()) {
       const name = data.documentName || "document";
       const last = messages[messages.length - 1];
@@ -114,101 +98,100 @@ export const d4aiChat = createServerFn({ method: "POST" })
       }
     }
 
-    if (useGithub) {
+    if (useGh) {
       messages.unshift({
         role: "system",
         content:
-          "You are D4AI by Amurun Destiny (D4TECH). The user is the platform owner with GitHub tools enabled. " +
-          "When they ask to inspect or change GitHub repos (especially d4exam-web / d4exam-apk), USE the provided tools. " +
-          "For d4exam-web use owner=amurunoghenetejiri repo=d4exam-web unless they specify otherwise. " +
-          "Prefer creating a branch before risky edits. After tools run, summarize clearly what you did. " +
-          "Speak pidgin when the user does.",
+          "You are D4AI by Amurun Destiny (D4TECH). The user is the platform owner and has connected GitHub. You CAN and SHOULD use the provided GitHub tools to list repos, read files, commit file changes, and manage issues when they ask. For d4exam-web use owner amurunoghenetejiri and repo d4exam-web unless they specify otherwise. Prefer real tool calls over saying you cannot access GitHub. After tools run, summarize what you did clearly.",
       });
     }
 
     const trimmed = messages.slice(-10);
 
-    if (hasImages && !hasDoc) {
-      const lastUserIdx = [...trimmed].reverse().findIndex((m) => m.role === "user");
-      if (lastUserIdx >= 0) {
-        const idx = trimmed.length - 1 - lastUserIdx;
-        trimmed[idx] = {
-          ...trimmed[idx],
-          images: data.images!.map((img) => img.replace(/^data:image\/[^;]+;base64,/, "")),
-        };
-      }
-    }
+    const buildOllamaMessages = (msgs: typeof trimmed) =>
+      msgs.map((m, i) => {
+        if (hasImages && !hasDoc && m.role === "user" && i === msgs.length - 1) {
+          return {
+            role: m.role,
+            content: m.content,
+            images: data.images!.map((img) =>
+              img.replace(/^data:image\/[^;]+;base64,/, ""),
+            ),
+          };
+        }
+        return { role: m.role, content: m.content };
+      });
 
     try {
-      let ollamaMessages = [...trimmed];
+      let ollamaMessages: Record<string, unknown>[] = buildOllamaMessages(trimmed);
       let finalContent = "";
-      const toolsUsed: string[] = [];
+      let rounds = 0;
+      const maxRounds = useGh ? 4 : 1;
 
-      for (let round = 0; round < 4; round++) {
+      while (rounds < maxRounds) {
+        rounds++;
         const body: Record<string, unknown> = {
           model,
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGithub ? 800 : 512,
+            num_predict: useGh ? 800 : 512,
             temperature: 0.5,
-            num_ctx: useGithub ? 8192 : 4096,
+            num_ctx: 8192,
           },
         };
-        if (useGithub && !hasImages) {
-          body.tools = GITHUB_TOOLS_OLLAMA;
+        if (useGh && !hasImages) {
+          body.tools = GITHUB_TOOLS_FOR_OLLAMA;
         }
 
         const json = await ollamaChat(body);
         const msg = json.message;
-        const content = msg?.content?.trim() || json.response?.trim() || "";
-        const toolCalls = msg?.tool_calls;
+        const toolCalls = msg?.tool_calls || [];
 
-        if (toolCalls?.length && ghToken) {
-          ollamaMessages.push({
-            role: "assistant",
-            content: content || "",
-            tool_calls: toolCalls,
-          });
+        if (useGh && toolCalls.length > 0) {
+          ollamaMessages = [
+            ...ollamaMessages,
+            {
+              role: "assistant",
+              content: msg?.content || "",
+              tool_calls: toolCalls,
+            },
+          ];
           for (const tc of toolCalls) {
-            const fname = tc.function?.name || "";
-            const args = parseToolArgs(tc.function?.arguments);
-            toolsUsed.push(fname);
-            const result = await runGithubTool(ghToken, fname, args);
+            const fn = tc.function?.name || "";
+            let args: Record<string, unknown> = {};
+            const rawArgs = tc.function?.arguments;
+            if (typeof rawArgs === "string") {
+              try {
+                args = JSON.parse(rawArgs) as Record<string, unknown>;
+              } catch {
+                args = {};
+              }
+            } else if (rawArgs && typeof rawArgs === "object") {
+              args = rawArgs as Record<string, unknown>;
+            }
+            const result = await runGithubTool(data.githubToken!, fn, args);
             ollamaMessages.push({
               role: "tool",
               content: result,
-            } as OllamaMsg);
+            });
           }
           continue;
         }
 
-        finalContent = content;
+        finalContent = msg?.content?.trim() || json.response?.trim() || "";
         break;
       }
 
       if (!finalContent) {
-        const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
-        const q = (lastUser?.content || "").toLowerCase();
-        if (ghToken && /github|repo|d4exam/.test(q)) {
-          const listed = await runGithubTool(ghToken, "github_list_repos", {
-            query: "d4exam",
-          });
-          finalContent =
-            `I checked your GitHub (tools: ${toolsUsed.join(", ") || "list"}).\n\n` +
-            `Repos matching d4exam:\n${listed}\n\n` +
-            `Tell me exactly what file to change and what you want done — I can create a branch and commit.`;
-        } else {
-          throw new Error("Empty reply from D4AI.");
-        }
+        throw new Error("Empty reply from D4AI.");
       }
 
       return {
         ok: true as const,
         content: finalContent,
         model,
-        toolsUsed,
-        githubEnabled: useGithub,
+        usedGithub: useGh,
       };
     } catch (e) {
       const msg =
