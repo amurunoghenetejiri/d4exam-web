@@ -9,13 +9,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore file from good commit
+      - name: Download good file and commit
         run: |
-          git show 02b2851a1668be3cb2a0e40173de0424c6032f17:src/routes/student.d4ai.tsx > src/routes/student.d4ai.tsx
+          curl -fsSL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/b41c22edaa68b615d7444e796164697fe82a0b7a/src/routes/student.d4ai.tsx" -o src/routes/student.d4ai.tsx
+          wc -l src/routes/student.d4ai.tsx
           git config user.name "d4ai-restore"
           git config user.email "d4ai@d4tech.local"
           git add src/routes/student.d4ai.tsx
-          git commit -m "restore(d4ai): bring back full campus voice STT implementation" || echo no change
+          git commit -m "restore(d4ai): full campus voice STT typewriter implementation" || echo no change
           git push
