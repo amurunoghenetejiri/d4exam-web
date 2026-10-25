@@ -1,0 +1,31 @@
+name: restore-d4ai-shell
+on:
+  push:
+    paths:
+      - 'scripts/d4ai-restore/**'
+  workflow_dispatch:
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode and restore
+        run: |
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          a = base64.b64decode(Path("scripts/d4ai-restore/AppShell.tsx.b64").read_text())
+          d = base64.b64decode(Path("scripts/d4ai-restore/student.d4ai.tsx.b64").read_text())
+          Path("src/components/layout/AppShell.tsx").write_bytes(a)
+          Path("src/routes/student.d4ai.tsx").write_bytes(d)
+          print("ok", len(a), len(d))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "d4exam-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add src/components/layout/AppShell.tsx src/routes/student.d4ai.tsx
+          git diff --staged --quiet || git commit -m "fix(d4ai): restore AppShell + immersive redesigned D4AI chat"
+          git push
