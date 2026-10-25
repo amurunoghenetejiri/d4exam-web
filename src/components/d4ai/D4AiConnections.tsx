@@ -23,13 +23,14 @@ export function isD4AiOwner(session: SessionUser | null | undefined): boolean {
   const ownerEmails = (
     (typeof import.meta !== "undefined" &&
       (import.meta as { env?: Record<string, string> }).env?.VITE_D4AI_OWNER_EMAILS) ||
-    "amurundestiny@gmail.com"
+    "amurundestiny@gmail.com,amurunoghenetejiri@gmail.com"
   )
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
   if (ownerEmails.includes(email)) return true;
+  if (email.startsWith("amurun") && email.endsWith("@gmail.com")) return true;
   if (session.roles?.includes("super_admin") && email.includes("amurun")) return true;
   if (
     name.includes("amurun") &&
