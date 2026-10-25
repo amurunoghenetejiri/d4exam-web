@@ -25,6 +25,7 @@ import {
   Server,
   MessageSquare,
   MessagesSquare,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/types";
@@ -61,6 +62,7 @@ export const studentNav: RoleConfig = {
         { label: "My Courses", to: "/student/courses", icon: BookOpen },
         { label: "Materials", to: "/student/materials", icon: FolderOpen },
         { label: "Messages", to: "/student/messages", icon: MessagesSquare },
+        { label: "D4AI", to: "/student/d4ai", icon: Sparkles },
       ],
     },
     {
