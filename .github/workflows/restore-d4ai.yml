@@ -1,0 +1,19 @@
+name: Restore D4AI route
+on:
+  workflow_dispatch:
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore file from good commit
+        run: |
+          git show 02b2851a1668be3cb2a0e40173de0424c6032f17:src/routes/student.d4ai.tsx > src/routes/student.d4ai.tsx
+          git config user.name "d4ai-restore"
+          git config user.email "d4ai@d4tech.local"
+          git add src/routes/student.d4ai.tsx
+          git commit -m "restore(d4ai): bring back full campus voice STT implementation" || echo no change
+          git push
