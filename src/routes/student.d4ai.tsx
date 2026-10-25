@@ -5,7 +5,7 @@ import { d4aiChat } from "@/lib/d4ai.server";
 import { cn } from "@/lib/utils";
 import { appNavigate } from "@/lib/app-navigate";
 import { useSessionUser } from "@/lib/session";
-import { D4AiConnectionsSheet, isD4AiOwner } from "@/components/d4ai/D4AiConnections";
+import { D4AiConnectionsSheet, isD4AiOwner, readGithubToken } from "@/components/d4ai/D4AiConnections";
 
 export const Route = createFileRoute("/student/d4ai")({
   ssr: false,
@@ -292,6 +292,7 @@ function D4AiPage() {
       .filter((m) => m.id !== "welcome")
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
     try {
+      const ghToken = readGithubToken();
       const res = await d4aiChat({
         data: {
           messages: history.length
@@ -300,6 +301,8 @@ function D4AiPage() {
           images: dText ? undefined : imgs,
           documentText: dText,
           documentName: dName || (imgs ? "image-ocr.txt" : undefined),
+          githubToken: ghToken || undefined,
+          enableGithubTools: Boolean(owner && ghToken),
         },
       });
       if (!res.ok) {
@@ -339,6 +342,7 @@ function D4AiPage() {
     docName,
     active?.messages,
     updateActiveMessages,
+    owner,
   ]);
 
   const goBack = () => {
