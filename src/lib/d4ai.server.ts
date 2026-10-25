@@ -51,7 +51,7 @@ function visionModel() {
 async function ollamaChat(body: Record<string, unknown>) {
   const url = `${baseUrl()}/api/chat`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
+  const timer = setTimeout(() => controller.abort(), 240_000);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -97,7 +97,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
       const name = data.documentName || "document";
       const last = messages[messages.length - 1];
       if (last?.role === "user") {
-        last.content = `${last.content}\n\n---\nContent from "${name}":\n${data.documentText.slice(0, 50000)}`;
+        last.content = `${last.content}\n\n---\nContent from "${name}":\n${data.documentText.slice(0, 20000)}`;
       }
     }
 
@@ -110,7 +110,9 @@ export const d4aiChat = createServerFn({ method: "POST" })
           : ""),
     });
 
-    const trimmed = messages.slice(-10);
+    const trimmed = data.documentText?.trim()
+      ? messages.slice(-4)
+      : messages.slice(-10);
 
     const buildOllamaMessages = (msgs: typeof trimmed) =>
       msgs.map((m, i) => {
@@ -139,7 +141,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGh ? 1600 : 1400,
+            num_predict: useGh ? 1200 : data.documentText?.trim() ? 900 : 1100,
             temperature: 0.7,
             num_ctx: 8192,
           },
@@ -201,7 +203,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
       const msg =
         e instanceof Error
           ? e.name === "AbortError"
-            ? "D4AI took too long. Try a shorter question."
+            ? "D4AI took too long. Try a shorter question or a smaller PDF (first pages only)."
             : e.message
           : "Could not reach D4AI.";
       return { ok: false as const, error: msg };
