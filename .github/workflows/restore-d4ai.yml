@@ -1,6 +1,8 @@
 name: Restore D4AI route
 on:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   restore:
     runs-on: ubuntu-latest
