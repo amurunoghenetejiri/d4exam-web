@@ -4,13 +4,13 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const messageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
-  content: z.string().max(32000),
+  content: z.string().max(48000),
 });
 
 const chatInputSchema = z.object({
-  messages: z.array(messageSchema).min(1).max(40),
-  images: z.array(z.string().max(6_000_000)).max(4).optional(),
-  documentText: z.string().max(50_000).optional(),
+  messages: z.array(messageSchema).min(1).max(24),
+  images: z.array(z.string().max(8_000_000)).max(3).optional(),
+  documentText: z.string().max(60_000).optional(),
   documentName: z.string().max(200).optional(),
 });
 
@@ -32,7 +32,8 @@ export const d4aiChat = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => chatInputSchema.parse(data))
   .handler(async ({ data }) => {
     const hasImages = Boolean(data.images?.length);
-    const model = hasImages ? visionModel() : textModel();
+    const hasDoc = Boolean(data.documentText?.trim());
+    const model = hasImages && !hasDoc ? visionModel() : textModel();
 
     const messages = data.messages.map((m) => ({ ...m }));
     if (data.documentText?.trim()) {
@@ -40,17 +41,14 @@ export const d4aiChat = createServerFn({ method: "POST" })
       const last = messages[messages.length - 1];
       if (last?.role === "user") {
         last.content =
-          `${last.content}\n\n---\nAttached document (${name}):\n${data.documentText.slice(0, 40000)}`;
+          `${last.content}\n\n---\nContent from "${name}" (extracted text — use this as the source of truth):\n${data.documentText.slice(0, 50000)}`;
       }
     }
 
-    // Ollama vision: attach images on the last user message
-    const ollamaMessages = messages.map((m, i) => {
-      if (
-        hasImages &&
-        m.role === "user" &&
-        i === messages.length - 1
-      ) {
+    const trimmed = messages.slice(-8);
+
+    const ollamaMessages = trimmed.map((m, i) => {
+      if (hasImages && !hasDoc && m.role === "user" && i === trimmed.length - 1) {
         return {
           role: m.role,
           content: m.content,
@@ -64,7 +62,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
 
     const url = `${baseUrl()}/api/chat`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 180_000);
+    const timer = setTimeout(() => controller.abort(), 120_000);
 
     try {
       const res = await fetch(url, {
@@ -74,6 +72,11 @@ export const d4aiChat = createServerFn({ method: "POST" })
           model,
           messages: ollamaMessages,
           stream: false,
+          options: {
+            num_predict: 512,
+            temperature: 0.6,
+            num_ctx: 4096,
+          },
         }),
         signal: controller.signal,
       });

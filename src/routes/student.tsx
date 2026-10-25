@@ -17,9 +17,10 @@ function Layout() {
   useStudentRealtimeSync(Boolean(student?.studentId));
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const showD4AiFab =
-    pathname === "/student/messages" ||
-    pathname.startsWith("/student/messages/") ||
-    pathname === "/student/materials";
+    (pathname === "/student/messages" ||
+      pathname.startsWith("/student/messages/") ||
+      pathname === "/student/materials") &&
+    !pathname.includes("/student/d4ai");
 
   return (
     <StudentLayout>
