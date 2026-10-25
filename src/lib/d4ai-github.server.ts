@@ -8,26 +8,11 @@ const OWNER_EMAILS = () =>
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-export function assertD4AiOwner(email: string | null | undefined) {
+function assertOwner(email: string | null | undefined) {
   const e = String(email || "").trim().toLowerCase();
   if (!e || !OWNER_EMAILS().includes(e)) {
-    throw new Error("Forbidden: only the D4AI owner can use GitHub tools.");
+    throw new Error("Forbidden: GitHub tools are owner-only.");
   }
-}
-
-export function resolveGithubToken(clientToken?: string | null): string | null {
-  const t = (clientToken || process.env.D4AI_GITHUB_TOKEN || process.env.GITHUB_TOKEN || "").trim();
-  return t || null;
-}
-
-function b64Encode(text: string): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(text, "utf8").toString("base64");
-  return btoa(unescape(encodeURIComponent(text)));
-}
-
-function b64Decode(b64: string): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(b64, "base64").toString("utf8");
-  return decodeURIComponent(escape(atob(b64)));
 }
 
 async function gh(
@@ -62,208 +47,130 @@ async function gh(
   return { ok: true, json, status: res.status };
 }
 
-export const d4aiGithubTest = createServerFn({ method: "POST" })
+export const d4aiGithubVerify = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ token: z.string().min(8).max(4000).optional() }).parse(data ?? {}),
+    z.object({ token: z.string().min(8).max(400) }).parse(data),
   )
   .handler(async ({ data, context }) => {
-    assertD4AiOwner((context as { userEmail?: string | null }).userEmail);
-    const token = resolveGithubToken(data.token);
-    if (!token) {
-      return { ok: false as const, error: "No GitHub token. Paste a PAT or set D4AI_GITHUB_TOKEN on Vercel." };
-    }
-    const me = await gh("/user", token);
-    if (!me.ok) return { ok: false as const, error: me.error };
-    const u = me.json as { login?: string; name?: string };
-    const repos = await gh("/user/repos?per_page=5&sort=updated", token);
-    const repoNames =
-      repos.ok && Array.isArray(repos.json)
-        ? (repos.json as { full_name: string }[]).map((r) => r.full_name)
-        : [];
-    return {
-      ok: true as const,
-      login: u.login || "",
-      name: u.name || "",
-      sampleRepos: repoNames,
-    };
+    assertOwner((context as { userEmail?: string | null }).userEmail);
+    const r = await gh("/user", data.token);
+    if (!r.ok) return { ok: false as const, error: r.error };
+    const u = r.json as { login?: string; name?: string };
+    return { ok: true as const, login: u.login || "", name: u.name || "" };
   });
+
+function b64encode(text: string) {
+  return Buffer.from(text, "utf8").toString("base64");
+}
+function b64decode(b64: string) {
+  return Buffer.from(b64.replace(/\n/g, ""), "base64").toString("utf8");
+}
 
 export async function runGithubTool(
   token: string,
   name: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  try {
-    switch (name) {
-      case "github_list_repos": {
-        const q = args.query ? String(args.query) : "";
-        const res = await gh("/user/repos?per_page=30&sort=updated&affiliation=owner,collaborator", token);
-        if (!res.ok) return `Error: ${res.error}`;
-        let list = res.json as { full_name: string; description: string | null; private: boolean }[];
-        if (q) {
-          const ql = q.toLowerCase();
-          list = list.filter((r) => r.full_name.toLowerCase().includes(ql));
-        }
-        return JSON.stringify(
-          list.slice(0, 20).map((r) => ({
-            repo: r.full_name,
-            private: r.private,
-            description: r.description,
-          })),
-        );
-      }
-      case "github_get_file": {
-        const owner = String(args.owner || "");
-        const repo = String(args.repo || "");
-        const path = String(args.path || "");
-        const ref = args.ref ? String(args.ref) : undefined;
-        if (!owner || !repo || !path) return "Error: owner, repo, path required";
-        const qs = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-        const res = await gh(
-          `/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}${qs}`,
-          token,
-        );
-        if (!res.ok) return `Error: ${res.error}`;
-        const f = res.json as { content?: string; encoding?: string; sha?: string; size?: number };
-        if (f.encoding === "base64" && f.content) {
-          const text = b64Decode(f.content.replace(/\n/g, ""));
-          return JSON.stringify({
-            path,
-            sha: f.sha,
-            size: f.size,
-            content: text.slice(0, 80_000),
-          });
-        }
-        return JSON.stringify(f);
-      }
-      case "github_list_files": {
-        const owner = String(args.owner || "");
-        const repo = String(args.repo || "");
-        const path = String(args.path || "");
-        const ref = args.ref ? String(args.ref) : undefined;
-        if (!owner || !repo) return "Error: owner, repo required";
-        const p = path ? path.split("/").map(encodeURIComponent).join("/") : "";
-        const qs = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-        const res = await gh(`/repos/${owner}/${repo}/contents/${p}${qs}`, token);
-        if (!res.ok) return `Error: ${res.error}`;
-        const data = res.json;
-        if (Array.isArray(data)) {
-          return JSON.stringify(
-            (data as { name: string; path: string; type: string }[]).map((x) => ({
-              name: x.name,
-              path: x.path,
-              type: x.type,
-            })),
-          );
-        }
-        return JSON.stringify(data);
-      }
-      case "github_update_file": {
-        const owner = String(args.owner || "");
-        const repo = String(args.repo || "");
-        const path = String(args.path || "");
-        const content = String(args.content ?? "");
-        const message = String(args.message || `D4AI: update ${path}`);
-        const branch = args.branch ? String(args.branch) : undefined;
-        if (!owner || !repo || !path) return "Error: owner, repo, path required";
-
-        let sha: string | undefined;
-        const existing = await gh(
-          `/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}${
-            branch ? `?ref=${encodeURIComponent(branch)}` : ""
-          }`,
-          token,
-        );
-        if (existing.ok) {
-          sha = (existing.json as { sha?: string }).sha;
-        }
-
-        const body: Record<string, unknown> = {
-          message,
-          content: b64Encode(content),
-        };
-        if (sha) body.sha = sha;
-        if (branch) body.branch = branch;
-
-        const res = await gh(
-          `/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`,
-          token,
-          { method: "PUT", body: JSON.stringify(body) },
-        );
-        if (!res.ok) return `Error: ${res.error}`;
-        const out = res.json as { content?: { path?: string }; commit?: { html_url?: string } };
-        return JSON.stringify({
-          ok: true,
-          path: out.content?.path,
-          commit_url: out.commit?.html_url,
-        });
-      }
-      case "github_create_branch": {
-        const owner = String(args.owner || "");
-        const repo = String(args.repo || "");
-        const branch = String(args.branch || "");
-        const from = String(args.from || "main");
-        if (!owner || !repo || !branch) return "Error: owner, repo, branch required";
-        let base = await gh(`/repos/${owner}/${repo}/git/ref/heads/${from}`, token);
-        let fromName = from;
-        if (!base.ok) {
-          base = await gh(`/repos/${owner}/${repo}/git/ref/heads/master`, token);
-          fromName = "master";
-          if (!base.ok) return `Error: cannot find base branch: ${base.error}`;
-        }
-        const sha = (base.json as { object: { sha: string } }).object.sha;
-        const created = await gh(`/repos/${owner}/${repo}/git/refs`, token, {
-          method: "POST",
-          body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
-        });
-        if (!created.ok) return `Error: ${created.error}`;
-        return JSON.stringify({ ok: true, branch, from: fromName });
-      }
-      default:
-        return `Error: unknown tool ${name}`;
+  switch (name) {
+    case "github_list_repos": {
+      const r = await gh("/user/repos?per_page=30&sort=updated", token);
+      if (!r.ok) return `Error: ${r.error}`;
+      const repos = r.json as { full_name: string; private: boolean; description: string | null }[];
+      return repos
+        .map(
+          (x) =>
+            `- ${x.full_name}${x.private ? " (private)" : ""}${x.description ? `: ${x.description}` : ""}`,
+        )
+        .join("\n");
     }
-  } catch (e) {
-    return `Error: ${e instanceof Error ? e.message : "tool failed"}`;
+    case "github_get_file": {
+      const owner = String(args.owner || "");
+      const repo = String(args.repo || "");
+      const path = String(args.path || "");
+      const ref = args.ref ? `?ref=${encodeURIComponent(String(args.ref))}` : "";
+      const r = await gh(`/repos/${owner}/${repo}/contents/${path}${ref}`, token);
+      if (!r.ok) return `Error: ${r.error}`;
+      const f = r.json as { content?: string; encoding?: string; sha?: string };
+      if (f.encoding === "base64" && f.content) {
+        const text = b64decode(f.content);
+        return text.length > 60000 ? text.slice(0, 60000) + "\n…[truncated]" : text;
+      }
+      return JSON.stringify(f).slice(0, 8000);
+    }
+    case "github_put_file": {
+      const owner = String(args.owner || "");
+      const repo = String(args.repo || "");
+      const path = String(args.path || "");
+      const content = String(args.content || "");
+      const message = String(args.message || "Update via D4AI");
+      const branch = args.branch ? String(args.branch) : undefined;
+      const existing = await gh(
+        `/repos/${owner}/${repo}/contents/${path}${branch ? `?ref=${encodeURIComponent(branch)}` : ""}`,
+        token,
+      );
+      let sha: string | undefined;
+      if (existing.ok) sha = (existing.json as { sha?: string }).sha;
+      const body: Record<string, unknown> = {
+        message,
+        content: b64encode(content),
+      };
+      if (sha) body.sha = sha;
+      if (branch) body.branch = branch;
+      const r = await gh(`/repos/${owner}/${repo}/contents/${path}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) return `Error: ${r.error}`;
+      const out = r.json as {
+        content?: { html_url?: string; path?: string };
+        commit?: { html_url?: string };
+      };
+      return `OK: updated ${out.content?.path || path}. ${out.commit?.html_url || out.content?.html_url || ""}`;
+    }
+    case "github_list_issues": {
+      const owner = String(args.owner || "");
+      const repo = String(args.repo || "");
+      const r = await gh(`/repos/${owner}/${repo}/issues?state=open&per_page=15`, token);
+      if (!r.ok) return `Error: ${r.error}`;
+      const issues = r.json as { number: number; title: string; user?: { login: string } }[];
+      return (
+        issues.map((i) => `#${i.number} ${i.title} (@${i.user?.login || "?"})`).join("\n") ||
+        "No open issues."
+      );
+    }
+    case "github_create_issue": {
+      const owner = String(args.owner || "");
+      const repo = String(args.repo || "");
+      const title = String(args.title || "");
+      const body = String(args.body || "");
+      const r = await gh(`/repos/${owner}/${repo}/issues`, token, {
+        method: "POST",
+        body: JSON.stringify({ title, body }),
+      });
+      if (!r.ok) return `Error: ${r.error}`;
+      const issue = r.json as { html_url?: string; number?: number };
+      return `Created issue #${issue.number}: ${issue.html_url}`;
+    }
+    default:
+      return `Unknown tool: ${name}`;
   }
 }
 
-export const GITHUB_TOOLS_OLLAMA = [
+export const GITHUB_TOOLS_FOR_OLLAMA = [
   {
     type: "function",
     function: {
       name: "github_list_repos",
-      description: "List the owner's GitHub repositories (optionally filter by name).",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Optional name filter e.g. d4exam" },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "github_list_files",
-      description: "List files/folders in a repo path.",
-      parameters: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          path: { type: "string", description: "Directory path, empty for root" },
-          ref: { type: "string", description: "Branch name optional" },
-        },
-        required: ["owner", "repo"],
-      },
+      description: "List the authenticated user's GitHub repositories",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
     type: "function",
     function: {
       name: "github_get_file",
-      description: "Read a text file from a GitHub repository.",
+      description: "Read a file from a GitHub repository",
       parameters: {
         type: "object",
         properties: {
@@ -279,37 +186,48 @@ export const GITHUB_TOOLS_OLLAMA = [
   {
     type: "function",
     function: {
-      name: "github_create_branch",
-      description: "Create a new branch from main/master.",
-      parameters: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          branch: { type: "string" },
-          from: { type: "string", description: "Base branch, default main" },
-        },
-        required: ["owner", "repo", "branch"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "github_update_file",
-      description:
-        "Create or update a file in the repo. Prefer a feature branch when changing production code.",
+      name: "github_put_file",
+      description: "Create or update a file in a GitHub repository (commit)",
       parameters: {
         type: "object",
         properties: {
           owner: { type: "string" },
           repo: { type: "string" },
           path: { type: "string" },
-          content: { type: "string", description: "Full new file contents" },
-          message: { type: "string", description: "Commit message" },
-          branch: { type: "string", description: "Branch to commit to" },
+          content: { type: "string" },
+          message: { type: "string" },
+          branch: { type: "string" },
         },
-        required: ["owner", "repo", "path", "content"],
+        required: ["owner", "repo", "path", "content", "message"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "github_list_issues",
+      description: "List open issues on a repo",
+      parameters: {
+        type: "object",
+        properties: { owner: { type: "string" }, repo: { type: "string" } },
+        required: ["owner", "repo"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "github_create_issue",
+      description: "Create a GitHub issue",
+      parameters: {
+        type: "object",
+        properties: {
+          owner: { type: "string" },
+          repo: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string" },
+        },
+        required: ["owner", "repo", "title"],
       },
     },
   },
