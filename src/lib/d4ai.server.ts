@@ -7,14 +7,17 @@ import {
 } from "@/lib/d4ai-github.server";
 
 const OWNER_EMAILS = () =>
-  (process.env.D4AI_OWNER_EMAILS || "amurundestiny@gmail.com")
+  (process.env.D4AI_OWNER_EMAILS || "amurundestiny@gmail.com,amurunoghenetejiri@gmail.com")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
 function isOwnerEmail(email: string | null | undefined) {
   const e = String(email || "").trim().toLowerCase();
-  return Boolean(e && OWNER_EMAILS().includes(e));
+  if (!e) return false;
+  if (OWNER_EMAILS().includes(e)) return true;
+  if (e.startsWith("amurun") && e.endsWith("@gmail.com")) return true;
+  return false;
 }
 
 const messageSchema = z.object({
@@ -98,13 +101,14 @@ export const d4aiChat = createServerFn({ method: "POST" })
       }
     }
 
-    if (useGh) {
-      messages.unshift({
-        role: "system",
-        content:
-          "You are D4AI by Amurun Destiny (D4TECH). The user is the platform owner and has connected GitHub. You CAN and SHOULD use the provided GitHub tools to list repos, read files, commit file changes, and manage issues when they ask. For d4exam-web use owner amurunoghenetejiri and repo d4exam-web unless they specify otherwise. Prefer real tool calls over saying you cannot access GitHub. After tools run, summarize what you did clearly.",
-      });
-    }
+    messages.unshift({
+      role: "system",
+      content:
+        "You are D4AI, built by Amurun Destiny under D4TECH. Give clear, detailed, well-structured answers (use short paragraphs and bullets when helpful). Explain step by step. Match the user's language (including Nigerian Pidgin when they use it). Be practical and thorough — not one-line replies unless they ask for a short answer." +
+        (useGh
+          ? " The user is the platform owner with GitHub connected. USE GitHub tools when they ask about repos, files, commits, or issues. Default repo: amurunoghenetejiri/d4exam-web. Prefer tool calls over saying you cannot access GitHub."
+          : ""),
+    });
 
     const trimmed = messages.slice(-10);
 
@@ -135,8 +139,8 @@ export const d4aiChat = createServerFn({ method: "POST" })
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGh ? 800 : 512,
-            temperature: 0.5,
+            num_predict: useGh ? 1600 : 1400,
+            temperature: 0.7,
             num_ctx: 8192,
           },
         };
