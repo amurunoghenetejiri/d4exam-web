@@ -3,16 +3,35 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const OWNER_EMAILS = () =>
-  (process.env.D4AI_OWNER_EMAILS || "amurundestiny@gmail.com")
+  (process.env.D4AI_OWNER_EMAILS || "amurundestiny@gmail.com,amurunoghenetejiri@gmail.com")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-function assertOwner(email: string | null | undefined) {
+function isOwnerEmail(email: string | null | undefined) {
   const e = String(email || "").trim().toLowerCase();
-  if (!e || !OWNER_EMAILS().includes(e)) {
-    throw new Error("Forbidden: GitHub tools are owner-only.");
+  if (!e) return false;
+  if (OWNER_EMAILS().includes(e)) return true;
+  if (e.startsWith("amurun") && e.endsWith("@gmail.com")) return true;
+  return false;
+}
+
+async function assertOwner(
+  email: string | null | undefined,
+  supabase?: { rpc: (name: string) => Promise<{ data: unknown }> },
+) {
+  if (isOwnerEmail(email)) return;
+  try {
+    if (supabase) {
+      const { data } = await supabase.rpc("is_super_admin");
+      if (data === true) return;
+    }
+  } catch {
+    /* ignore */
   }
+  throw new Error(
+    "Forbidden: GitHub tools are owner-only. Sign in with amurundestiny@gmail.com or amurunoghenetejiri@gmail.com.",
+  );
 }
 
 async function gh(
@@ -53,7 +72,10 @@ export const d4aiGithubVerify = createServerFn({ method: "POST" })
     z.object({ token: z.string().min(8).max(400) }).parse(data),
   )
   .handler(async ({ data, context }) => {
-    assertOwner((context as { userEmail?: string | null }).userEmail);
+    await assertOwner(
+      (context as { userEmail?: string | null }).userEmail,
+      (context as { supabase?: { rpc: (name: string) => Promise<{ data: unknown }> } }).supabase,
+    );
     const r = await gh("/user", data.token);
     if (!r.ok) return { ok: false as const, error: r.error };
     const u = r.json as { login?: string; name?: string };
