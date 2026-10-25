@@ -3,7 +3,6 @@ import { CourseMaterialsPanel } from "@/components/materials/CourseMaterialsPane
 import { EmptyState } from "@/components/dashboard/kit";
 import { useStudentContext } from "@/lib/student";
 import { shortDisplayName } from "@/lib/utils";
-import { D4AiFab } from "@/components/d4ai/D4AiFab";
 
 export const Route = createFileRoute("/student/materials")({
   head: () => ({
@@ -39,14 +38,11 @@ function Page() {
   }));
 
   return (
-    <>
-      <CourseMaterialsPanel
-        role="student"
-        schoolId={student.schoolId}
-        courses={courses}
-        displayName={shortDisplayName(student.fullName || student.matric || "Student")}
-      />
-      <D4AiFab label="D4AI" />
-    </>
+    <CourseMaterialsPanel
+      role="student"
+      schoolId={student.schoolId}
+      courses={courses}
+      displayName={shortDisplayName(student.fullName || student.matric || "Student")}
+    />
   );
 }
