@@ -4,6 +4,8 @@ import { ArrowLeft, FileText, ImagePlus, Loader2, Menu, Plus, Send, Sparkles, Tr
 import { d4aiChat } from "@/lib/d4ai.server";
 import { cn } from "@/lib/utils";
 import { appNavigate } from "@/lib/app-navigate";
+import { useSessionUser } from "@/lib/session";
+import { D4AiConnectionsSheet, isD4AiOwner } from "@/components/d4ai/D4AiConnections";
 
 export const Route = createFileRoute("/student/d4ai")({
   ssr: false,
@@ -116,6 +118,9 @@ function D4AiPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const { data: session } = useSessionUser();
+  const owner = isD4AiOwner(session);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -365,10 +370,27 @@ function D4AiPage() {
             <p className="truncate text-[11px] text-cyan-200/80">{busy ? "Typing…" : "Online · D4TECH"}</p>
           </div>
         </div>
-        <button type="button" onClick={startNewChat} className="rounded-xl p-2 text-white/90 hover:bg-white/10" aria-label="New chat">
-          <Plus className="h-5 w-5" />
-        </button>
+        {owner ? (
+          <button
+            type="button"
+            onClick={() => setConnectionsOpen(true)}
+            className="rounded-xl p-2 text-cyan-300 hover:bg-white/10"
+            aria-label="Connections"
+            title="Connections"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        ) : (
+          <button type="button" onClick={startNewChat} className="rounded-xl p-2 text-white/90 hover:bg-white/10" aria-label="New chat">
+            <Plus className="h-5 w-5" />
+          </button>
+        )}
       </header>
+      <D4AiConnectionsSheet
+        open={connectionsOpen}
+        onClose={() => setConnectionsOpen(false)}
+        session={session ?? null}
+      />
 
       {drawer ? (
         <div className="absolute inset-0 z-50 flex">
