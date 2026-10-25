@@ -1,31 +1,33 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { PageHeader, SectionCard, EmptyState } from "@/components/dashboard/kit";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { initials, useSessionUser } from "@/lib/session";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Building2,
+  GraduationCap,
   Loader2,
   Shield,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { SectionCard } from "@/components/ui/section-card";
-import { useSchoolIdentity } from "@/hooks/use-school-identity";
-import { useSessionUser } from "@/lib/session";
-import { useStudentContext } from "@/hooks/use-student-context";
-import { supabase } from "@/integrations/supabase/client";
+import { useSchoolIdentity } from "@/lib/school-identity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useStudentContext } from "@/lib/student";
+import { friendlyError } from "@/lib/friendly-error";
+import { ProfilePhotoButton } from "@/components/profile/ProfilePhotoButton";
 import { cn } from "@/lib/utils";
-import { friendlyError } from "@/lib/errors";
 
 const roleLabel: Record<string, string> = {
   student: "Student",
   teacher: "Teacher",
-  school_admin: "School admin",
-  examination_officer: "Examination officer",
-  super_admin: "Super admin",
+  school_admin: "School Administrator",
+  examination_officer: "Departmental Officer",
+  super_admin: "Super Administrator",
 };
 
 const roleBadgeStyles: Record<
@@ -35,7 +37,7 @@ const roleBadgeStyles: Record<
   student: {
     className:
       "border-sky-200/80 bg-sky-50 text-sky-800 shadow-sm shadow-sky-100/80",
-    icon: UserRound,
+    icon: GraduationCap,
   },
   teacher: {
     className:
@@ -94,13 +96,6 @@ function RoleBadge({ roleKey }: { roleKey: string }) {
   );
 }
 
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 export function ProfilePage() {
   const { data: user, isLoading, error } = useSessionUser();
   const { data: school } = useSchoolIdentity(user?.schoolId);
@@ -137,7 +132,7 @@ export function ProfilePage() {
           data = byId.data;
         }
         if (data?.phone) setPhone(data.phone);
-        if (data?.full_name && !fullName) {
+        if (data?.full_name) {
           const fn = data.full_name.trim();
           if (fn && !roleLike.test(fn)) setFullName(fn);
         }
@@ -200,9 +195,10 @@ export function ProfilePage() {
 
   if (error || !user) {
     return (
-      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-        Could not load profile.
-      </div>
+      <EmptyState
+        title="Could not load profile"
+        description="Please refresh or sign in again."
+      />
     );
   }
 
@@ -213,12 +209,11 @@ export function ProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 pb-8">
+      <PageHeader title="Profile" description="Your account details" />
       <div className="space-y-4">
-        <SectionCard title="Your profile" description={school?.name || undefined}>
-          <div className="flex flex-col items-center gap-3 border-b border-slate-100 px-4 pb-4 pt-2 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
-            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#0b1b3a] to-[#1e3a5f] text-lg font-bold text-white shadow-md">
-              {avatar}
-            </div>
+        <SectionCard className="overflow-hidden p-0">
+          <div className="flex flex-col items-center gap-3 border-b border-slate-100 px-4 pb-4 pt-4 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+            <ProfilePhotoButton />
             <div className="min-w-0 flex-1 text-center sm:text-left">
               <p className="truncate text-lg font-bold text-slate-900">
                 {user.fullName || "User"}
