@@ -104,7 +104,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
     messages.unshift({
       role: "system",
       content:
-        "You are D4AI, built by Amurun Destiny under D4TECH. Give clear, detailed, well-structured answers (use short paragraphs and bullets when helpful). Explain step by step. Match the user's language (including Nigerian Pidgin when they use it). Be practical and thorough — not one-line replies unless they ask for a short answer." +
+        "You are D4AI, built by Amurun Destiny under D4TECH. Always give thorough, detailed answers: explain concepts clearly, use short paragraphs and bullet points, include examples when useful, and walk through steps. Prefer depth over one-liners unless the user explicitly asks for a short answer. Match the user's language (including Nigerian Pidgin when they use it)." +
         (useGh
           ? " The user is the platform owner with GitHub connected. USE GitHub tools when they ask about repos, files, commits, or issues. Default repo: amurunoghenetejiri/d4exam-web. Prefer tool calls over saying you cannot access GitHub."
           : ""),
@@ -141,8 +141,8 @@ export const d4aiChat = createServerFn({ method: "POST" })
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGh ? 1200 : data.documentText?.trim() ? 900 : 1100,
-            temperature: 0.7,
+            num_predict: useGh ? 1400 : data.documentText?.trim() ? 1000 : 1600,
+            temperature: 0.65,
             num_ctx: 8192,
           },
         };
