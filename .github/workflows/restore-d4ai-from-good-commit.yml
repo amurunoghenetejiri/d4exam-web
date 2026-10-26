@@ -10,33 +10,59 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Restore student.d4ai.tsx from good rebrand commit
+      - name: Restore complete student.d4ai.tsx
         run: |
           set -euo pipefail
-          # Good full rebrand commit
-          GOOD=4d9975d909ecca36809e59ac516ff1d5ed903610
+          # Known complete working version (34KB)
+          GOOD=828997d9
           git show "$GOOD:src/routes/student.d4ai.tsx" > src/routes/student.d4ai.tsx
           wc -c src/routes/student.d4ai.tsx
-          head -8 src/routes/student.d4ai.tsx
-          tail -5 src/routes/student.d4ai.tsx
-          grep -c "Hello, Boss" src/routes/student.d4ai.tsx || true
-          grep -c "D4Avatar" src/routes/student.d4ai.tsx || true
-          grep -c "Tap to speak" src/routes/student.d4ai.tsx || true
-          grep -c "Link2" src/routes/student.d4ai.tsx || true
-          # Force logo paths to avatar png
-          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
-          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
-          # Ensure public dir
-          mkdir -p public
-          # If we have a better avatar from assets, use it; else keep neon SVG-looking PNG if present
-          if [ -f assets/d4ai-logo-b64/avatar.full.b64 ]; then
-            base64 -d assets/d4ai-logo-b64/avatar.full.b64 > public/d4ai-avatar.png
-            cp public/d4ai-avatar.png public/d4ai-logo.png || true
-          fi
-          ls -la public/d4ai* 2>/dev/null || true
+          # Apply mockup-aligned paths and welcome
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+          p = Path("src/routes/student.d4ai.tsx")
+          t = p.read_text()
+          t = re.sub(r'const LOGO = "[^"]*"', 'const LOGO = "/d4ai-avatar.png"', t)
+          t = re.sub(r'const AVATAR = "[^"]*"', 'const AVATAR = "/d4ai-avatar.png"', t)
+          # Prefer Hello Boss welcome
+          if "Hello, Boss" not in t and "WELCOME" in t:
+              t = t.replace(
+                  "Hey! I'm D4AI — built by Amurun Destiny under D4TECH.\\n\\nAsk anything, attach a file, or use the mic to talk.",
+                  "Hello, Boss! 👋\\n\\nI'm D4AI, your all-round AI assistant.\\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\\nJust type a message, or use the mic to talk.\\nLet's get started! 🚀",
+              )
+          # Online badge
+          if "v5-Ultimate" not in t:
+              t = t.replace("Online", "Online · v5-Ultimate")
+          while "v5-Ultimate · v5-Ultimate" in t:
+              t = t.replace("v5-Ultimate · v5-Ultimate", "v5-Ultimate")
+          # Ensure D4Avatar if only Sparkles
+          if "function D4Avatar" not in t and "Sparkles" in t:
+              d4 = '''function D4Avatar({ size = 32, className = "" }: { size?: number; className?: string }) {
+  return (
+    <img
+      src={AVATAR}
+      alt="D4AI"
+      width={size}
+      height={size}
+      className={"rounded-full object-cover ring-1 ring-cyan-400/40 " + className}
+      style={{ width: size, height: size }}
+      onError={(e) => { (e.target as HTMLImageElement).src = LOGO; }}
+    />
+  );
+}
+
+'''
+              t = t.replace("function D4AiPage()", d4 + "function D4AiPage()")
+              t = t.replace("<Sparkles", "<D4Avatar")
+              # rough cleanup of Sparkles closing tags is handled by img self-close
+          p.write_text(t)
+          print("patched", len(t))
+          PY
+          head -5 src/routes/student.d4ai.tsx
+          grep -n "LOGO\|AVATAR\|Hello\|D4Avatar\|v5-Ultimate" src/routes/student.d4ai.tsx | head -20
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/routes/student.d4ai.tsx public/ || true
-          git status
-          git commit -m "fix(d4ai): restore full neon mockup UI from good commit 4d9975d" || echo nochange
+          git add src/routes/student.d4ai.tsx
+          git commit -m "fix(d4ai): restore complete working chat UI (828997d9) + mockup paths" || echo nochange
           git push
