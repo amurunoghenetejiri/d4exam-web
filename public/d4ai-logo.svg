@@ -1,15 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#22d3ee"/>
-      <stop offset="50%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#d946ef"/>
+      <stop offset="0%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#d500f9"/>
     </linearGradient>
   </defs>
-  <circle cx="256" cy="220" r="160" fill="none" stroke="url(#g)" stroke-width="12"/>
-  <rect x="140" y="120" width="232" height="200" rx="40" fill="#0a1628" stroke="url(#g)" stroke-width="10"/>
-  <ellipse cx="200" cy="210" rx="28" ry="20" fill="#22d3ee"/>
-  <ellipse cx="312" cy="210" rx="28" ry="20" fill="#22d3ee"/>
-  <rect x="230" y="250" width="52" height="10" rx="4" fill="#67e8f9"/>
-  <text x="256" y="400" text-anchor="middle" font-family="Arial Black,sans-serif" font-size="64" font-weight="900" fill="url(#g)">D4AI</text>
+  <circle cx="64" cy="64" r="60" fill="#050b18" stroke="url(#g)" stroke-width="4"/>
+  <ellipse cx="64" cy="58" rx="36" ry="32" fill="#0a1628" stroke="url(#g)" stroke-width="3"/>
+  <rect x="28" y="48" width="16" height="28" rx="6" fill="url(#g)" opacity="0.9"/>
+  <rect x="84" y="48" width="16" height="28" rx="6" fill="url(#g)" opacity="0.9"/>
+  <ellipse cx="48" cy="58" rx="8" ry="5" fill="#00e5ff"/>
+  <ellipse cx="80" cy="58" rx="8" ry="5" fill="#00e5ff"/>
+  <rect x="52" y="72" width="24" height="4" rx="2" fill="#00bcd4"/>
 </svg>
