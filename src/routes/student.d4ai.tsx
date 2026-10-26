@@ -521,6 +521,13 @@ const GLOBAL_CSS = `
 @keyframes d4ai-pulse{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.12);opacity:.95}}
 .d4ai-ring{animation:d4ai-ring 1.8s ease-out infinite}
 @keyframes d4ai-ring{0%{transform:scale(.85);opacity:.75}100%{transform:scale(1.55);opacity:0}}
+.d4ai-write-label{background:linear-gradient(90deg,#67e8f9,#3b82f6,#c084fc,#67e8f9);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:d4ai-grad 2.4s linear infinite}
+.d4ai-write-char{display:inline-block;opacity:0;animation:d4ai-write-in 1.6s ease-in-out infinite}
+@keyframes d4ai-write-in{0%,10%{opacity:0;transform:translateY(4px)}20%,70%{opacity:1;transform:translateY(0)}85%,100%{opacity:.35}}
+.d4ai-write-cursor{display:inline-block;width:2px;height:1em;margin-left:3px;vertical-align:-2px;background:linear-gradient(180deg,#67e8f9,#3b82f6);animation:d4ai-blink .9s step-end infinite}
+@keyframes d4ai-blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes d4ai-grad{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+.d4ai-title-grad{background:linear-gradient(90deg,#67e8f9 0%,#3b82f6 45%,#c084fc 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 `;
 
 function D4AiPage() {
