@@ -1,0 +1,36 @@
+name: Push D4AI Rebrand
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download rebrand from release asset path or embed
+        run: |
+          set -euo pipefail
+          # Rebuild from known-good base + apply key UI patches via Python
+          curl -fsSL -o src/routes/student.d4ai.tsx \
+            "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/b41c22edaa68b615d7444e796164697fe82a0b7a/src/routes/student.d4ai.tsx"
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.d4ai.tsx")
+          t = p.read_text()
+          # Force paperclip-only attach (remove dual ImagePlus/FileText buttons if present)
+          t = t.replace("ImagePlus", "Link2")
+          # Ensure logo constants exist
+          if "d4ai-logo" not in t and "LOGO" not in t:
+              t = t.replace(
+                  'const STORE_KEY = "d4ai_conversations_v1";',
+                  'const STORE_KEY = "d4ai_conversations_v1";\nconst LOGO = "/d4ai-logo.png";\nconst AVATAR = "/d4ai-avatar.png";',
+              )
+          p.write_text(t)
+          print("patched", len(t))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx
+          git commit -m "feat(d4ai): apply neon rebrand patches" || true
+          git push
