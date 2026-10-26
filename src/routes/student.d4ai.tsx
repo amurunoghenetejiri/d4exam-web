@@ -1019,6 +1019,20 @@ function D4AiPage() {
             const reader = streamRes.body.getReader();
             const decoder = new TextDecoder();
             let buf = "";
+            const consumeLine = (line: string) => {
+              const t = line.trim();
+              if (!t) return;
+              const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
+              if (j.type === "token" && j.content) {
+                full += j.content;
+                updateActiveMessages((list) =>
+                  list.map((x) => (x.id === aid ? { ...x, content: full } : x)),
+                );
+                scrollDown();
+              } else if (j.type === "error" && j.error) {
+                throw new Error(j.error);
+              }
+            };
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
@@ -1026,22 +1040,21 @@ function D4AiPage() {
               const lines = buf.split("\n");
               buf = lines.pop() || "";
               for (const line of lines) {
-                const t = line.trim();
-                if (!t) continue;
                 try {
-                  const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
-                  if (j.type === "token" && j.content) {
-                    full += j.content;
-                    updateActiveMessages((list) =>
-                      list.map((x) => (x.id === aid ? { ...x, content: full } : x)),
-                    );
-                    scrollDown();
-                  } else if (j.type === "error" && j.error) {
-                    throw new Error(j.error);
-                  }
+                  consumeLine(line);
                 } catch (e) {
                   if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
+                  console.warn("Ignoring malformed D4AI stream line", e);
                 }
+              }
+            }
+            buf += decoder.decode();
+            if (buf.trim()) {
+              try {
+                consumeLine(buf);
+              } catch (e) {
+                if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
+                console.warn("Ignoring malformed final D4AI stream line", e);
               }
             }
           }
