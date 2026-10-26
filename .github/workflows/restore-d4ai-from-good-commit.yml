@@ -1,0 +1,42 @@
+name: Restore D4AI From Good Commit
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore student.d4ai.tsx from good rebrand commit
+        run: |
+          set -euo pipefail
+          # Good full rebrand commit
+          GOOD=4d9975d909ecca36809e59ac516ff1d5ed903610
+          git show "$GOOD:src/routes/student.d4ai.tsx" > src/routes/student.d4ai.tsx
+          wc -c src/routes/student.d4ai.tsx
+          head -8 src/routes/student.d4ai.tsx
+          tail -5 src/routes/student.d4ai.tsx
+          grep -c "Hello, Boss" src/routes/student.d4ai.tsx || true
+          grep -c "D4Avatar" src/routes/student.d4ai.tsx || true
+          grep -c "Tap to speak" src/routes/student.d4ai.tsx || true
+          grep -c "Link2" src/routes/student.d4ai.tsx || true
+          # Force logo paths to avatar png
+          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          # Ensure public dir
+          mkdir -p public
+          # If we have a better avatar from assets, use it; else keep neon SVG-looking PNG if present
+          if [ -f assets/d4ai-logo-b64/avatar.full.b64 ]; then
+            base64 -d assets/d4ai-logo-b64/avatar.full.b64 > public/d4ai-avatar.png
+            cp public/d4ai-avatar.png public/d4ai-logo.png || true
+          fi
+          ls -la public/d4ai* 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx public/ || true
+          git status
+          git commit -m "fix(d4ai): restore full neon mockup UI from good commit 4d9975d" || echo nochange
+          git push
