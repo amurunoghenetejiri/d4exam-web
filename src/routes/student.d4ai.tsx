@@ -51,8 +51,8 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
-const LOGO = "/d4ai-logo.png";
-const AVATAR = "/d4ai-avatar.png";
+const LOGO = "/d4ai-logo.svg";
+const AVATAR = "/d4ai-logo.svg";
 const WELCOME: Msg = {
   id: "welcome",
   role: "assistant",
