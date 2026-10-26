@@ -57,6 +57,9 @@ import {
 
 export const Route = createFileRoute("/student/d4ai")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>) => ({
+    from: typeof s.from === "string" ? s.from : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "D4AI — D4TECH" },
@@ -236,6 +239,71 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
   }
 }
 
+let activeAudio: HTMLAudioElement | null = null;
+let speakingCancelled = false;
+
+function stripForSpeech(text: string): string {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#*_>`\[\]()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 3000);
+}
+
+/** Play TTS via Google Translate audio (works in Capacitor WebView when speechSynthesis is missing) */
+function playTtsChunks(
+  chunks: string[],
+  opts?: { onend?: () => void; onstart?: () => void },
+) {
+  speakingCancelled = false;
+  let i = 0;
+  let started = false;
+  const next = () => {
+    if (speakingCancelled) {
+      opts?.onend?.();
+      return;
+    }
+    if (i >= chunks.length) {
+      activeAudio = null;
+      opts?.onend?.();
+      return;
+    }
+    const q = encodeURIComponent(chunks[i++].slice(0, 180));
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${q}&tl=en`;
+    const audio = new Audio(url);
+    activeAudio = audio;
+    audio.onplay = () => {
+      if (!started) {
+        started = true;
+        opts?.onstart?.();
+      }
+    };
+    audio.onended = () => next();
+    audio.onerror = () => next();
+    audio.play().catch(() => next());
+  };
+  next();
+}
+
+function chunkSpeech(text: string): string[] {
+  const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  const out: string[] = [];
+  let buf = "";
+  for (const p of parts) {
+    const t = p.trim();
+    if (!t) continue;
+    if ((buf + " " + t).trim().length > 160) {
+      if (buf) out.push(buf.trim());
+      buf = t;
+    } else {
+      buf = (buf + " " + t).trim();
+    }
+  }
+  if (buf) out.push(buf.trim());
+  return out.length ? out : [text.slice(0, 160)];
+}
+
 function speakText(
   text: string,
   opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void },
@@ -245,118 +313,97 @@ function speakText(
       opts?.onend?.();
     } catch {}
   };
+  const clean = stripForSpeech(text);
+  if (!clean) {
+    done();
+    return;
+  }
+  const chunks = chunkSpeech(clean);
+  speakingCancelled = false;
+
+  // 1) Browser / WebView SpeechSynthesis when available
   try {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      done();
-      return;
-    }
-    const synth = window.speechSynthesis;
-    try {
-      synth.cancel();
-    } catch {}
-    try {
-      synth.resume();
-    } catch {}
-
-    const clean = String(text || "")
-      .replace(/```[\s\S]*?```/g, " ")
-      .replace(/[#*_>`]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 3500);
-    if (!clean) {
-      done();
-      return;
-    }
-
-    const preset = opts?.preset || loadVoicePreset();
-    const chunks: string[] = [];
-    // Split long text so Android WebView does not drop speech
-    const parts = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [clean];
-    let buf = "";
-    for (const p of parts) {
-      const t = p.trim();
-      if (!t) continue;
-      if ((buf + " " + t).trim().length > 220) {
-        if (buf) chunks.push(buf.trim());
-        buf = t;
-      } else {
-        buf = (buf + " " + t).trim();
-      }
-    }
-    if (buf) chunks.push(buf.trim());
-    if (!chunks.length) chunks.push(clean);
-
-    let idx = 0;
-    let started = false;
-
-    const speakNext = () => {
-      if (idx >= chunks.length) {
-        done();
-        return;
-      }
-      const u = new SpeechSynthesisUtterance(chunks[idx++]);
-      u.lang = "en-US";
-      u.volume = 1;
-      u.rate = preset === "deep" ? 0.9 : preset === "soft" ? 0.98 : 1;
-      u.pitch = preset === "deep" ? 0.72 : preset === "female" || preset === "soft" ? 1.1 : 1;
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      const synth = window.speechSynthesis;
       try {
-        const voice = pickVoice(preset);
-        if (voice) u.voice = voice;
-      } catch {}
-      u.onstart = () => {
-        if (!started) {
-          started = true;
-          try {
-            opts?.onstart?.();
-          } catch {}
-        }
-      };
-      u.onend = () => speakNext();
-      u.onerror = () => speakNext();
-      try {
+        synth.cancel();
         synth.resume();
       } catch {}
-      try {
-        synth.speak(u);
-      } catch {
-        speakNext();
-      }
-    };
-
-    // voices may load async on mobile
-    const voices = synth.getVoices();
-    if (!voices.length) {
-      const once = () => {
+      const preset = opts?.preset || loadVoicePreset();
+      let idx = 0;
+      let started = false;
+      const speakNext = () => {
+        if (speakingCancelled) {
+          done();
+          return;
+        }
+        if (idx >= chunks.length) {
+          done();
+          return;
+        }
+        const u = new SpeechSynthesisUtterance(chunks[idx++]);
+        u.lang = "en-US";
+        u.volume = 1;
+        u.rate = preset === "deep" ? 0.9 : 1;
+        u.pitch = preset === "deep" ? 0.75 : preset === "female" || preset === "soft" ? 1.1 : 1;
         try {
-          synth.onvoiceschanged = null as any;
+          const voice = pickVoice(preset);
+          if (voice) u.voice = voice;
         } catch {}
-        speakNext();
+        u.onstart = () => {
+          if (!started) {
+            started = true;
+            opts?.onstart?.();
+          }
+        };
+        u.onend = () => speakNext();
+        u.onerror = () => speakNext();
+        try {
+          synth.speak(u);
+        } catch {
+          // fall through to audio backend
+          playTtsChunks(chunks.slice(idx - 1), opts);
+        }
       };
-      synth.onvoiceschanged = once;
-      setTimeout(once, 400);
-    } else {
-      speakNext();
-    }
-
-    // Keep Android from freezing mid-speech
-    const kick = window.setInterval(() => {
-      try {
-        if (synth.speaking && synth.paused) synth.resume();
-        if (!synth.speaking && !synth.pending) window.clearInterval(kick);
-      } catch {
-        window.clearInterval(kick);
+      const voices = synth.getVoices();
+      if (!voices.length) {
+        synth.onvoiceschanged = () => speakNext();
+        setTimeout(() => speakNext(), 350);
+      } else {
+        speakNext();
       }
-    }, 300);
-    window.setTimeout(() => window.clearInterval(kick), 120000);
-  } catch {
-    done();
-  }
+      // If nothing starts within 1.2s, use audio fallback
+      setTimeout(() => {
+        try {
+          if (!synth.speaking && !synth.pending && !speakingCancelled) {
+            try {
+              synth.cancel();
+            } catch {}
+            playTtsChunks(chunks, opts);
+          }
+        } catch {
+          playTtsChunks(chunks, opts);
+        }
+      }, 1200);
+      return;
+    }
+  } catch {}
+
+  // 2) Audio fallback (Capacitor WebView — no speechSynthesis)
+  playTtsChunks(chunks, opts);
 }
 
 function stopSpeaking() {
+  speakingCancelled = true;
   try {
     window.speechSynthesis?.cancel();
+  } catch {}
+  try {
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.src = "";
+      activeAudio = null;
+    }
   } catch {}
 }
 
@@ -1112,10 +1159,7 @@ function D4AiPage() {
       setSpeakingMsgId(null);
       return;
     }
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      setToast("Speech not supported on this device");
-      return;
-    }
+    // speechSynthesis may be missing in Capacitor — speakText has audio fallback
     // Unlock audio on user gesture (required on many phones)
     try {
       window.speechSynthesis.cancel();
@@ -1178,7 +1222,7 @@ function D4AiPage() {
 
   const onPressStart = (m: Msg) => {
     if (pressTimer.current) clearTimeout(pressTimer.current);
-    pressTimer.current = setTimeout(() => setLongPress(m), 450);
+    pressTimer.current = setTimeout(() => setLongPress(m), 550);
   };
   const onPressEnd = () => {
     if (pressTimer.current) {
@@ -1213,6 +1257,10 @@ function D4AiPage() {
     );
   });
 
+  const search = Route.useSearch();
+  const fromPage = typeof search?.from === "string" ? search.from : "";
+  const showBack = fromPage === "messages" || fromPage === "materials";
+
   const header = (
     <header
       className={cn(
@@ -1221,7 +1269,27 @@ function D4AiPage() {
       )}
       style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
     >
-      <D4Avatar size={38} />
+      {showBack ? (
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              if (fromPage === "messages") appNavigate(navigate, "/student/messages");
+              else if (fromPage === "materials") appNavigate(navigate, "/student/materials");
+              else goBack();
+            } catch {
+              navigate({ to: fromPage === "materials" ? "/student/materials" : "/student/messages" });
+            }
+          }}
+          className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")}
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+      ) : (
+        <D4Avatar size={38} />
+      )}
+      {!showBack ? null : <D4Avatar size={32} />}
       <div className="min-w-0 flex-1">
         <h1 className="d4ai-title-grad text-base font-bold">D4AI</h1>
         <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
@@ -1261,16 +1329,19 @@ function D4AiPage() {
             {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
             <div className={cn("flex max-w-[85%] flex-col", m.role === "user" ? "items-end" : "items-start")}>
               <div
-                role="button"
-                tabIndex={0}
-                onPointerDown={() => onPressStart(m)}
+                onPointerDown={(e) => {
+                  // long-press only (do not steal scroll / tap)
+                  if (e.button !== 0) return;
+                  onPressStart(m);
+                }}
                 onPointerUp={onPressEnd}
+                onPointerCancel={onPressEnd}
                 onPointerLeave={onPressEnd}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setLongPress(m);
                 }}
-                className={cn("select-none px-3.5 py-2.5 text-[15px] leading-relaxed shadow", bubbleClasses(m.role))}
+                className={cn("px-3.5 py-2.5 text-[15px] leading-relaxed shadow select-text", bubbleClasses(m.role))}
               >
                 {m.imagePreview ? (
                   <img src={m.imagePreview} alt="" className="mb-2 max-h-48 w-full rounded-xl object-cover" />
