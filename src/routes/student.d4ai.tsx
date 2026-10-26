@@ -2,21 +2,44 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Check,
+  Bell,
+  CheckCheck,
+  ChevronRight,
   Copy,
+  Cpu,
   FileText,
+  Flag,
+  Globe,
+  HelpCircle,
+  History,
+  Home,
+  Image as ImageIcon,
+  Info,
+  Keyboard,
   Loader2,
+  LogOut,
   Menu,
+  MessageCircle,
   Mic,
+  Moon,
+  MoreVertical,
   Paperclip,
-  Pause,
   Pencil,
+  Phone,
+  Play,
   Plus,
+  RefreshCw,
   Send,
-  Sparkles,
+  Settings,
+  Share2,
+  Shield,
   Square,
+  Sun,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Volume2,
+  Wrench,
   X,
 } from "lucide-react";
 import { d4aiChat } from "@/lib/d4ai.server";
@@ -31,7 +54,15 @@ import {
 
 export const Route = createFileRoute("/student/d4ai")({
   ssr: false,
-  head: () => ({ meta: [{ title: "D4AI — D4TECH" }] }),
+  head: () => ({
+    meta: [
+      { title: "D4AI — D4TECH" },
+      { name: "description", content: "D4AI — your all-round AI assistant by D4TECH. Creating Solutions. Innovating Lives." },
+      { property: "og:title", content: "D4AI — D4TECH" },
+      { property: "og:description", content: "Chat, speak, and create with D4AI — your all-round AI assistant." },
+      { property: "og:type", content: "website" },
+    ],
+  }),
   component: D4AiPage,
 });
 
@@ -41,6 +72,7 @@ type Msg = {
   content: string;
   imagePreview?: string;
   docName?: string;
+  createdAt?: number;
 };
 type Conversation = {
   id: string;
@@ -51,14 +83,12 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
+const THEME_KEY = "d4ai_theme_v1";
+const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
-const AVATAR = "/d4ai-avatar.png";
-const WELCOME: Msg = {
-  id: "welcome",
-  role: "assistant",
-  content:
-    "Hello, Boss! 👋\n\nI'm D4AI, your all-round AI assistant.\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\nJust type a message, or use the mic to talk.\nLet's get started! 🚀",
-};
+const WELCOME_TEXT =
+  "Hello, Boss! 👋\n\nI'm D4AI, your all-round AI assistant.\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\nJust type a message, or use the mic to talk.\nLet's get started! 🚀";
+const WELCOME: Msg = { id: "welcome", role: "assistant", content: WELCOME_TEXT };
 
 function loadStore(): Conversation[] {
   try {
@@ -72,11 +102,25 @@ function loadStore(): Conversation[] {
 }
 function saveStore(list: Conversation[]) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 30)));
+    localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 40)));
   } catch {}
 }
 function newId() {
   return `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function fmtTime(ts?: number) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+function fmtDay(ts: number) {
+  const d = new Date(ts);
+  const now = new Date();
+  const same = d.toDateString() === now.toDateString();
+  if (same) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const yest = new Date(now.getTime() - 86400000);
+  if (d.toDateString() === yest.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 async function compressImage(file: File, maxSide = 1280): Promise<string> {
@@ -139,91 +183,6 @@ async function ocrImageDataUrl(dataUrl: string): Promise<string> {
   }
 }
 
-function LiveWave({ active }: { active: boolean }) {
-  const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16];
-  return (
-    <div className="flex h-7 w-full max-w-[220px] items-center justify-center gap-[2px]">
-      {heights.map((h, i) => (
-        <span
-          key={i}
-          className={cn("w-[3px] rounded-full bg-[#3b82f6]", active && "animate-pulse")}
-          style={{
-            height: active ? `${h}px` : "6px",
-            opacity: active ? 0.55 + (i % 5) * 0.08 : 0.35,
-            animationDelay: active ? `${(i % 8) * 70}ms` : undefined,
-            animationDuration: "0.9s",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function VoiceSttBar({
-  liveText,
-  seconds,
-  paused,
-  onCancel,
-  onPause,
-  onResume,
-  onSend,
-}: {
-  liveText: string;
-  seconds: number;
-  paused: boolean;
-  onCancel: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onSend: () => void;
-}) {
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-  return (
-    <div className="mx-auto mb-0 w-full max-w-2xl select-none rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-3 py-2.5 shadow-sm">
-      <div className="mb-2 flex flex-col items-center gap-1">
-        <LiveWave active={!paused} />
-        <p className="text-sm font-bold tabular-nums text-slate-800">
-          {mm}:{ss}
-        </p>
-        {paused ? <p className="text-[10px] font-medium text-slate-500">Paused</p> : null}
-        <p className="max-h-14 w-full overflow-y-auto text-center text-[12px] leading-snug text-slate-600">
-          {liveText || (paused ? "Paused — tap Resume or Send" : "Listening… speak clearly")}
-        </p>
-      </div>
-      <div className="flex items-center justify-center gap-4">
-        <button type="button" onClick={onCancel} className="flex flex-col items-center gap-0.5 text-slate-500">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-slate-100">
-            <X className="h-4 w-4" />
-          </span>
-          <span className="text-[9px] font-semibold">Cancel</span>
-        </button>
-        {paused ? (
-          <button type="button" onClick={onResume} className="flex flex-col items-center gap-0.5">
-            <span className="grid h-11 w-11 place-items-center rounded-full bg-[#2563eb] text-white shadow-md">
-              <Mic className="h-5 w-5" />
-            </span>
-            <span className="text-[9px] font-semibold text-slate-600">Resume</span>
-          </button>
-        ) : (
-          <button type="button" onClick={onPause} className="flex flex-col items-center gap-0.5">
-            <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-800 text-white shadow-md">
-              <Pause className="h-5 w-5" />
-            </span>
-            <span className="text-[9px] font-semibold text-slate-600">Pause</span>
-          </button>
-        )}
-        <button type="button" onClick={onSend} className="flex flex-col items-center gap-0.5">
-          <span className="grid h-11 w-11 place-items-center rounded-full bg-[#2563eb] text-white shadow-lg ring-2 ring-blue-200">
-            <Send className="h-5 w-5" />
-          </span>
-          <span className="text-[9px] font-bold text-[#2563eb]">Send</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
 function speakText(text: string) {
   try {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -238,28 +197,116 @@ function speakText(text: string) {
 function D4Avatar({ size = 32, className = "" }: { size?: number; className?: string }) {
   return (
     <img
-      src={AVATAR}
+      src={LOGO}
       alt="D4AI"
       width={size}
       height={size}
-      className={"rounded-full object-cover ring-1 ring-cyan-400/40 " + className}
+      className={cn("rounded-full object-cover ring-1 ring-cyan-400/50 bg-[#04101f]", className)}
       style={{ width: size, height: size }}
-      onError={(e) => { (e.target as HTMLImageElement).src = LOGO; }}
     />
   );
 }
+
+function LiveWave({ active }: { active: boolean }) {
+  const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16];
+  return (
+    <div className="flex h-7 w-full max-w-[240px] items-center justify-center gap-[2px]">
+      {heights.map((h, i) => (
+        <span
+          key={i}
+          className={cn("w-[3px] rounded-full bg-cyan-400", active && "animate-pulse")}
+          style={{
+            height: active ? `${h}px` : "6px",
+            opacity: active ? 0.55 + (i % 5) * 0.08 : 0.35,
+            animationDelay: active ? `${(i % 8) * 70}ms` : undefined,
+            animationDuration: "0.9s",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function GlowHero({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="flex flex-col items-center pt-4 text-center">
+      <div className="relative">
+        <div className="absolute -inset-7 rounded-full bg-cyan-500/20 blur-2xl" />
+        <div className="absolute -inset-3 animate-[d4ai-pulse_3s_ease-in-out_infinite] rounded-full border border-cyan-400/40" />
+        <img
+          src={LOGO}
+          alt="D4AI"
+          className={cn(
+            "relative rounded-full object-cover shadow-[0_0_70px_rgba(34,211,238,0.35)] ring-2 ring-cyan-400/60",
+            compact ? "h-24 w-24" : "h-36 w-36",
+          )}
+        />
+      </div>
+      <h1
+        className={cn(
+          "bg-gradient-to-r from-cyan-400 via-sky-400 to-fuchsia-500 bg-clip-text font-extrabold tracking-wide text-transparent",
+          compact ? "mt-2 text-2xl" : "mt-5 text-4xl",
+        )}
+      >
+        D4AI
+      </h1>
+      <p className="text-[11px] font-semibold tracking-[0.4em] text-slate-300">D4TECH</p>
+      <p className="mt-1 text-[13px] text-cyan-200/80">Creating Solutions. Innovating Lives.</p>
+    </div>
+  );
+}
+
+function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <div className="flex items-end gap-2">
+        <D4Avatar size={30} className="mb-1 shrink-0" />
+        <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-[#0e2038] px-3.5 py-2.5 ring-1 ring-cyan-400/20">
+          <span className="text-[13px] text-slate-300">D4AI is typing</span>
+          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" />
+          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.15s" }} />
+          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.3s" }} />
+        </div>
+      </div>
+      <div className="relative ml-16 h-16 w-16">
+        <div className="absolute inset-0 animate-[d4ai-pulse_2.4s_ease-in-out_infinite] rounded-full bg-blue-500/20 blur-md" />
+        <div className="d4ai-orb absolute inset-1 rounded-full opacity-90" />
+        <div className="absolute -inset-1 rounded-full border border-fuchsia-400/30" />
+      </div>
+    </div>
+  );
+}
+
+const GLOBAL_CSS = `
+.d4ai-dot{animation:d4ai-bounce 1s ease-in-out infinite}
+@keyframes d4ai-bounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}
+.d4ai-orb{background:radial-gradient(circle at 35% 32%, #7dd3fc 0%, #3b82f6 40%, #172554 78%, #0b1023 100%);box-shadow:0 0 34px rgba(59,130,246,.55),0 0 12px rgba(217,70,239,.35)}
+@keyframes d4ai-pulse{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.12);opacity:.95}}
+.d4ai-ring{animation:d4ai-ring 1.8s ease-out infinite}
+@keyframes d4ai-ring{0%{transform:scale(.85);opacity:.75}100%{transform:scale(1.55);opacity:0}}
+`;
 
 function D4AiPage() {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"home" | "chat">("home");
   const [drawer, setDrawer] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
   const { data: session } = useSessionUser();
   const owner = isD4AiOwner(session);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imageB64, setImageB64] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -272,16 +319,28 @@ function D4AiPage() {
   const [longPress, setLongPress] = useState<Msg | null>(null);
   const [editMsg, setEditMsg] = useState<Msg | null>(null);
   const [editText, setEditText] = useState("");
+  const [thumbs, setThumbs] = useState<Record<string, "up" | "down">>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<{ stop: () => void; start?: () => void } | null>(null);
   const voiceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finalTranscriptRef = useRef("");
   const voicePausedRef = useRef(false);
+  const autoSpeakRef = useRef(autoSpeak);
 
   useEffect(() => {
+    autoSpeakRef.current = autoSpeak;
+  }, [autoSpeak]);
+
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem(THEME_KEY);
+      if (t === "light" || t === "dark") setTheme(t);
+      setAutoSpeak(localStorage.getItem(SPEAK_KEY) === "1");
+    } catch {}
     const list = loadStore();
     let id = localStorage.getItem(ACTIVE_KEY);
     if (!list.length) {
@@ -295,10 +354,19 @@ function D4AiPage() {
     if (!id || !list.find((c) => c.id === id)) id = list[0].id;
     setConversations(list);
     setActiveId(id);
+    const activeConv = list.find((c) => c.id === id);
+    if (activeConv && activeConv.messages.length > 1) setTab("chat");
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const active = useMemo(() => conversations.find((c) => c.id === activeId) ?? null, [conversations, activeId]);
   const messages = active?.messages ?? [WELCOME];
+  const dark = theme === "dark";
 
   const persist = useCallback((list: Conversation[], id: string | null) => {
     setConversations(list);
@@ -331,8 +399,10 @@ function D4AiPage() {
 
   const startNewChat = () => {
     const c: Conversation = { id: newId(), title: "New chat", updatedAt: Date.now(), messages: [WELCOME] };
-    persist([c, ...conversations].slice(0, 30), c.id);
+    persist([c, ...conversations].slice(0, 40), c.id);
     setDrawer(false);
+    setHistoryOpen(false);
+    setTab("home");
     setError(null);
   };
 
@@ -341,9 +411,18 @@ function D4AiPage() {
     if (!list.length) {
       const c: Conversation = { id: newId(), title: "New chat", updatedAt: Date.now(), messages: [WELCOME] };
       persist([c], c.id);
+      setTab("home");
     } else {
       persist(list, id === activeId ? list[0].id : activeId);
     }
+  };
+
+  const clearChat = () => {
+    setDrawer(false);
+    if (!activeId) return;
+    updateActiveMessages([WELCOME]);
+    setTab("home");
+    setToast("Chat cleared");
   };
 
   const onPickFile = async (file: File | null) => {
@@ -390,7 +469,9 @@ function D4AiPage() {
 
       setError(null);
       setBusy(true);
+      setStreaming(false);
       setStatus(null);
+      setTab("chat");
       const userMsg: Msg = {
         id: `u-${Date.now()}`,
         role: "user",
@@ -399,6 +480,7 @@ function D4AiPage() {
           (imgs?.length ? "Please analyse this image." : `Please use this document: ${dName}`),
         imagePreview: imgs?.[0],
         docName: dName || undefined,
+        createdAt: Date.now(),
       };
       updateActiveMessages((m) => [...m.filter((x) => x.id !== "welcome"), userMsg]);
       scrollDown();
@@ -430,14 +512,15 @@ function D4AiPage() {
           setError(res.error);
           updateActiveMessages((m) => [
             ...m,
-            { id: `e-${Date.now()}`, role: "assistant", content: res.error || "Something went wrong." },
+            { id: `e-${Date.now()}`, role: "assistant", content: res.error || "Something went wrong.", createdAt: Date.now() },
           ]);
         } else {
           const full = res.content || "";
           const aid = `a-${Date.now()}`;
-          updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "" }]);
+          updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "", createdAt: Date.now() }]);
           let i = 0;
           const step = Math.max(2, Math.ceil(full.length / 140));
+          setStreaming(true);
           if (typewriterRef.current) clearInterval(typewriterRef.current);
           typewriterRef.current = setInterval(() => {
             i = Math.min(full.length, i + step);
@@ -448,6 +531,8 @@ function D4AiPage() {
             if (i >= full.length) {
               if (typewriterRef.current) clearInterval(typewriterRef.current);
               typewriterRef.current = null;
+              setStreaming(false);
+              if (autoSpeakRef.current) speakText(full);
             }
           }, 16);
         }
@@ -456,7 +541,7 @@ function D4AiPage() {
         setError(msg);
         updateActiveMessages((m) => [
           ...m,
-          { id: `e-${Date.now()}`, role: "assistant", content: msg },
+          { id: `e-${Date.now()}`, role: "assistant", content: msg, createdAt: Date.now() },
         ]);
       } finally {
         setBusy(false);
@@ -583,6 +668,14 @@ function D4AiPage() {
     }
   };
 
+  const voiceToDraft = () => {
+    const text = (finalTranscriptRef.current || voiceText).trim();
+    stopVoice(false);
+    setVoiceText("");
+    finalTranscriptRef.current = "";
+    if (text) setInput(text);
+  };
+
   const finishVoiceAndSend = async () => {
     const text = (finalTranscriptRef.current || voiceText).trim();
     stopVoice(true);
@@ -596,6 +689,7 @@ function D4AiPage() {
       typewriterRef.current = null;
     }
     setBusy(false);
+    setStreaming(false);
     setStatus(null);
   };
 
@@ -605,6 +699,23 @@ function D4AiPage() {
     } catch {
       navigate({ to: "/student" });
     }
+  };
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {}
+  };
+
+  const toggleAutoSpeak = () => {
+    const next = !autoSpeak;
+    setAutoSpeak(next);
+    try {
+      localStorage.setItem(SPEAK_KEY, next ? "1" : "0");
+    } catch {}
+    setToast(next ? "Voice replies on" : "Voice replies off");
   };
 
   const onPressStart = (m: Msg) => {
@@ -618,88 +729,78 @@ function D4AiPage() {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex flex-col text-slate-100" style={{ background: "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" }}>
-      <header
-        className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#0b1b3a] px-2 py-2.5"
-        style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
-      >
-        <button type="button" onClick={goBack} className="rounded-xl p-2 text-white/90 hover:bg-white/10" aria-label="Back">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <D4Avatar size={36} />
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-bold text-white">D4AI</h1>
-            <p className="truncate text-[11px] text-cyan-200/80">{busy ? "Typing…" : "Online · v5-Ultimate"}</p>
+  const deleteMsg = (m: Msg) => {
+    updateActiveMessages((list) => list.filter((x) => x.id !== m.id));
+    setToast("Message deleted");
+  };
+
+  const shareMsg = async (m: Msg) => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ text: m.content });
+      } else {
+        await navigator.clipboard.writeText(m.content);
+        setToast("Copied to share");
+      }
+    } catch {}
+    setLongPress(null);
+  };
+
+  const filteredHistory = conversations.filter((c) => {
+    if (!historyQuery.trim()) return true;
+    const q = historyQuery.toLowerCase();
+    return (
+      c.title.toLowerCase().includes(q) ||
+      c.messages.some((m) => m.content.toLowerCase().includes(q))
+    );
+  });
+
+  const header = (
+    <header
+      className={cn(
+        "flex shrink-0 items-center gap-2 border-b px-3 py-2.5",
+        dark ? "border-cyan-400/15 bg-[#0a1a33]/90" : "border-slate-200 bg-white/90",
+      )}
+      style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+    >
+      <D4Avatar size={38} />
+      <div className="min-w-0 flex-1">
+        <h1 className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>D4AI</h1>
+        <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          {busy ? "Typing…" : "Online · v5-Ultimate"}
+        </p>
+      </div>
+      <button type="button" onClick={() => setDrawer(true)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Menu">
+        <Menu className="h-5 w-5" />
+      </button>
+    </header>
+  );
+
+  const bubbleClasses = (role: Msg["role"]) =>
+    role === "user"
+      ? "rounded-2xl rounded-br-md bg-gradient-to-br from-[#2563eb] to-[#3b82f6] text-white shadow-lg shadow-blue-900/30"
+      : dark
+        ? "rounded-2xl rounded-bl-md bg-[#0e2038] text-slate-100 ring-1 ring-cyan-400/15"
+        : "rounded-2xl rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200 shadow-sm";
+
+  const chatView = (
+    <div className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
+      {messages.length <= 1 && messages[0]?.id === "welcome" ? (
+        <div className="mx-auto flex max-w-md flex-col items-center px-2 pb-4">
+          <GlowHero />
+          <div className={cn("mt-6 w-full rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
+            <div className="flex items-start gap-2">
+              <D4Avatar size={28} className="mt-0.5 shrink-0" />
+              <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
+            </div>
           </div>
         </div>
-        <button type="button" onClick={() => setDrawer(true)} className="rounded-xl p-2 text-white/90 hover:bg-white/10" aria-label="Menu">
-          <Menu className="h-5 w-5" />
-        </button>
-      </header>
-
-      <D4AiConnectionsSheet open={connectionsOpen} onClose={() => setConnectionsOpen(false)} session={session ?? null} />
-
-      {drawer ? (
-        <div className="absolute inset-0 z-50 flex">
-          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} aria-label="Close" />
-          <aside className="relative z-10 flex h-full w-[82%] max-w-sm flex-col bg-[#071428] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <span className="font-semibold text-white">Menu</span>
-              <button type="button" onClick={() => setDrawer(false)} className="p-1 text-white/70">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <button type="button" onClick={startNewChat} className="m-3 flex items-center justify-center gap-2 rounded-xl bg-cyan-600 py-2.5 text-sm font-semibold text-white">
-              <Plus className="h-4 w-4" /> New chat
-            </button>
-            {owner ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawer(false);
-                  setConnectionsOpen(true);
-                }}
-                className="mx-3 mb-2 flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-950/40 py-2.5 text-sm font-semibold text-cyan-200"
-              >
-                Add connectors
-              </button>
-            ) : null}
-            <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Conversations</p>
-            <div className="flex-1 overflow-y-auto px-2 pb-4">
-              {conversations.map((c) => (
-                <div key={c.id} className={cn("mb-1 flex items-center gap-1 rounded-xl px-2 py-2", c.id === activeId ? "bg-white/10" : "hover:bg-white/5")}>
-                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { persist(conversations, c.id); setDrawer(false); }}>
-                    <p className="truncate text-sm font-medium text-white">{c.title}</p>
-                    <p className="text-[10px] text-slate-400">{new Date(c.updatedAt).toLocaleString()}</p>
-                  </button>
-                  <button type="button" className="rounded-lg p-2 text-slate-400 hover:text-red-400" onClick={() => deleteChat(c.id)} aria-label="Delete">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </div>
-      ) : null}
-
-      <div className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
-        {messages.length <= 1 && messages[0]?.id === "welcome" ? (
-          <div className="mx-auto mt-8 flex max-w-sm flex-col items-center text-center">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-700 shadow-xl">
-              <img src="/d4ai-avatar.png" alt="D4AI" className="h-9 w-9 rounded-full object-cover" />
-            </div>
-            <h2 className="text-xl font-bold text-white">D4AI</h2>
-            <p className="mt-1 text-sm text-cyan-100/80">Study · Build · Adapt</p>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{WELCOME.content}</p>
-          </div>
-        ) : (
-          messages.map((m) => (
-            <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
-              {m.role === "assistant" ? (
-                <D4Avatar size={30} className="mt-1 shrink-0" />
-              ) : null}
+      ) : (
+        messages.map((m) => (
+          <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
+            {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
+            <div className={cn("flex max-w-[85%] flex-col", m.role === "user" ? "items-end" : "items-start")}>
               <div
                 role="button"
                 tabIndex={0}
@@ -710,12 +811,7 @@ function D4AiPage() {
                   e.preventDefault();
                   setLongPress(m);
                 }}
-                className={cn(
-                  "max-w-[85%] select-none rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed shadow",
-                  m.role === "user"
-                    ? "rounded-br-md bg-[#0ea5e9] text-white"
-                    : "rounded-bl-md bg-[#132742] text-slate-100 ring-1 ring-white/10",
-                )}
+                className={cn("select-none px-3.5 py-2.5 text-[15px] leading-relaxed shadow", bubbleClasses(m.role))}
               >
                 {m.imagePreview ? (
                   <img src={m.imagePreview} alt="" className="mb-2 max-h-48 w-full rounded-xl object-cover" />
@@ -727,44 +823,103 @@ function D4AiPage() {
                 ) : null}
                 <div className="whitespace-pre-wrap">{m.content}</div>
               </div>
-            </div>
-          ))
-        )}
-        {busy ? (
-          <div className="flex w-full items-end justify-start gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 shadow">
-              <img src="/d4ai-avatar.png" alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-            </div>
-            <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-[#132742] px-3.5 py-2.5 ring-1 ring-white/10">
-              <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" />
-              <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.15s" }} />
-              <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.3s" }} />
+              {m.role === "user" ? (
+                <div className="mt-1 flex items-center gap-1 pr-1 text-[10px] text-slate-400">
+                  <span>{fmtTime(m.createdAt)}</span>
+                  <CheckCheck className="h-3 w-3 text-cyan-300" />
+                </div>
+              ) : m.content ? (
+                <div className="mt-1 flex items-center gap-0.5 pl-1">
+                  <button type="button" onClick={() => speakText(m.content)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-cyan-300" aria-label="Speak">
+                    <Volume2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(m.content);
+                        setToast("Copied");
+                      } catch {}
+                    }}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-cyan-300"
+                    aria-label="Copy"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThumbs((p) => ({ ...p, [m.id]: p[m.id] === "up" ? "up" : "up" }))}
+                    className={cn("rounded-lg p-1.5 hover:bg-white/5", thumbs[m.id] === "up" ? "text-cyan-300" : "text-slate-400 hover:text-cyan-300")}
+                    aria-label="Good response"
+                  >
+                    <ThumbsUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThumbs((p) => ({ ...p, [m.id]: "down" }))}
+                    className={cn("rounded-lg p-1.5 hover:bg-white/5", thumbs[m.id] === "down" ? "text-rose-400" : "text-slate-400 hover:text-rose-400")}
+                    aria-label="Bad response"
+                  >
+                    <ThumbsDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => setLongPress(m)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-cyan-300" aria-label="More">
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
-        ) : null}
-        <style>{`.d4ai-dot{animation:d4ai-bounce 1s ease-in-out infinite}@keyframes d4ai-bounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}`}</style>
-        {status ? (
-          <p className="flex items-center gap-2 px-2 text-xs text-cyan-200/80">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status}
-          </p>
-        ) : null}
-        <div ref={bottomRef} />
+        ))
+      )}
+      {busy && !streaming ? <TypingIndicator /> : null}
+      {status ? (
+        <p className="flex items-center gap-2 px-2 text-xs text-cyan-200/80">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status}
+        </p>
+      ) : null}
+      <div ref={bottomRef} />
+    </div>
+  );
+
+  const homeView = (
+    <div className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
+      <GlowHero />
+      <div className={cn("mx-auto mt-2 w-full max-w-md rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
+        <div className="flex items-start gap-2">
+          <D4Avatar size={28} className="mt-0.5 shrink-0" />
+          <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
+        </div>
       </div>
+      {active && active.messages.length > 1 ? (
+        <button
+          type="button"
+          onClick={() => setTab("chat")}
+          className={cn("mx-auto flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold", dark ? "bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-400/30" : "bg-blue-50 text-blue-700 ring-1 ring-blue-200")}
+        >
+          <MessageCircle className="h-3.5 w-3.5" /> Continue last conversation
+        </button>
+      ) : null}
+      <div ref={bottomRef} />
+    </div>
+  );
 
-      {error ? <p className="px-4 pb-1 text-xs text-amber-300">{error}</p> : null}
-
+  const composer = (
+    <div
+      className={cn("shrink-0 border-t px-2 py-2", dark ? "border-cyan-400/15 bg-[#081426]" : "border-slate-200 bg-white")}
+      style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+    >
       {(imagePreview || docName) && !voiceOn ? (
-        <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2 text-xs text-slate-300">
+        <div className="mb-2 flex items-center gap-2 px-1 text-xs text-slate-300">
           {imagePreview ? (
             <div className="relative">
               <img src={imagePreview} alt="" className="h-12 w-12 rounded-lg object-cover" />
-              <button type="button" className="absolute -right-1 -top-1 rounded-full bg-[#0b1b3a] p-0.5" onClick={() => { setImageB64(null); setImagePreview(null); }}>
+              <button type="button" className="absolute -right-1 -top-1 rounded-full bg-[#0b1b3a] p-0.5 text-white" onClick={() => { setImageB64(null); setImagePreview(null); }}>
                 <X className="h-3 w-3" />
               </button>
             </div>
           ) : null}
           {docName ? (
-            <span className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1">
+            <span className={cn("flex items-center gap-1 rounded-full px-2 py-1", dark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700")}>
               <FileText className="h-3.5 w-3.5" />
               <span className="max-w-[160px] truncate">{docName}</span>
               <button type="button" onClick={() => { setDocText(null); setDocName(null); }}>
@@ -775,110 +930,481 @@ function D4AiPage() {
         </div>
       ) : null}
 
-      <div className="border-t border-white/10 bg-[#071428] px-2 py-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
-        {voiceOn ? (
-          <VoiceSttBar
-            liveText={voiceText}
-            seconds={voiceSecs}
-            paused={voicePaused}
-            onCancel={() => stopVoice(true)}
-            onPause={pauseVoice}
-            onResume={resumeVoice}
-            onSend={() => void finishVoiceAndSend()}
-          />
+      {busy && streaming ? (
+        <div className="mx-auto mb-2 flex max-w-md flex-col items-center gap-1">
+          <p className={cn("text-[11px] font-medium", dark ? "text-slate-300" : "text-slate-600")}>D4AI is responding…</p>
+          <LiveWave active />
+        </div>
+      ) : null}
+
+      <div className="mx-auto flex max-w-2xl items-end gap-1.5">
+        <button type="button" onClick={() => fileRef.current?.click()} className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-white/90 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100")} aria-label="Attach file">
+          <Paperclip className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={() => imageFileRef.current?.click()} className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-white/90 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100")} aria-label="Send image">
+          <ImageIcon className="h-5 w-5" />
+        </button>
+        <input ref={fileRef} type="file" accept="image/*,.pdf,.txt,.md,.csv,application/pdf,text/plain" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+        <input ref={imageFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+        <textarea
+          rows={1}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          placeholder="Message D4AI…"
+          className={cn(
+            "max-h-28 min-h-[42px] flex-1 resize-none rounded-2xl border px-3.5 py-2.5 text-sm focus:outline-none",
+            dark
+              ? "border-cyan-400/25 bg-white/5 text-white placeholder:text-slate-500 focus:border-cyan-400/60"
+              : "border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400",
+          )}
+        />
+        {busy ? (
+          <button type="button" onClick={stopAi} className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-rose-500 text-white shadow-lg ring-2 ring-rose-300/60" aria-label="Stop">
+            <Square className="h-4 w-4 fill-current" />
+          </button>
+        ) : input.trim() || imageB64 || docText ? (
+          <button type="button" onClick={() => void send()} className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] text-white shadow-lg" aria-label="Send">
+            <Send className="h-5 w-5" />
+          </button>
         ) : (
-          <div className="mx-auto flex max-w-2xl items-end gap-1.5">
-            <button type="button" onClick={() => fileRef.current?.click()} className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10" aria-label="Attach">
-              <Paperclip className="h-5 w-5" />
-            </button>
-            <input ref={fileRef} type="file" accept="image/*,.pdf,.txt,.md,.csv,application/pdf,text/plain" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-            <textarea
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder="Message D4AI…"
-              className="max-h-28 min-h-[40px] flex-1 resize-none rounded-2xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-cyan-500 focus:outline-none"
-            />
-            {busy ? (
-              <button type="button" onClick={stopAi} className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-rose-500 text-white shadow-lg" aria-label="Stop">
-                <Square className="h-4 w-4 fill-current" />
-              </button>
-            ) : input.trim() || imageB64 || docText ? (
-              <button type="button" onClick={() => void send()} className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#0ea5e9] text-white" aria-label="Send">
-                <Send className="h-4 w-4" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={startVoice}
-                className={cn(
-                  "mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-white shadow-lg transition active:scale-95",
-                  "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8]",
-                  "ring-2 ring-white/60 ring-offset-1 ring-offset-[#0b1b3a]",
-                )}
-                aria-label="Voice"
-              >
-                <Mic className="h-5 w-5" />
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={startVoice}
+            className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white shadow-lg ring-2 ring-white/50 transition active:scale-95"
+            aria-label="Voice"
+          >
+            <Mic className="h-5 w-5" />
+          </button>
         )}
       </div>
+    </div>
+  );
 
-      {longPress ? (
-        <div className="absolute inset-0 z-[80] flex items-end justify-center bg-black/40 p-4">
-          <button type="button" className="absolute inset-0" onClick={() => setLongPress(null)} aria-label="Close" />
-          <div className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl bg-[#0c2244] shadow-xl ring-1 ring-white/10">
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm text-white hover:bg-white/5"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(longPress.content);
-                } catch {}
-                setLongPress(null);
-              }}
-            >
-              <Copy className="h-4 w-4 text-cyan-300" /> Copy
+  const bottomNav = (
+    <nav
+      className={cn("flex shrink-0 items-stretch justify-around border-t", dark ? "border-cyan-400/15 bg-[#050d1c]" : "border-slate-200 bg-white")}
+      style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
+    >
+      {[
+        { key: "home", label: "Home", icon: Home, action: () => setTab("home") },
+        { key: "chat", label: "Chat", icon: MessageCircle, action: () => setTab("chat") },
+        { key: "tools", label: "Tools", icon: Wrench, action: () => setToolsOpen(true) },
+        { key: "settings", label: "Settings", icon: Settings, action: () => setSettingsOpen(true) },
+      ].map((item) => {
+        const isActive = (item.key === "home" || item.key === "chat") && tab === item.key && !settingsOpen && !historyOpen;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={item.action}
+            className={cn("flex flex-1 flex-col items-center gap-0.5 px-2 py-2 text-[10px] font-medium", isActive ? "text-cyan-300" : dark ? "text-slate-400" : "text-slate-500")}
+          >
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+
+  return (
+    <div
+      className={cn("fixed inset-0 z-[60] flex flex-col", dark ? "text-slate-100" : "text-slate-900")}
+      style={{
+        background: dark
+          ? "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)"
+          : "radial-gradient(ellipse at top, #e8f1ff 0%, #f5f9ff 45%, #ffffff 100%)",
+      }}
+    >
+      <style>{GLOBAL_CSS}</style>
+
+      {/* ---------- Chat history full screen ---------- */}
+      {historyOpen ? (
+        <div className="absolute inset-0 z-[70] flex flex-col" style={{ background: dark ? "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" : "radial-gradient(ellipse at top, #e8f1ff 0%, #f5f9ff 45%, #ffffff 100%)" }}>
+          <header className={cn("flex shrink-0 items-center gap-2 border-b px-3 py-3", dark ? "border-cyan-400/15 bg-[#0a1a33]/90" : "border-slate-200 bg-white/90")} style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
+            <button type="button" onClick={() => setHistoryOpen(false)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Back">
+              <ArrowLeft className="h-5 w-5" />
             </button>
-            {longPress.role === "user" ? (
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 border-t border-white/10 px-4 py-3.5 text-left text-sm text-white hover:bg-white/5"
-                onClick={() => {
-                  setEditMsg(longPress);
-                  setEditText(longPress.content);
-                  setLongPress(null);
-                }}
-              >
-                <Pencil className="h-4 w-4 text-cyan-300" /> Edit & resend
-              </button>
+            <h2 className={cn("flex-1 text-lg font-bold", dark ? "text-white" : "text-slate-900")}>Chat History</h2>
+            <button type="button" onClick={startNewChat} className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] text-white" aria-label="New chat">
+              <Plus className="h-5 w-5" />
+            </button>
+          </header>
+          <div className="px-3 py-3">
+            <div className={cn("flex items-center gap-2 rounded-xl border px-3 py-2", dark ? "border-cyan-400/25 bg-white/5" : "border-slate-200 bg-white")}>
+              <History className="h-4 w-4 text-slate-400" />
+              <input
+                value={historyQuery}
+                onChange={(e) => setHistoryQuery(e.target.value)}
+                placeholder="Search conversations…"
+                className={cn("w-full bg-transparent text-sm outline-none", dark ? "text-white placeholder:text-slate-500" : "text-slate-900 placeholder:text-slate-400")}
+              />
+            </div>
+          </div>
+          <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-6">
+            {filteredHistory.length === 0 ? (
+              <p className={cn("mt-8 text-center text-sm", dark ? "text-slate-400" : "text-slate-500")}>No conversations found.</p>
             ) : null}
-            <button type="button" className="flex w-full items-center justify-center border-t border-white/10 px-4 py-3 text-sm text-slate-400" onClick={() => setLongPress(null)}>
-              Cancel
-            </button>
+            {filteredHistory.map((c) => {
+              const last = [...c.messages].reverse().find((m) => m.id !== "welcome");
+              return (
+                <div
+                  key={c.id}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl px-3 py-2.5",
+                    c.id === activeId
+                      ? dark ? "bg-cyan-500/10 ring-1 ring-cyan-400/30" : "bg-blue-50 ring-1 ring-blue-200"
+                      : dark ? "bg-[#0e2038] ring-1 ring-cyan-400/10" : "bg-white ring-1 ring-slate-200",
+                  )}
+                >
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => { persist(conversations, c.id); setHistoryOpen(false); setTab("chat"); }}>
+                    <D4Avatar size={40} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={cn("truncate text-sm font-semibold", dark ? "text-white" : "text-slate-900")}>{c.title}</p>
+                        <span className="shrink-0 text-[10px] text-slate-400">{fmtDay(c.updatedAt)}</span>
+                      </div>
+                      <p className="truncate text-[11px] text-slate-400">{last ? last.content.slice(0, 70) : "New conversation"}</p>
+                    </div>
+                  </button>
+                  <button type="button" className={cn("rounded-lg p-2", dark ? "text-slate-500 hover:text-rose-400" : "text-slate-400 hover:text-rose-500")} onClick={() => deleteChat(c.id)} aria-label="Delete conversation">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
 
+      {/* ---------- Settings full screen ---------- */}
+      {settingsOpen ? (
+        <div className="absolute inset-0 z-[70] flex flex-col" style={{ background: dark ? "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" : "radial-gradient(ellipse at top, #e8f1ff 0%, #f5f9ff 45%, #ffffff 100%)" }}>
+          <header className={cn("flex shrink-0 items-center gap-2 border-b px-3 py-3", dark ? "border-cyan-400/15 bg-[#0a1a33]/90" : "border-slate-200 bg-white/90")} style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
+            <button type="button" onClick={() => setSettingsOpen(false)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Back">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h2 className={cn("flex-1 text-lg font-bold", dark ? "text-white" : "text-slate-900")}>Settings</h2>
+            <MoreVertical className={cn("h-5 w-5", dark ? "text-white/70" : "text-slate-500")} />
+          </header>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            <div className={cn("flex items-center gap-3 rounded-2xl px-4 py-3", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
+              <D4Avatar size={44} />
+              <div>
+                <p className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>D4AI</p>
+                <p className="text-[11px] text-cyan-300/90">v5-Ultimate</p>
+              </div>
+            </div>
+            <div className={cn("overflow-hidden rounded-2xl", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
+              {[
+                { icon: theme === "dark" ? Moon : Sun, label: "Appearance", value: theme === "dark" ? "Dark Mode" : "Light Mode", action: toggleTheme },
+                { icon: Globe, label: "Language", value: "English", action: () => setToast("Language: English") },
+                { icon: Mic, label: "Voice Settings", value: autoSpeak ? "TTS & STT · On" : "TTS & STT", action: toggleAutoSpeak },
+                { icon: Cpu, label: "Model Settings", value: "Llama 3.1 8B / LLaVA 7B", action: () => setToast("Model: D4AI v5-Ultimate") },
+                { icon: Bell, label: "Notifications", value: "On", action: () => { setSettingsOpen(false); try { appNavigate(navigate, "/student/notifications"); } catch { navigate({ to: "/student/notifications" }); } } },
+                { icon: Shield, label: "Privacy & Security", value: "", action: () => { setSettingsOpen(false); try { appNavigate(navigate, "/privacy"); } catch { navigate({ to: "/privacy" }); } } },
+              ].map((row, i) => (
+                <button
+                  key={row.label}
+                  type="button"
+                  onClick={row.action}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-4 py-3.5 text-left",
+                    i > 0 && (dark ? "border-t border-white/5" : "border-t border-slate-100"),
+                  )}
+                >
+                  <row.icon className="h-4.5 w-4.5 h-[18px] w-[18px] text-cyan-300" />
+                  <span className={cn("flex-1 text-sm font-medium", dark ? "text-white" : "text-slate-900")}>{row.label}</span>
+                  {row.value ? <span className="text-xs text-slate-400">{row.value}</span> : null}
+                  <ChevronRight className="h-4 w-4 text-slate-500" />
+                </button>
+              ))}
+            </div>
+            <p className="pb-4 text-center text-[11px] text-slate-500">D4AI · built by Amurun Destiny under D4TECH</p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- Main (home / chat) ---------- */}
+      {!historyOpen && !settingsOpen ? (
+        <>
+          {header}
+          <D4AiConnectionsSheet open={connectionsOpen} onClose={() => setConnectionsOpen(false)} session={session ?? null} />
+
+          {tab === "home" ? homeView : chatView}
+
+          {error ? <p className="px-4 pb-1 text-xs text-amber-300">{error}</p> : null}
+          {composer}
+          {bottomNav}
+        </>
+      ) : null}
+
+      {/* ---------- Drawer menu ---------- */}
+      {drawer ? (
+        <div className="absolute inset-0 z-[75] flex">
+          <button type="button" className="absolute inset-0 bg-black/60" onClick={() => setDrawer(false)} aria-label="Close menu" />
+          <aside className={cn("relative z-10 flex h-full w-[84%] max-w-sm flex-col shadow-2xl", dark ? "bg-[#071428]" : "bg-white")} style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
+            <div className="flex items-center gap-3 px-4 py-3">
+              <D4Avatar size={44} />
+              <div className="min-w-0 flex-1">
+                <p className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>D4AI</p>
+                <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" /> Online · v5-Ultimate
+                </p>
+              </div>
+              <button type="button" onClick={() => setDrawer(false)} className={cn("p-1", dark ? "text-white/70" : "text-slate-500")} aria-label="Close">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-1 px-3 pt-2">
+              <button type="button" onClick={startNewChat} className="flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] px-3 py-2.5 text-sm font-semibold text-white shadow-lg">
+                <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/15"><Plus className="h-4 w-4" /></span>
+                New Chat
+              </button>
+              {[
+                { icon: History, label: "Chat History", action: () => { setDrawer(false); setHistoryOpen(true); } },
+                { icon: Wrench, label: "Tools & Integrations", action: () => { setDrawer(false); if (owner) setConnectionsOpen(true); else setToolsOpen(true); } },
+                { icon: Phone, label: "Voice & Call", action: () => { setDrawer(false); startVoice(); } },
+                { icon: Settings, label: "Settings", action: () => { setDrawer(false); setSettingsOpen(true); } },
+                { icon: Info, label: "About D4AI", action: () => { setDrawer(false); setAboutOpen(true); } },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={item.action}
+                  className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium", dark ? "text-slate-200 hover:bg-white/5" : "text-slate-700 hover:bg-slate-100")}
+                >
+                  <item.icon className="h-4.5 w-4.5 h-[18px] w-[18px] text-cyan-300" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <p className={cn("px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider", dark ? "text-slate-500" : "text-slate-400")}>Quick Actions</p>
+            <div className="space-y-1 px-3 pb-4">
+              <button type="button" onClick={clearChat} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium", dark ? "text-slate-200 hover:bg-white/5" : "text-slate-700 hover:bg-slate-100")}>
+                <Trash2 className="h-[18px] w-[18px] text-cyan-300" /> Clear Chat
+              </button>
+              <div className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium", dark ? "text-slate-200" : "text-slate-700")}>
+                {dark ? <Moon className="h-[18px] w-[18px] text-cyan-300" /> : <Sun className="h-[18px] w-[18px] text-cyan-300" />}
+                <span className="flex-1">Dark/Light Mode</span>
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className={cn("relative h-6 w-11 rounded-full transition", theme === "dark" ? "bg-cyan-500" : "bg-slate-300")}
+                  aria-label="Toggle dark mode"
+                >
+                  <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", theme === "dark" ? "left-[22px]" : "left-0.5")} />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setDrawer(false); try { appNavigate(navigate, "/support"); } catch { navigate({ to: "/support" }); } }}
+                className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium", dark ? "text-slate-200 hover:bg-white/5" : "text-slate-700 hover:bg-slate-100")}
+              >
+                <HelpCircle className="h-[18px] w-[18px] text-cyan-300" /> Help & Support
+              </button>
+              <button type="button" onClick={goBack} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium", dark ? "text-slate-200 hover:bg-white/5" : "text-slate-700 hover:bg-slate-100")}>
+                <LogOut className="h-[18px] w-[18px] text-cyan-300" /> Exit
+              </button>
+            </div>
+            <p className="mt-auto pb-3 text-center text-[10px] text-slate-500">D4AI · Creating Solutions. Innovating Lives.</p>
+          </aside>
+        </div>
+      ) : null}
+
+      {/* ---------- Voice full screen ---------- */}
+      {voiceOn ? (
+        <div className="absolute inset-0 z-[80] flex flex-col" style={{ background: "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" }}>
+          <div className="flex items-center gap-2 px-3 py-3" style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
+            <D4Avatar size={38} />
+            <div>
+              <p className="text-base font-bold text-white">D4AI</p>
+              <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" /> Online · v5-Ultimate
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+            <div className="relative grid h-40 w-40 place-items-center">
+              {!voicePaused ? (
+                <>
+                  <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-cyan-400/50" />
+                  <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-blue-400/40" style={{ animationDelay: "0.6s" }} />
+                  <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-fuchsia-400/30" style={{ animationDelay: "1.2s" }} />
+                </>
+              ) : null}
+              <div className="d4ai-orb grid h-28 w-28 place-items-center rounded-full">
+                <Mic className="h-10 w-10 text-white" />
+              </div>
+            </div>
+            <p className="mt-5 text-lg font-bold text-white">{voicePaused ? "Paused" : "Tap to speak"}</p>
+            <p className="text-xs text-cyan-300/80">{voicePaused ? "Paused — resume or send" : "Listening…"}</p>
+            <p className="mt-1 text-sm font-bold tabular-nums text-slate-300">
+              {String(Math.floor(voiceSecs / 60)).padStart(2, "0")}:{String(voiceSecs % 60).padStart(2, "0")}
+            </p>
+            <div className={cn("mt-4 max-h-32 w-full max-w-md overflow-y-auto rounded-2xl px-4 py-3 text-sm leading-relaxed", voiceText ? "bg-[#0e2038] text-slate-200 ring-1 ring-cyan-400/20" : "text-slate-500")}>
+              {voiceText || "Your words will appear here as you speak…"}
+            </div>
+          </div>
+          <div className="px-6 pb-3">
+            <div className="mb-3 flex items-center justify-center gap-3">
+              {voicePaused ? (
+                <button type="button" onClick={resumeVoice} className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-200">
+                  <Play className="h-3.5 w-3.5" /> Resume
+                </button>
+              ) : (
+                <button type="button" onClick={pauseVoice} className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-200">
+                  <Square className="h-3 w-3" /> Pause
+                </button>
+              )}
+              <button type="button" onClick={() => void finishVoiceAndSend()} className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#3b82f6] px-4 py-1.5 text-xs font-bold text-white shadow-lg">
+                <Send className="h-3.5 w-3.5" /> Send
+              </button>
+            </div>
+            <div className="flex items-center justify-around pb-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+              <button type="button" onClick={voiceToDraft} className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white" aria-label="Keyboard">
+                <Keyboard className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={voiceToDraft}
+                className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white shadow-xl ring-4 ring-white/30"
+                aria-label="Stop listening"
+              >
+                <Mic className="h-7 w-7" />
+              </button>
+              <button type="button" onClick={() => stopVoice(true)} className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white" aria-label="Cancel">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- Long-press options ---------- */}
+      {longPress ? (
+        <div className="absolute inset-0 z-[80] flex items-end justify-center bg-black/50 p-4">
+          <button type="button" className="absolute inset-0" onClick={() => setLongPress(null)} aria-label="Close" />
+          <div className={cn("relative z-10 w-full max-w-sm overflow-hidden rounded-2xl shadow-2xl", dark ? "bg-[#0c2244] ring-1 ring-cyan-400/20" : "bg-white ring-1 ring-slate-200")}>
+            <div className="flex items-center justify-between px-4 pt-3">
+              <span className={cn("text-xs font-semibold uppercase tracking-wide", dark ? "text-slate-400" : "text-slate-500")}>
+                {longPress.role === "user" ? "Your message" : "D4AI message"}
+              </span>
+              <button type="button" onClick={() => setLongPress(null)} className={cn("p-1", dark ? "text-slate-400" : "text-slate-500")} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="py-1">
+              <button
+                type="button"
+                className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(longPress.content);
+                    setToast("Copied");
+                  } catch {}
+                  setLongPress(null);
+                }}
+              >
+                <Copy className="h-4 w-4 text-cyan-300" /> Copy
+              </button>
+              {longPress.role === "user" ? (
+                <>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                    onClick={() => {
+                      setEditMsg(longPress);
+                      setEditText(longPress.content);
+                      setLongPress(null);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4 text-cyan-300" /> Edit (your message)
+                  </button>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                    onClick={() => {
+                      const content = longPress.content;
+                      setLongPress(null);
+                      void sendWithText(content);
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4 text-cyan-300" /> Resend
+                  </button>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-rose-400", dark ? "hover:bg-white/5" : "hover:bg-slate-50")}
+                    onClick={() => {
+                      deleteMsg(longPress);
+                      setLongPress(null);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                    onClick={() => {
+                      speakText(longPress.content);
+                      setLongPress(null);
+                    }}
+                  >
+                    <Volume2 className="h-4 w-4 text-cyan-300" /> Speak (Text to Speech)
+                  </button>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                    onClick={() => void shareMsg(longPress)}
+                  >
+                    <Share2 className="h-4 w-4 text-cyan-300" /> Share
+                  </button>
+                  <button
+                    type="button"
+                    className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
+                    onClick={() => {
+                      setLongPress(null);
+                      setToast("Reported. Thank you.");
+                    }}
+                  >
+                    <Flag className="h-4 w-4 text-cyan-300" /> Report
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- Edit & resend ---------- */}
       {editMsg ? (
-        <div className="absolute inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-[#0c2244] p-4 shadow-xl ring-1 ring-white/10">
-            <h3 className="text-sm font-bold text-white">Edit & resend</h3>
-            <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={4} className="mt-2 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white" />
+        <div className="absolute inset-0 z-[90] flex items-center justify-center bg-black/60 p-4">
+          <div className={cn("w-full max-w-sm rounded-2xl p-4 shadow-2xl", dark ? "bg-[#0c2244] ring-1 ring-cyan-400/20" : "bg-white ring-1 ring-slate-200")}>
+            <h3 className={cn("text-sm font-bold", dark ? "text-white" : "text-slate-900")}>Edit (your message)</h3>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              rows={4}
+              className={cn("mt-2 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none", dark ? "border-white/15 bg-white/5 text-white" : "border-slate-200 bg-slate-50 text-slate-900")}
+            />
             <div className="mt-3 flex gap-2">
-              <button type="button" className="flex-1 rounded-xl bg-white/10 py-2 text-sm text-white" onClick={() => setEditMsg(null)}>
+              <button type="button" className={cn("flex-1 rounded-xl py-2 text-sm", dark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700")} onClick={() => setEditMsg(null)}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="flex-1 rounded-xl bg-cyan-600 py-2 text-sm font-semibold text-white"
+                className="flex-1 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white"
                 onClick={() => {
                   const t = editText.trim();
                   setEditMsg(null);
@@ -888,6 +1414,68 @@ function D4AiPage() {
                 Resend
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- Tools & integrations ---------- */}
+      {toolsOpen ? (
+        <div className="absolute inset-0 z-[85] flex items-center justify-center bg-black/60 p-4">
+          <div className={cn("w-full max-w-sm rounded-2xl p-5 text-center shadow-2xl", dark ? "bg-[#0c2244] ring-1 ring-cyan-400/20" : "bg-white ring-1 ring-slate-200")}>
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-cyan-500/15">
+              <Wrench className="h-6 w-6 text-cyan-300" />
+            </div>
+            <h3 className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>Tools & Integrations</h3>
+            <p className={cn("mt-1 text-sm", dark ? "text-slate-400" : "text-slate-600")}>
+              {owner
+                ? "Connect GitHub and other tools to supercharge D4AI."
+                : "Tools & integrations are available to the platform owner."}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button type="button" className={cn("flex-1 rounded-xl py-2 text-sm", dark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700")} onClick={() => setToolsOpen(false)}>
+                Close
+              </button>
+              {owner ? (
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white"
+                  onClick={() => {
+                    setToolsOpen(false);
+                    setConnectionsOpen(true);
+                  }}
+                >
+                  Connect
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- About ---------- */}
+      {aboutOpen ? (
+        <div className="absolute inset-0 z-[85] flex items-center justify-center bg-black/60 p-4">
+          <div className={cn("w-full max-w-sm rounded-2xl p-5 text-center shadow-2xl", dark ? "bg-[#0c2244] ring-1 ring-cyan-400/20" : "bg-white ring-1 ring-slate-200")}>
+            <img src={LOGO} alt="D4AI" className="mx-auto h-20 w-20 rounded-full object-cover ring-2 ring-cyan-400/50" />
+            <h3 className="mt-3 bg-gradient-to-r from-cyan-400 via-sky-400 to-fuchsia-500 bg-clip-text text-2xl font-extrabold text-transparent">D4AI</h3>
+            <p className="text-[11px] font-semibold tracking-[0.35em] text-slate-400">D4TECH</p>
+            <p className={cn("mt-3 text-sm leading-relaxed", dark ? "text-slate-300" : "text-slate-600")}>
+              D4AI is your all-round AI assistant — learning, research, coding, cybersecurity and more.
+              Built by Amurun Destiny under D4TECH.
+            </p>
+            <p className="mt-2 text-xs text-cyan-300/80">Creating Solutions. Innovating Lives.</p>
+            <button type="button" className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white" onClick={() => setAboutOpen(false)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------- Toast ---------- */}
+      {toast ? (
+        <div className="pointer-events-none absolute bottom-28 left-1/2 z-[95] -translate-x-1/2">
+          <div className={cn("rounded-full px-4 py-2 text-xs font-semibold shadow-xl", dark ? "bg-[#0e2038] text-cyan-200 ring-1 ring-cyan-400/30" : "bg-slate-900 text-white")}>
+            {toast}
           </div>
         </div>
       ) : null}
