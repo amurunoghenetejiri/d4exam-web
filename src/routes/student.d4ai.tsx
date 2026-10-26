@@ -16,6 +16,7 @@ import {
   Sparkles,
   Square,
   Trash2,
+  Volume2,
   X,
 } from "lucide-react";
 import { d4aiChat } from "@/lib/d4ai.server";
@@ -50,11 +51,13 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
+const LOGO = "/d4ai-logo.png";
+const AVATAR = "/d4ai-avatar.png";
 const WELCOME: Msg = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hey! I'm D4AI — built by Amurun Destiny under D4TECH.\n\nAsk anything, attach a file, or use the mic to talk.",
+    "Hello, Boss! 👋\n\nI'm D4AI, your all-round AI assistant.\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\nJust type a message, or use the mic to talk.\nLet's get started! 🚀",
 };
 
 function loadStore(): Conversation[] {
@@ -217,6 +220,32 @@ function VoiceSttBar({
         </button>
       </div>
     </div>
+  );
+}
+
+
+function speakText(text: string) {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.slice(0, 4000));
+    u.lang = "en-US";
+    u.rate = 1;
+    window.speechSynthesis.speak(u);
+  } catch {}
+}
+
+function D4Avatar({ size = 32, className = "" }: { size?: number; className?: string }) {
+  return (
+    <img
+      src={AVATAR}
+      alt="D4AI"
+      width={size}
+      height={size}
+      className={"rounded-full object-cover ring-1 ring-cyan-400/40 " + className}
+      style={{ width: size, height: size }}
+      onError={(e) => { (e.target as HTMLImageElement).src = LOGO; }}
+    />
   );
 }
 
@@ -590,7 +619,7 @@ function D4AiPage() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#0b1b3a] text-slate-100" style={{ backgroundColor: "#0b1b3a" }}>
+    <div className="fixed inset-0 z-[60] flex flex-col text-slate-100" style={{ background: "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" }}>
       <header
         className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#0b1b3a] px-2 py-2.5"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
@@ -599,12 +628,10 @@ function D4AiPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 shadow-lg">
-            <Sparkles className="h-5 w-5 text-white" />
-          </div>
+          <D4Avatar size={36} />
           <div className="min-w-0">
             <h1 className="truncate text-base font-bold text-white">D4AI</h1>
-            <p className="truncate text-[11px] text-cyan-200/80">{busy ? "Typing…" : "Online · D4TECH"}</p>
+            <p className="truncate text-[11px] text-cyan-200/80">{busy ? "Typing…" : "Online · v5-Ultimate"}</p>
           </div>
         </div>
         <button type="button" onClick={() => setDrawer(true)} className="rounded-xl p-2 text-white/90 hover:bg-white/10" aria-label="Menu">
@@ -671,9 +698,7 @@ function D4AiPage() {
           messages.map((m) => (
             <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
               {m.role === "assistant" ? (
-                <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600">
-                  <Sparkles className="h-3.5 w-3.5 text-white" />
-                </div>
+                <D4Avatar size={30} className="mt-1 shrink-0" />
               ) : null}
               <div
                 role="button"

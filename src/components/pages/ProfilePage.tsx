@@ -213,7 +213,22 @@ export function ProfilePage() {
       <div className="space-y-4">
         <SectionCard className="overflow-hidden p-0">
           <div className="flex flex-col items-center gap-3 border-b border-slate-100 px-4 pb-4 pt-4 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
-            <ProfilePhotoButton />
+            <div className="flex flex-col items-center gap-2">
+    <div className="relative h-20 w-20 overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 shadow-sm">
+      {user.avatarUrl ? (
+        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xl font-bold text-slate-500">
+          {avatar}
+        </div>
+      )}
+    </div>
+    <ProfilePhotoButton
+      userId={user.userId}
+      profileId={user.profileId}
+      hasPhoto={Boolean(user.avatarUrl)}
+    />
+  </div>
             <div className="min-w-0 flex-1 text-center sm:text-left">
               <p className="truncate text-lg font-bold text-slate-900">
                 {user.fullName || "User"}
