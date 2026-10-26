@@ -28,7 +28,7 @@ const messageSchema = z.object({
 });
 
 const chatInputSchema = z.object({
-  messages: z.array(messageSchema).min(1).max(24),
+  messages: z.array(messageSchema).min(1).max(32),
   images: z.array(z.string().max(8_000_000)).max(3).optional(),
   documentText: z.string().max(60_000).optional(),
   documentName: z.string().max(200).optional(),
@@ -104,7 +104,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
     messages.unshift({
       role: "system",
       content:
-        "You are D4AI, built by Amurun Destiny under D4TECH. Always give thorough, detailed answers: explain concepts clearly, use short paragraphs and bullet points, include examples when useful, and walk through steps. Prefer depth over one-liners unless the user explicitly asks for a short answer. Match the user's language (including Nigerian Pidgin when they use it)." +
+        "You are D4AI by D4TECH. Answer clearly and quickly. Use short paragraphs or bullets. Be helpful and friendly. Match the user's language (including Nigerian Pidgin when they use it). Keep answers complete but not bloated." +
         (useGh
           ? " The user is the platform owner with GitHub connected. USE GitHub tools when they ask about repos, files, commits, or issues. Default repo: amurunoghenetejiri/d4exam-web. Prefer tool calls over saying you cannot access GitHub."
           : ""),
@@ -112,7 +112,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
 
     const trimmed = data.documentText?.trim()
       ? messages.slice(-4)
-      : messages.slice(-10);
+      : messages.slice(-8);
 
     const buildOllamaMessages = (msgs: typeof trimmed) =>
       msgs.map((m, i) => {
@@ -141,9 +141,10 @@ export const d4aiChat = createServerFn({ method: "POST" })
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGh ? 1400 : data.documentText?.trim() ? 1000 : 1600,
-            temperature: 0.65,
-            num_ctx: 8192,
+            num_predict: useGh ? 900 : data.documentText?.trim() ? 700 : 700,
+            temperature: 0.5,
+            top_p: 0.9,
+            num_ctx: 4096,
           },
         };
         if (useGh && !hasImages) {

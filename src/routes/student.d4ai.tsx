@@ -808,27 +808,27 @@ function D4AiPage() {
         setStatus(null);
       }
 
-      const history = [...(active?.messages ?? []), userMsg]
+      // API allows max 24 messages — keep only the latest turns
+      let history = [...(active?.messages ?? []), userMsg]
         .filter((m) => m.id !== "welcome")
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-      if (nickname) {
-        history.unshift(
-          {
-            role: "user" as const,
-            content: `(Student preferred name: "${nickname}". Address them as ${nickname} when natural.)`,
-          },
-          {
-            role: "assistant" as const,
-            content: `Got it — I'll call you ${nickname}.`,
-          },
-        );
+      // Prefer recent context; hard cap under schema max(24)
+      if (history.length > 20) history = history.slice(-20);
+      if (nickname && history.length) {
+        const last = history[history.length - 1];
+        if (last.role === "user") {
+          last.content = `(Call me ${nickname}.)\n${last.content}`;
+        }
+      }
+      if (!history.length) {
+        history = [{ role: "user", content: userMsg.content }];
       }
 
       try {
         const ghToken = readGithubToken();
         const res = await d4aiChat({
           data: {
-            messages: history.length ? history : [{ role: "user", content: userMsg.content }],
+            messages: history,
             images: dText ? undefined : imgs,
             documentText: dText,
             documentName: dName || (imgs ? "image-ocr.txt" : undefined),
@@ -837,10 +837,17 @@ function D4AiPage() {
           },
         });
         if (!res.ok) {
-          setError(res.error);
+          const raw = String(res.error || "Something went wrong.");
+          const friendly =
+            /too_big|at most \d+ element/i.test(raw)
+              ? "Chat history was too long. I trimmed it — please send your message again."
+              : raw.length > 280
+                ? "D4AI had a problem answering. Please try a shorter message."
+                : raw;
+          setError(friendly);
           updateActiveMessages((m) => [
             ...m,
-            { id: `e-${Date.now()}`, role: "assistant", content: res.error || "Something went wrong.", createdAt: Date.now() },
+            { id: `e-${Date.now()}`, role: "assistant", content: friendly, createdAt: Date.now() },
           ]);
         } else {
           const full = res.content || "";
@@ -1098,30 +1105,40 @@ function D4AiPage() {
   };
 
   const doSpeak = (text: string, msgId?: string) => {
-    // Toggle off if same message is already speaking
-    if (msgId && speakingMsgId === msgId && ttsSpeakingRef.current) {
+    if (msgId && speakingMsgId === msgId) {
       stopSpeaking();
       setTtsSpeaking(false);
       ttsSpeakingRef.current = false;
       setSpeakingMsgId(null);
       return;
     }
-    // Immediate UI feedback (icon -> Stop)
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setToast("Speech not supported on this device");
+      return;
+    }
+    // Unlock audio on user gesture (required on many phones)
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+    } catch {}
     if (msgId) setSpeakingMsgId(msgId);
     setTtsSpeaking(true);
     ttsSpeakingRef.current = true;
-    speakText(text, {
-      preset: voicePreset,
-      onstart: () => {
-        setTtsSpeaking(true);
-        ttsSpeakingRef.current = true;
-      },
-      onend: () => {
-        setTtsSpeaking(false);
-        ttsSpeakingRef.current = false;
-        setSpeakingMsgId(null);
-      },
-    });
+    // Defer one tick so UI paints Stop icon first
+    setTimeout(() => {
+      speakText(text, {
+        preset: voicePreset,
+        onstart: () => {
+          setTtsSpeaking(true);
+          ttsSpeakingRef.current = true;
+        },
+        onend: () => {
+          setTtsSpeaking(false);
+          ttsSpeakingRef.current = false;
+          setSpeakingMsgId(null);
+        },
+      });
+    }, 30);
   };
 
   const stopAi = () => {
