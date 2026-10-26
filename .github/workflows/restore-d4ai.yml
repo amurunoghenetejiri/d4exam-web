@@ -8,14 +8,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Download good file and commit
+      - name: Restore student.d4ai.tsx
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/b41c22edaa68b615d7444e796164697fe82a0b7a/src/routes/student.d4ai.tsx" -o src/routes/student.d4ai.tsx
-          wc -l src/routes/student.d4ai.tsx
-          git config user.name "d4ai-restore"
-          git config user.email "d4ai@d4tech.local"
+          set -e
+          curl -fsSL -o src/routes/student.d4ai.tsx \
+            "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/b41c22edaa68b615d7444e796164697fe82a0b7a/src/routes/student.d4ai.tsx"
+          test -s src/routes/student.d4ai.tsx
+          wc -c src/routes/student.d4ai.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/routes/student.d4ai.tsx
-          git commit -m "restore(d4ai): full campus voice STT typewriter implementation" || echo no change
+          git commit -m "fix(d4ai): restore working route from b41c22e" || echo "no change"
           git push
