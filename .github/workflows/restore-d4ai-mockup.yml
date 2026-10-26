@@ -1,0 +1,32 @@
+name: Restore D4AI Full Mockup
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode gzip rebrand + exact logo
+        run: |
+          set -euo pipefail
+          mkdir -p public src/routes
+          cat assets/d4ai-tsx-gz/*.txt | tr -d '\n' | base64 -d | gunzip > src/routes/student.d4ai.tsx
+          wc -c src/routes/student.d4ai.tsx
+          head -5 src/routes/student.d4ai.tsx
+          grep -c "Hello, Boss" src/routes/student.d4ai.tsx || true
+          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          if [ -f assets/d4ai-logo-b64/avatar.full.b64 ]; then
+            base64 -d assets/d4ai-logo-b64/avatar.full.b64 > public/d4ai-avatar.png
+            cp public/d4ai-avatar.png public/d4ai-logo.png
+          fi
+          if [ -f assets/d4ai-logo-b64/logo.full.b64 ]; then
+            base64 -d assets/d4ai-logo-b64/logo.full.b64 > public/d4ai-logo.jpg
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx public/ || true
+          git commit -m "feat(d4ai): restore full mockup UI + exact neon robot logo" || echo nochange
+          git push
