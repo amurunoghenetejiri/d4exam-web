@@ -92,7 +92,7 @@ const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
 const WELCOME_TEXT =
-  "Hi there! 👋\n\nI'm D4AI — your personal study companion, teacher, and all-round assistant right here on D4EXAM.\n\nI'm here to walk with you through learning, research, coding, exams, projects, ideas, and whatever else is on your mind. Think of me as a smart friend who is always ready to explain things clearly, help you practise, debug code, plan your study, or just figure things out with you.\n\nYou can type a message anytime, or tap the mic and talk to me.\n\nBefore we dive in — please, what would you like me to call you in this conversation?";
+  "Hey! 👋 I'm D4AI — your AI buddy on D4EXAM.\n\nI'm here anytime you need help: study, code, ideas, or just figuring something out. Talk to me like a friend.\n\nIntroduce yourself and ask me anything — what's on your mind?";
 const WELCOME: Msg = { id: "welcome", role: "assistant", content: WELCOME_TEXT };
 const NICK_KEY = "d4ai_nickname_v1";
 
@@ -190,7 +190,7 @@ async function ocrImageDataUrl(dataUrl: string): Promise<string> {
 }
 
 const VOICE_KEY = "d4ai_voice_v1";
-const SILENCE_MS = 4000;
+const SILENCE_MS = 3000;
 
 type VoicePreset = "auto" | "male" | "female" | "deep" | "soft";
 
@@ -240,63 +240,117 @@ function speakText(
   text: string,
   opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void },
 ) {
+  const done = () => {
+    try {
+      opts?.onend?.();
+    } catch {}
+  };
   try {
     if (typeof window === "undefined" || !window.speechSynthesis) {
-      opts?.onend?.();
+      done();
       return;
     }
     const synth = window.speechSynthesis;
-    try { synth.cancel(); } catch {}
-    try { synth.resume(); } catch {}
-    const clean = text.replace(/\s+/g, " ").trim().slice(0, 4000);
+    try {
+      synth.cancel();
+    } catch {}
+    try {
+      synth.resume();
+    } catch {}
+
+    const clean = String(text || "")
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/[#*_>`]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 3500);
     if (!clean) {
-      opts?.onend?.();
+      done();
       return;
     }
-    const u = new SpeechSynthesisUtterance(clean);
-    u.lang = "en-US";
-    u.rate = opts?.preset === "deep" ? 0.9 : opts?.preset === "soft" ? 0.98 : 1;
-    u.pitch = opts?.preset === "deep" ? 0.7 : opts?.preset === "female" || opts?.preset === "soft" ? 1.12 : 1;
-    u.volume = 1;
+
     const preset = opts?.preset || loadVoicePreset();
-    const applyVoice = () => {
-      const voice = pickVoice(preset);
-      if (voice) u.voice = voice;
-    };
-    applyVoice();
-    u.onend = () => opts?.onend?.();
-    u.onerror = () => opts?.onend?.();
-    u.onstart = () => opts?.onstart?.();
-    const start = () => {
+    const chunks: string[] = [];
+    // Split long text so Android WebView does not drop speech
+    const parts = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [clean];
+    let buf = "";
+    for (const p of parts) {
+      const t = p.trim();
+      if (!t) continue;
+      if ((buf + " " + t).trim().length > 220) {
+        if (buf) chunks.push(buf.trim());
+        buf = t;
+      } else {
+        buf = (buf + " " + t).trim();
+      }
+    }
+    if (buf) chunks.push(buf.trim());
+    if (!chunks.length) chunks.push(clean);
+
+    let idx = 0;
+    let started = false;
+
+    const speakNext = () => {
+      if (idx >= chunks.length) {
+        done();
+        return;
+      }
+      const u = new SpeechSynthesisUtterance(chunks[idx++]);
+      u.lang = "en-US";
+      u.volume = 1;
+      u.rate = preset === "deep" ? 0.9 : preset === "soft" ? 0.98 : 1;
+      u.pitch = preset === "deep" ? 0.72 : preset === "female" || preset === "soft" ? 1.1 : 1;
       try {
-        applyVoice();
-        synth.speak(u);
-        // Android WebView often pauses speechSynthesis — keep waking it
-        const kick = window.setInterval(() => {
+        const voice = pickVoice(preset);
+        if (voice) u.voice = voice;
+      } catch {}
+      u.onstart = () => {
+        if (!started) {
+          started = true;
           try {
-            if (synth.speaking && synth.paused) synth.resume();
-            if (!synth.speaking && !synth.pending) window.clearInterval(kick);
-          } catch {
-            window.clearInterval(kick);
-          }
-        }, 250);
-        window.setTimeout(() => window.clearInterval(kick), 60000);
+            opts?.onstart?.();
+          } catch {}
+        }
+      };
+      u.onend = () => speakNext();
+      u.onerror = () => speakNext();
+      try {
+        synth.resume();
+      } catch {}
+      try {
+        synth.speak(u);
       } catch {
-        opts?.onend?.();
+        speakNext();
       }
     };
+
+    // voices may load async on mobile
     const voices = synth.getVoices();
     if (!voices.length) {
-      synth.onvoiceschanged = () => {
-        applyVoice();
-        start();
+      const once = () => {
+        try {
+          synth.onvoiceschanged = null as any;
+        } catch {}
+        speakNext();
       };
-      window.setTimeout(start, 300);
-      return;
+      synth.onvoiceschanged = once;
+      setTimeout(once, 400);
+    } else {
+      speakNext();
     }
-    start();
+
+    // Keep Android from freezing mid-speech
+    const kick = window.setInterval(() => {
+      try {
+        if (synth.speaking && synth.paused) synth.resume();
+        if (!synth.speaking && !synth.pending) window.clearInterval(kick);
+      } catch {
+        window.clearInterval(kick);
+      }
+    }, 300);
+    window.setTimeout(() => window.clearInterval(kick), 120000);
   } catch {
-    opts?.onend?.();
+    done();
   }
 }
 
@@ -445,20 +499,16 @@ function GlowHero({ compact = false }: { compact?: boolean }) {
 
 function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
   return (
-    <div className="flex flex-col items-start gap-2">
-      <div className="flex items-end gap-2">
-        <D4Avatar size={30} className="mb-1 shrink-0" />
-        <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-[#0e2038] px-3.5 py-2.5 ring-1 ring-cyan-400/20">
-          <span className="text-[13px] text-slate-300">D4AI is typing</span>
-          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" />
-          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.15s" }} />
-          <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animationDelay: "0.3s" }} />
+    <div className="flex items-end gap-2">
+      <D4Avatar size={30} className="mb-1 shrink-0" />
+      <div className="rounded-2xl rounded-bl-md bg-[#0e2038] px-4 py-3 ring-1 ring-cyan-400/20">
+        <div className="d4ai-write-label text-[15px] font-bold tracking-wide">
+          <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
+          <span className="d4ai-write-char" style={{ animationDelay: "120ms" }}>4</span>
+          <span className="d4ai-write-char" style={{ animationDelay: "240ms" }}>A</span>
+          <span className="d4ai-write-char" style={{ animationDelay: "360ms" }}>I</span>
+          <span className="d4ai-write-cursor" />
         </div>
-      </div>
-      <div className="relative ml-16 h-16 w-16">
-        <div className="absolute inset-0 animate-[d4ai-pulse_2.4s_ease-in-out_infinite] rounded-full bg-blue-500/20 blur-md" />
-        <div className="d4ai-orb absolute inset-1 rounded-full opacity-90" />
-        <div className="absolute -inset-1 rounded-full border border-fuchsia-400/30" />
       </div>
     </div>
   );
@@ -741,11 +791,11 @@ function D4AiPage() {
         return [...base, userMsg];
       });
       setStreaming(false);
-      setStatus("Thinking…");
+      setStatus(null);
       scrollDown();
 
       if (imgs?.[0] && !dText) {
-        setStatus("Reading image…");
+        setStatus(null);
         const ocr = await ocrImageDataUrl(imgs[0]);
         if (ocr && ocr.replace(/\s/g, "").length > 12) dText = ocr;
         setStatus(null);
@@ -1041,16 +1091,18 @@ function D4AiPage() {
   };
 
   const doSpeak = (text: string, msgId?: string) => {
-    if (ttsSpeakingRef.current && speakingMsgId && msgId && speakingMsgId === msgId) {
+    // Toggle off if same message is already speaking
+    if (msgId && speakingMsgId === msgId && ttsSpeakingRef.current) {
       stopSpeaking();
       setTtsSpeaking(false);
       ttsSpeakingRef.current = false;
       setSpeakingMsgId(null);
       return;
     }
+    // Immediate UI feedback (icon -> Stop)
+    if (msgId) setSpeakingMsgId(msgId);
     setTtsSpeaking(true);
     ttsSpeakingRef.current = true;
-    if (msgId) setSpeakingMsgId(msgId);
     speakText(text, {
       preset: voicePreset,
       onstart: () => {
@@ -1147,10 +1199,10 @@ function D4AiPage() {
     >
       <D4Avatar size={38} />
       <div className="min-w-0 flex-1">
-        <h1 className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>D4AI</h1>
+        <h1 className="d4ai-title-grad text-base font-bold">D4AI</h1>
         <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          {busy ? "Typing…" : "Online · v5-Ultimate"}
+          {busy ? "Writing…" : "Online · v5-Ultimate"}
         </p>
       </div>
       <button type="button" onClick={() => setDrawer(true)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Menu">
@@ -1317,12 +1369,7 @@ function D4AiPage() {
         </div>
       ) : null}
 
-      {busy && streaming ? (
-        <div className="mx-auto mb-2 flex max-w-md flex-col items-center gap-1">
-          <p className={cn("text-[11px] font-medium", dark ? "text-slate-300" : "text-slate-600")}>D4AI is responding…</p>
-          <LiveWave active />
-        </div>
-      ) : null}
+      {null}
 
       <div className="mx-auto flex max-w-2xl items-end gap-1.5">
         <button
@@ -1356,7 +1403,7 @@ function D4AiPage() {
           )}
         />
         {busy ? (
-          <button type="button" onClick={() => { stopAi(); stopSpeaking(); setTtsSpeaking(false); }} className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-rose-500 text-white shadow-lg ring-2 ring-rose-300/60" aria-label="Stop">
+          <button type="button" onClick={() => { stopAi(); stopSpeaking(); setTtsSpeaking(false); }} className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] text-white shadow-lg ring-2 ring-cyan-300/50" aria-label="Stop">
             <Square className="h-4 w-4 fill-current" />
           </button>
         ) : input.trim() || imageB64 || docText ? (
