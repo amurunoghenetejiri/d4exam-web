@@ -60,10 +60,12 @@ export const Route = createFileRoute("/student/d4ai")({
   head: () => ({
     meta: [
       { title: "D4AI — D4TECH" },
-      { name: "description", content: "D4AI — your all-round AI assistant by D4TECH. Creating Solutions. Innovating Lives." },
+      { name: "description", content: "D4AI — your study companion and all-round AI assistant on D4EXAM." },
       { property: "og:title", content: "D4AI — D4TECH" },
-      { property: "og:description", content: "Chat, speak, and create with D4AI — your all-round AI assistant." },
+      { property: "og:description", content: "Chat, speak, and learn with D4AI on D4EXAM." },
       { property: "og:type", content: "website" },
+      { name: "theme-color", content: "#050b18" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
   }),
   component: D4AiPage,
@@ -90,8 +92,9 @@ const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
 const WELCOME_TEXT =
-  "Hello, Boss! 👋\n\nI'm D4AI, your all-round AI assistant.\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\nJust type a message, or use the mic to talk.\nLet's get started! 🚀";
+  "Hi there! 👋\n\nI'm D4AI — your personal study companion, teacher, and all-round assistant on D4EXAM.\nI can help with learning, research, coding, exams, projects, and almost anything else you need.\n\nJust type a message or use the mic to talk.\n\nWhat should I call you?";
 const WELCOME: Msg = { id: "welcome", role: "assistant", content: WELCOME_TEXT };
+const NICK_KEY = "d4ai_nickname_v1";
 
 function loadStore(): Conversation[] {
   try {
@@ -501,6 +504,10 @@ function D4AiPage() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [voicePreset, setVoicePreset] = useState<VoicePreset>(() => loadVoicePreset());
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [nickname, setNickname] = useState<string>(() => {
+    try { return localStorage.getItem(NICK_KEY) || ""; } catch { return ""; }
+  });
   const [longPress, setLongPress] = useState<Msg | null>(null);
   const [editMsg, setEditMsg] = useState<Msg | null>(null);
   const [editText, setEditText] = useState("");
@@ -537,6 +544,25 @@ function D4AiPage() {
   useEffect(() => {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
+
+  // Match phone status bar + nav bar to D4AI dark background
+  useEffect(() => {
+    const color = dark ? "#050b18" : "#f5f9ff";
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "theme-color";
+      meta.setAttribute("data-d4ai", "theme-color-d4ai");
+      document.head.appendChild(meta);
+    }
+    meta.content = color;
+    document.documentElement.style.backgroundColor = color;
+    document.body.style.backgroundColor = color;
+    return () => {
+      // leave theme-color; page unmount may restore elsewhere
+    };
+  }, [dark]);
+
 
   useEffect(() => {
     try {
@@ -700,6 +726,14 @@ function D4AiPage() {
         docName: dName || undefined,
         createdAt: Date.now(),
       };
+      // Capture display name from early short replies after welcome
+      if (!nickname && body && body.trim().split(/\s+/).length <= 3 && body.length <= 24 && !/[?]/.test(body)) {
+        const name = body.trim().replace(/[^a-zA-Z0-9 \-']/g, "").slice(0, 24);
+        if (name) {
+          setNickname(name);
+          try { localStorage.setItem(NICK_KEY, name); } catch {}
+        }
+      }
       updateActiveMessages((m) => {
         const base = m.some((x) => x.id === "welcome") ? m : [WELCOME, ...m];
         return [...base, userMsg];
@@ -716,6 +750,18 @@ function D4AiPage() {
       const history = [...(active?.messages ?? []), userMsg]
         .filter((m) => m.id !== "welcome")
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      if (nickname) {
+        history.unshift(
+          {
+            role: "user" as const,
+            content: `(Student preferred name: "${nickname}". Address them as ${nickname} when natural.)`,
+          },
+          {
+            role: "assistant" as const,
+            content: `Got it — I'll call you ${nickname}.`,
+          },
+        );
+      }
 
       try {
         const ghToken = readGithubToken();
@@ -778,7 +824,7 @@ function D4AiPage() {
         scrollDown();
       }
     },
-    [busy, active?.messages, updateActiveMessages, owner],
+    [busy, active?.messages, updateActiveMessages, owner, nickname],
   );
 
   const send = useCallback(async () => {
@@ -888,9 +934,14 @@ function D4AiPage() {
       }
     };
     rec.onend = () => {
+      // Keep mic alive continuously until user Pause / Send / Close
       if (!voicePausedRef.current && recognitionRef.current === rec) {
         try {
-          rec.start();
+          setTimeout(() => {
+            try {
+              if (!voicePausedRef.current && recognitionRef.current === rec) rec.start();
+            } catch {}
+          }, 120);
         } catch {}
       }
     };
@@ -984,9 +1035,17 @@ function D4AiPage() {
     startVoice();
   };
 
-  const doSpeak = (text: string) => {
+  const doSpeak = (text: string, msgId?: string) => {
+    if (ttsSpeakingRef.current && speakingMsgId && msgId && speakingMsgId === msgId) {
+      stopSpeaking();
+      setTtsSpeaking(false);
+      ttsSpeakingRef.current = false;
+      setSpeakingMsgId(null);
+      return;
+    }
     setTtsSpeaking(true);
     ttsSpeakingRef.current = true;
+    if (msgId) setSpeakingMsgId(msgId);
     speakText(text, {
       preset: voicePreset,
       onstart: () => {
@@ -996,6 +1055,7 @@ function D4AiPage() {
       onend: () => {
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
+        setSpeakingMsgId(null);
       },
     });
   };
@@ -1103,19 +1163,18 @@ function D4AiPage() {
 
   const chatView = (
     <div className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
-      {messages.length <= 1 && messages[0]?.id === "welcome" ? (
-        <div className="mx-auto flex max-w-md flex-col items-center px-2 pb-4">
-          <GlowHero />
-          <div className={cn("mt-6 w-full rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
-            <div className="flex items-start gap-2">
-              <D4Avatar size={28} className="mt-0.5 shrink-0" />
-              <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
-            </div>
+      {/* Persistent hero + welcome — never disappears */}
+      <div className="mx-auto flex max-w-md flex-col items-center px-2 pb-2">
+        <GlowHero />
+        <div className={cn("mt-6 w-full rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
+          <div className="flex items-start gap-2">
+            <D4Avatar size={28} className="mt-0.5 shrink-0" />
+            <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
           </div>
         </div>
-      ) : (
-        messages
-        .filter((m) => !(messages.length <= 1 && m.id === "welcome"))
+      </div>
+      {messages
+        .filter((m) => m.id !== "welcome")
         .map((m) => (
           <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
             {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
@@ -1149,8 +1208,13 @@ function D4AiPage() {
                 </div>
               ) : m.content ? (
                 <div className="mt-1 flex items-center gap-0.5 pl-1">
-                  <button type="button" onClick={() => doSpeak(m.content)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-cyan-300" aria-label="Speak">
-                    <Volume2 className="h-3.5 w-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => doSpeak(m.content, m.id)}
+                    className={cn("rounded-lg p-1.5 hover:bg-white/5", speakingMsgId === m.id ? "text-cyan-300" : "text-slate-400 hover:text-cyan-300")}
+                    aria-label={speakingMsgId === m.id ? "Stop" : "Speak"}
+                  >
+                    {speakingMsgId === m.id ? <Square className="h-3.5 w-3.5 fill-current" /> : <Volume2 className="h-3.5 w-3.5" />}
                   </button>
                   <button
                     type="button"
@@ -1188,8 +1252,7 @@ function D4AiPage() {
               ) : null}
             </div>
           </div>
-        ))
-      )}
+        ))}
       {busy && !streaming ? <TypingIndicator /> : null}
       {status ? (
         <p className="flex items-center gap-2 px-2 text-xs text-cyan-200/80">
@@ -1600,7 +1663,7 @@ function D4AiPage() {
               {ttsSpeaking ? "D4AI is speaking…" : voicePaused ? "Paused" : "Tap to speak"}
             </p>
             <p className={cn("mt-1 text-sm", dark ? "text-slate-400" : "text-slate-500")}>
-              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Listening… (auto-send after 4s silence)" : "Listening…"}
+              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Live call · talk and D4AI replies" : "Voice note · tap Send when done"}
             </p>
             <p className={cn("mt-1 font-mono text-sm", dark ? "text-cyan-300/80" : "text-blue-600")}>
               {String(Math.floor(voiceSecs / 60)).padStart(2, "0")}:{String(voiceSecs % 60).padStart(2, "0")}
@@ -1615,28 +1678,48 @@ function D4AiPage() {
             </div>
           </div>
 
+          {/* Pause only in call mode (centered); Send only in voice-note mode */}
           <div className="flex items-center justify-center gap-3 px-4 pb-3">
-            <button
-              type="button"
-              onClick={() => {
-                if (voicePaused) resumeVoice();
-                else pauseVoice();
-              }}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold",
-                dark ? "bg-white/10 text-cyan-100" : "bg-slate-100 text-slate-700",
-              )}
-            >
-              {voicePaused ? <Play className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-              {voicePaused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void finishVoiceAndSend()}
-              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8] px-5 py-2 text-xs font-semibold text-white shadow-lg"
-            >
-              <Send className="h-3.5 w-3.5" /> Send
-            </button>
+            {callMode ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (voicePaused) resumeVoice();
+                  else pauseVoice();
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full px-6 py-2.5 text-xs font-semibold",
+                  dark ? "bg-white/10 text-cyan-100" : "bg-slate-100 text-slate-700",
+                )}
+              >
+                {voicePaused ? <Play className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                {voicePaused ? "Resume" : "Pause"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (voicePaused) resumeVoice();
+                    else pauseVoice();
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold",
+                    dark ? "bg-white/10 text-cyan-100" : "bg-slate-100 text-slate-700",
+                  )}
+                >
+                  {voicePaused ? <Play className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                  {voicePaused ? "Resume" : "Pause"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void finishVoiceAndSend()}
+                  className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8] px-5 py-2 text-xs font-semibold text-white shadow-lg"
+                >
+                  <Send className="h-3.5 w-3.5" /> Send
+                </button>
+              </>
+            )}
           </div>
 
           <div
@@ -1651,20 +1734,39 @@ function D4AiPage() {
             >
               <Keyboard className="h-5 w-5" />
             </button>
+            {/* Toggle: robot = live call (AI talks back), speaker = voice note (Send to reply) */}
             <button
               type="button"
               onClick={() => {
-                if (voicePaused) resumeVoice();
-                else {
+                if (callMode) {
+                  // switch to voice-note mode
+                  setCallMode(false);
+                  callModeRef.current = false;
                   stopSpeaking();
                   setTtsSpeaking(false);
+                  if (silenceTimerRef.current) {
+                    clearTimeout(silenceTimerRef.current);
+                    silenceTimerRef.current = null;
+                  }
+                  if (!recognitionRef.current) startVoice();
+                } else {
+                  // switch to live call mode
+                  setCallMode(true);
+                  callModeRef.current = true;
+                  setAutoSpeak(true);
+                  autoSpeakRef.current = true;
+                  try { localStorage.setItem(SPEAK_KEY, "1"); } catch {}
                   if (!recognitionRef.current) startVoice();
                 }
               }}
               className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] text-white shadow-xl ring-4 ring-cyan-400/30"
-              aria-label="Mic"
+              aria-label={callMode ? "Switch to voice note" : "Switch to live call"}
             >
-              <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
+              {callMode ? (
+                <img src={LOGO} alt="Call" className="h-10 w-10 rounded-full object-cover" />
+              ) : (
+                <Volume2 className="h-7 w-7 text-white" />
+              )}
             </button>
             <button
               type="button"
@@ -1798,7 +1900,7 @@ function D4AiPage() {
                     type="button"
                     className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-sm", dark ? "text-white hover:bg-white/5" : "text-slate-800 hover:bg-slate-50")}
                     onClick={() => {
-                      doSpeak(longPress.content);
+                      doSpeak(longPress.content, longPress.id);
                       setLongPress(null);
                     }}
                   >
