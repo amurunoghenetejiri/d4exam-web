@@ -1,0 +1,26 @@
+name: Deploy D4AI Mockup Rebrand
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble and deploy student.d4ai.tsx
+        run: |
+          set -euo pipefail
+          mkdir -p src/routes
+          cat assets/d4ai-tsx-parts/*.txt > src/routes/student.d4ai.tsx
+          wc -c src/routes/student.d4ai.tsx
+          head -5 src/routes/student.d4ai.tsx
+          grep -n "Hello, Boss\|Link2\|Tap to speak\|D4Avatar\|v5-Ultimate" src/routes/student.d4ai.tsx | head -15
+          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx
+          git status
+          git commit -m "feat(d4ai): full mockup rebrand UI (neon, menus, voice, long-press, typewriter)" || echo nochange
+          git push
