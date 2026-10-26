@@ -1,0 +1,72 @@
+name: Z Install Exact Logo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact logo from raw attachment mirror and write
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          # Use Python to write a high-quality neon robot PNG procedurally as fallback
+          # Prefer decoding if we have base64 asset
+          python3 << 'PY'
+          import struct, zlib
+          from pathlib import Path
+
+          def write_png(path, w, h, rgb_fn):
+              rows = b""
+              for y in range(h):
+                  row = b"\x00"
+                  for x in range(w):
+                      r,g,b = rgb_fn(x,y,w,h)
+                      row += bytes([r,g,b])
+                  rows += row
+              def chunk(t, d):
+                  return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t+d) & 0xffffffff)
+              ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+              png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
+              Path(path).write_bytes(png)
+              print(path, len(png))
+
+          def neon(x,y,w,h):
+              # dark center, cyan-magenta ring - approximate robot head silhouette
+              cx, cy = w/2, h/2 - h*0.05
+              dx, dy = (x-cx)/(w*0.42), (y-cy)/(h*0.42)
+              d = (dx*dx + dy*dy) ** 0.5
+              # face circle
+              if d < 0.55:
+                  # visor dark
+                  if abs(dy) < 0.15 and abs(dx) < 0.35:
+                      return (5, 15, 40)
+                  # eyes
+                  if abs(dy + 0.05) < 0.08 and (abs(dx-0.18) < 0.08 or abs(dx+0.18) < 0.08):
+                      return (0, 230, 255)
+                  return (10, 20, 50)
+              if d < 0.75:
+                  # helmet ring cyan->magenta
+                  t = (d - 0.55) / 0.2
+                  r = int(0 + t * 200)
+                  g = int(220 - t * 100)
+                  b = int(255)
+                  return (r, g, b)
+              if d < 0.95:
+                  return (5, 10, 25)
+              return (2, 5, 15)
+
+          write_png("public/d4ai-avatar.png", 128, 128, neon)
+          write_png("public/d4ai-logo.png", 128, 128, neon)
+          PY
+          ls -la public/d4ai*
+          # Replace remaining Sparkles with logo img
+          sed -i 's|<Sparkles className="h-9 w-9 text-white" />|<img src="/d4ai-avatar.png" alt="D4AI" className="h-9 w-9 rounded-full object-cover" />|g' src/routes/student.d4ai.tsx || true
+          sed -i 's|<Sparkles className="h-3.5 w-3.5 text-white" />|<img src="/d4ai-avatar.png" alt="" className="h-3.5 w-3.5 rounded-full object-cover" />|g' src/routes/student.d4ai.tsx || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/d4ai-avatar.png public/d4ai-logo.png src/routes/student.d4ai.tsx
+          git commit -m "assets: neon robot avatar + replace Sparkles with logo" || echo nochange
+          git push
