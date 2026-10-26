@@ -92,7 +92,7 @@ const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
 const WELCOME_TEXT =
-  "Hi there! 👋\n\nI'm D4AI — your personal study companion, teacher, and all-round assistant on D4EXAM.\nI can help with learning, research, coding, exams, projects, and almost anything else you need.\n\nJust type a message or use the mic to talk.\n\nWhat should I call you?";
+  "Hi there! 👋\n\nI'm D4AI — your personal study companion, teacher, and all-round assistant right here on D4EXAM.\n\nI'm here to walk with you through learning, research, coding, exams, projects, ideas, and whatever else is on your mind. Think of me as a smart friend who is always ready to explain things clearly, help you practise, debug code, plan your study, or just figure things out with you.\n\nYou can type a message anytime, or tap the mic and talk to me.\n\nBefore we dive in — please, what would you like me to call you in this conversation?";
 const WELCOME: Msg = { id: "welcome", role: "assistant", content: WELCOME_TEXT };
 const NICK_KEY = "d4ai_nickname_v1";
 
@@ -245,11 +245,9 @@ function speakText(
       opts?.onend?.();
       return;
     }
-    // Chrome/Android often pauses speechSynthesis after cancel or tab background
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-    } catch {}
+    const synth = window.speechSynthesis;
+    try { synth.cancel(); } catch {}
+    try { synth.resume(); } catch {}
     const clean = text.replace(/\s+/g, " ").trim().slice(0, 4000);
     if (!clean) {
       opts?.onend?.();
@@ -257,47 +255,52 @@ function speakText(
     }
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = "en-US";
-    u.rate = opts?.preset === "deep" ? 0.92 : opts?.preset === "soft" ? 0.98 : 1;
-    u.pitch = opts?.preset === "deep" ? 0.75 : opts?.preset === "female" || opts?.preset === "soft" ? 1.1 : 1;
+    u.rate = opts?.preset === "deep" ? 0.9 : opts?.preset === "soft" ? 0.98 : 1;
+    u.pitch = opts?.preset === "deep" ? 0.7 : opts?.preset === "female" || opts?.preset === "soft" ? 1.12 : 1;
+    u.volume = 1;
     const preset = opts?.preset || loadVoicePreset();
-    const voice = pickVoice(preset);
-    if (voice) u.voice = voice;
+    const applyVoice = () => {
+      const voice = pickVoice(preset);
+      if (voice) u.voice = voice;
+    };
+    applyVoice();
     u.onend = () => opts?.onend?.();
     u.onerror = () => opts?.onend?.();
     u.onstart = () => opts?.onstart?.();
-    // Chrome sometimes needs voices loaded first
-    const voices = window.speechSynthesis.getVoices();
+    const start = () => {
+      try {
+        applyVoice();
+        synth.speak(u);
+        // Android WebView often pauses speechSynthesis — keep waking it
+        const kick = window.setInterval(() => {
+          try {
+            if (synth.speaking && synth.paused) synth.resume();
+            if (!synth.speaking && !synth.pending) window.clearInterval(kick);
+          } catch {
+            window.clearInterval(kick);
+          }
+        }, 250);
+        window.setTimeout(() => window.clearInterval(kick), 60000);
+      } catch {
+        opts?.onend?.();
+      }
+    };
+    const voices = synth.getVoices();
     if (!voices.length) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        const v2 = pickVoice(preset);
-        if (v2) u.voice = v2;
-        try {
-          window.speechSynthesis.speak(u);
-          window.speechSynthesis.resume();
-        } catch {}
+      synth.onvoiceschanged = () => {
+        applyVoice();
+        start();
       };
-      // fallback speak after short delay
-      setTimeout(() => {
-        try {
-          window.speechSynthesis.speak(u);
-          window.speechSynthesis.resume();
-        } catch {}
-      }, 300);
+      window.setTimeout(start, 300);
       return;
     }
-    window.speechSynthesis.speak(u);
-    // Keep synthesis from getting stuck on some Android WebViews
-    setTimeout(() => {
-      try {
-        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-      } catch {}
-    }, 200);
+    start();
   } catch {
     opts?.onend?.();
   }
 }
 
-function stopSpeaking() {
+function stopSpeakingfunction stopSpeaking() {
   try {
     window.speechSynthesis?.cancel();
   } catch {}
@@ -547,7 +550,7 @@ function D4AiPage() {
 
   // Match phone status bar + nav bar to D4AI dark background
   useEffect(() => {
-    const color = dark ? "#050b18" : "#f5f9ff";
+    const color = theme === "dark" ? "#050b18" : "#f5f9ff";
     let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
     if (!meta) {
       meta = document.createElement("meta");
@@ -556,12 +559,11 @@ function D4AiPage() {
       document.head.appendChild(meta);
     }
     meta.content = color;
-    document.documentElement.style.backgroundColor = color;
-    document.body.style.backgroundColor = color;
-    return () => {
-      // leave theme-color; page unmount may restore elsewhere
-    };
-  }, [dark]);
+    try {
+      document.documentElement.style.backgroundColor = color;
+      document.body.style.backgroundColor = color;
+    } catch {}
+  }, [theme]);
 
 
   useEffect(() => {
@@ -738,10 +740,12 @@ function D4AiPage() {
         const base = m.some((x) => x.id === "welcome") ? m : [WELCOME, ...m];
         return [...base, userMsg];
       });
+      setStreaming(false);
+      setStatus("Thinking…");
       scrollDown();
 
       if (imgs?.[0] && !dText) {
-        setStatus("Reading text from image…");
+        setStatus("Reading image…");
         const ocr = await ocrImageDataUrl(imgs[0]);
         if (ocr && ocr.replace(/\s/g, "").length > 12) dText = ocr;
         setStatus(null);
@@ -786,9 +790,10 @@ function D4AiPage() {
           const aid = `a-${Date.now()}`;
           updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "", createdAt: Date.now() }]);
           let i = 0;
-          const step = Math.max(2, Math.ceil(full.length / 140));
+          const step = Math.max(4, Math.ceil(full.length / 80));
           setStreaming(true);
           if (typewriterRef.current) clearInterval(typewriterRef.current);
+          // Show text gradually so students see it write live (not one big dump)
           typewriterRef.current = setInterval(() => {
             i = Math.min(full.length, i + step);
             updateActiveMessages((list) =>
@@ -809,7 +814,7 @@ function D4AiPage() {
                 });
               }
             }
-          }, 16);
+          }, 12);
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to reach D4AI";
