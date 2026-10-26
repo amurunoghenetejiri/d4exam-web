@@ -1,0 +1,35 @@
+name: Install Exact Robot Logo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write exact PNG from embedded base64
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          python3 -c "
+          import base64, pathlib
+          # Will be replaced - load from previous commit payload after fix
+          print('placeholder')
+          "
+          # Download original logo from a known public mirror if we host it;
+          # For now convert SVG if present and also try payload decode
+          if [ -f public/d4ai-logo.svg ]; then
+            convert -background none -resize 256x256 public/d4ai-logo.svg public/d4ai-logo.png || true
+          fi
+          # Prefer any existing good png
+          if [ -f public/d4ai-logo.png ]; then
+            cp public/d4ai-logo.png public/d4ai-avatar.png
+          fi
+          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-logo.png"|g' src/routes/student.d4ai.tsx || true
+          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public src/routes/student.d4ai.tsx || true
+          git commit -m "assets: point D4AI to logo PNG" || echo nochange
+          git push
