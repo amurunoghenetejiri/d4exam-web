@@ -114,7 +114,9 @@ export function ProfilePage() {
     const seed = (user.fullName || student?.fullName || "").trim();
     setFullName(seed && !roleLike.test(seed) ? seed : "");
     setEmail(
-      user.email && !String(user.email).includes("placeholder.local")
+      user.email &&
+        !String(user.email).toLowerCase().includes("placeholder.local") &&
+        !String(user.email).toLowerCase().endsWith(".local")
         ? user.email
         : "",
     );
@@ -154,31 +156,33 @@ export function ProfilePage() {
     try {
       const payload: Record<string, unknown> = { full_name: fullName.trim() };
       if (phone.trim()) payload.phone = phone.trim();
-      const isPlaceholder = (v: string) =>
-        !v ||
-        v.endsWith("@placeholder.local") ||
-        v.includes("placeholder.local") ||
-        !v.includes("@") ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      const isPlaceholder = (v: string) => {
+        const s = (v || "").trim().toLowerCase();
+        return (
+          !s ||
+          s.includes("placeholder.local") ||
+          s.endsWith(".local") ||
+          !s.includes("@") ||
+          !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(s)
+        );
+      };
       const nextEmail = email.trim().toLowerCase();
       const prevEmail = (user.email || "").trim().toLowerCase();
-      // Never push invalid / placeholder emails to Auth
-      if (nextEmail && !isPlaceholder(nextEmail) && nextEmail !== prevEmail) {
+      // NEVER send placeholder / invalid emails to Supabase Auth
+      if (nextEmail && isPlaceholder(nextEmail)) {
+        setEmailNote("Enter a real email (Gmail, school mail, etc.). Placeholder emails cannot be saved.");
+        // Still allow saving name/phone without touching auth email
+      } else if (nextEmail && !isPlaceholder(nextEmail) && nextEmail !== prevEmail) {
         const { error: authErr } = await supabase.auth.updateUser({ email: nextEmail });
         if (authErr) throw authErr;
         payload.email = nextEmail;
         setEmailNote(
           "Check your inbox to confirm the new email if Supabase asks for verification.",
         );
-      } else if (nextEmail && isPlaceholder(nextEmail)) {
-        setEmailNote("Enter a real email address (Gmail, school mail, etc.). Placeholder emails cannot be saved.");
-        setSaving(false);
-        return;
-      } else if (isPlaceholder(prevEmail) && nextEmail && !isPlaceholder(nextEmail)) {
-        const { error: authErr } = await supabase.auth.updateUser({ email: nextEmail });
-        if (authErr) throw authErr;
-        payload.email = nextEmail;
-        setEmailNote("Email updated. Confirm from your inbox if Supabase asks.");
+      }
+      // If auth still has placeholder, never write it into profiles.email
+      if (payload.email && isPlaceholder(String(payload.email))) {
+        delete payload.email;
       }
       const { error: upErr } = await supabase
         .from("profiles")

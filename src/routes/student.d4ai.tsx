@@ -260,25 +260,12 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
     if (!voices.length) return null;
     const en = voices.filter((v) => /en[-_]?/i.test(v.lang));
     const pool = en.length ? en : voices;
+    const char = getVoiceChar(preset);
     const score = (v: SpeechSynthesisVoice) => {
       const n = `${v.name} ${v.lang}`.toLowerCase();
-      if (preset === "female") {
-        if (/female|samantha|karen|moira|zira|google us english female|fiona|tessa|veena/.test(n)) return 10;
-        if (/male|david|mark|daniel|alex|fred/.test(n)) return 0;
-        return 3;
-      }
-      if (preset === "male" || preset === "deep") {
-        if (/male|david|mark|daniel|alex|fred|google us english male|ravi|thomas/.test(n)) return 10;
-        if (/female|samantha|karen|zira/.test(n)) return 0;
-        return 3;
-      }
-      if (preset === "soft") {
-        if (/soft|whisper|samantha|karen|fiona|tessa/.test(n)) return 10;
-        return 2;
-      }
-      // auto: prefer local en-US
-      if (/en-us/i.test(v.lang) && v.localService) return 8;
-      if (/en-us/i.test(v.lang)) return 6;
+      if (/female|samantha|karen|zira|amy|emma|salli|ivy|joanna/.test(n) && /nova|luna|aria|neon|spark/.test(char.id)) return 10;
+      if (/male|david|mark|daniel|brian|matthew|joey/.test(n) && /rex|atlas|echo|bolt|kai|sage|bass/.test(char.id)) return 10;
+      if (/en-us/i.test(v.lang) && v.localService) return 6;
       if (/en/i.test(v.lang)) return 4;
       return 1;
     };
@@ -297,10 +284,10 @@ function stripForSpeech(text: string): string {
     .replace(/[#*_>`\[\]()]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 2800);
+    .slice(0, 2500);
 }
 
-function chunkSpeech(text: string, maxLen = 150): string[] {
+function chunkSpeech(text: string, maxLen = 180): string[] {
   const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
   const out: string[] = [];
   let buf = "";
@@ -309,7 +296,7 @@ function chunkSpeech(text: string, maxLen = 150): string[] {
     if (!t) continue;
     if ((buf + " " + t).trim().length > maxLen) {
       if (buf) out.push(buf.trim());
-      buf = t;
+      buf = t.length > maxLen ? t.slice(0, maxLen) : t;
     } else {
       buf = (buf + " " + t).trim();
     }
@@ -319,12 +306,12 @@ function chunkSpeech(text: string, maxLen = 150): string[] {
 }
 
 function ttsUrl(text: string, seVoice: string): string {
+  // StreamElements free TTS — works in Capacitor WebView (no speechSynthesis needed)
   return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(seVoice)}&text=${encodeURIComponent(text)}`;
 }
 
-function playTtsChunks(
-  chunks: string[],
-  seVoice: string,
+function playAudioQueue(
+  urls: string[],
   opts?: { onend?: () => void; onstart?: () => void },
 ) {
   speakingCancelled = false;
@@ -335,41 +322,31 @@ function playTtsChunks(
       opts?.onend?.();
       return;
     }
-    if (i >= chunks.length) {
+    if (i >= urls.length) {
       activeAudio = null;
       opts?.onend?.();
       return;
     }
-    const piece = chunks[i++];
-    const audio = new Audio(ttsUrl(piece, seVoice));
+    const audio = new Audio(urls[i++]);
     activeAudio = audio;
+    audio.preload = "auto";
     audio.onplay = () => {
       if (!started) {
         started = true;
-        opts?.onstart?.();
+        try {
+          opts?.onstart?.();
+        } catch {}
       }
     };
     audio.onended = () => next();
     audio.onerror = () => {
-      // fallback: try Google TTS once per chunk
-      const g = new Audio(
-        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(piece.slice(0, 160))}&tl=en`,
-      );
-      activeAudio = g;
-      g.onended = () => next();
-      g.onerror = () => next();
-      g.play().catch(() => next());
+      // skip failed chunk
+      next();
     };
-    audio.play().catch(() => {
-      // try google
-      const g = new Audio(
-        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(piece.slice(0, 160))}&tl=en`,
-      );
-      activeAudio = g;
-      g.onended = () => next();
-      g.onerror = () => next();
-      g.play().catch(() => next());
-    });
+    const p = audio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => next());
+    }
   };
   next();
 }
@@ -401,12 +378,21 @@ function speakText(
   } catch {}
   speakingCancelled = false;
 
-  const preset = opts?.preset || loadVoicePreset();
-  const char = getVoiceChar(preset === "auto" ? "rex" : preset);
-  const chunks = chunkSpeech(clean, 140);
+  const char = getVoiceChar(opts?.preset || loadVoicePreset());
+  const chunks = chunkSpeech(clean, 160);
+  const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
 
-  // Prefer audio TTS (works in Capacitor app WebView)
-  playTtsChunks(chunks, char.seVoice, opts);
+  // Prefer audio TTS in app WebView (reliable). Also try speechSynthesis in parallel path only if audio fails entirely.
+  playAudioQueue(urls, {
+    onstart: opts?.onstart,
+    onend: () => {
+      if (speakingCancelled) {
+        done();
+        return;
+      }
+      done();
+    },
+  });
 }
 
 function stopSpeaking() {
@@ -461,7 +447,7 @@ function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push({ type: "text", content: text.slice(last, m.index) });
-    parts.push({ type: "code", lang: m[1] || "", content: m[2].replace(/\n$/, "") });
+    parts.push({ type: "code", lang: (m[1] || "").toLowerCase(), content: m[2].replace(/\n$/, "") });
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push({ type: "text", content: text.slice(last) });
@@ -484,14 +470,18 @@ function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
 
 function CodeBlock({ lang, content, dark }: { lang: string; content: string; dark: boolean }) {
   const [preview, setPreview] = useState(false);
-  const isHtml = /html|htm|svg/i.test(lang) || /^\s*<(!doctype|html|div|section|body)/i.test(content);
+  const isHtml = /html|htm|xml|svg/.test(lang) || /^\s*<(!doctype|html|div|section|body)/i.test(content);
   return (
     <div className={cn("max-w-full overflow-hidden rounded-xl border", dark ? "border-cyan-500/20 bg-[#061018]" : "border-slate-200 bg-slate-50")}>
       <div className={cn("flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-[11px]", dark ? "bg-white/5 text-cyan-200" : "bg-slate-100 text-slate-600")}>
         <span className="font-medium uppercase tracking-wide">{lang || "code"}</span>
         <div className="flex items-center gap-1">
           {isHtml ? (
-            <button type="button" className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10" onClick={() => setPreview((v) => !v)}>
+            <button
+              type="button"
+              className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10"
+              onClick={() => setPreview((v) => !v)}
+            >
               {preview ? "Hide" : "Play"}
             </button>
           ) : null}
@@ -510,12 +500,12 @@ function CodeBlock({ lang, content, dark }: { lang: string; content: string; dar
         <iframe
           title="preview"
           sandbox="allow-scripts"
-          className="h-56 w-full max-w-full border-t border-white/10 bg-white"
+          className="h-56 w-full max-w-full border-0 bg-white"
           srcDoc={content}
         />
       ) : (
-        <pre className={cn("max-h-64 max-w-full overflow-x-auto overflow-y-auto p-3 text-[11px] leading-relaxed", dark ? "text-slate-100" : "text-slate-800")}>
-          <code className="break-all whitespace-pre-wrap">{content}</code>
+        <pre className={cn("max-h-64 max-w-full overflow-auto p-3 text-[11px] leading-relaxed break-all whitespace-pre-wrap sm:text-[12px]", dark ? "text-slate-100" : "text-slate-800")}>
+          <code>{content}</code>
         </pre>
       )}
     </div>
@@ -1718,7 +1708,7 @@ function D4AiPage() {
               </button>
               {[
                 { icon: History, label: "Chat History", action: () => { setDrawer(false); setHistoryOpen(true); } },
-                { icon: Wrench, label: "Tools & Integrations", action: () => { setDrawer(false); if (owner) setConnectionsOpen(true); else setToolsOpen(true); } },
+                { icon: Wrench, label: "Tools & Integrations", action: () => { setDrawer(false); setConnectionsOpen(true); } },
                 { icon: Phone, label: "Voice & Call", action: () => { setDrawer(false); startCallMode(); } },
                 { icon: Settings, label: "Settings", action: () => { setDrawer(false); setSettingsOpen(true); } },
                 { icon: Info, label: "About D4AI", action: () => { setDrawer(false); setAboutOpen(true); } },
@@ -2206,26 +2196,22 @@ function D4AiPage() {
             </div>
             <h3 className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>Tools & Integrations</h3>
             <p className={cn("mt-1 text-sm", dark ? "text-slate-400" : "text-slate-600")}>
-              {owner
-                ? "Connect GitHub and other tools to supercharge D4AI."
-                : "Tools & integrations are available to the platform owner."}
+              Connect GitHub, Lovable, Supabase, and MCP servers to supercharge D4AI.
             </p>
             <div className="mt-4 flex gap-2">
               <button type="button" className={cn("flex-1 rounded-xl py-2 text-sm", dark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700")} onClick={() => setToolsOpen(false)}>
                 Close
               </button>
-              {owner ? (
-                <button
-                  type="button"
-                  className="flex-1 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white"
-                  onClick={() => {
-                    setToolsOpen(false);
-                    setConnectionsOpen(true);
-                  }}
-                >
-                  Connect
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white"
+                onClick={() => {
+                  setToolsOpen(false);
+                  setConnectionsOpen(true);
+                }}
+              >
+                Connect
+              </button>
             </div>
           </div>
         </div>
