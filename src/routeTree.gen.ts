@@ -66,6 +66,7 @@ import { Route as OfficerSettingsRouteImport } from './routes/officer.settings'
 import { Route as StudentIndexRouteImport } from './routes/student.index'
 import { Route as StudentContactOfficerRouteImport } from './routes/student.contact-officer'
 import { Route as StudentCoursesRouteImport } from './routes/student.courses'
+import { Route as StudentD4aiRouteImport } from './routes/student.d4ai'
 import { Route as StudentExaminationsRouteImport } from './routes/student.examinations'
 import { Route as StudentHistoryRouteImport } from './routes/student.history'
 import { Route as StudentMaterialsRouteImport } from './routes/student.materials'
@@ -396,6 +397,11 @@ const StudentCoursesRoute = StudentCoursesRouteImport.update({
   path: '/courses',
   getParentRoute: () => StudentRoute,
 } as any)
+const StudentD4aiRoute = StudentD4aiRouteImport.update({
+  id: '/d4ai',
+  path: '/d4ai',
+  getParentRoute: () => StudentRoute,
+} as any)
 const StudentExaminationsRoute = StudentExaminationsRouteImport.update({
   id: '/examinations',
   path: '/examinations',
@@ -673,6 +679,7 @@ export interface FileRoutesByFullPath {
   '/officer/settings': typeof OfficerSettingsRoute
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/courses': typeof StudentCoursesRoute
+  '/student/d4ai': typeof StudentD4aiRoute
   '/student/examinations': typeof StudentExaminationsRoute
   '/student/history': typeof StudentHistoryRoute
   '/student/materials': typeof StudentMaterialsRoute
@@ -771,6 +778,7 @@ export interface FileRoutesByTo {
   '/officer/settings': typeof OfficerSettingsRoute
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/courses': typeof StudentCoursesRoute
+  '/student/d4ai': typeof StudentD4aiRoute
   '/student/examinations': typeof StudentExaminationsRoute
   '/student/history': typeof StudentHistoryRoute
   '/student/materials': typeof StudentMaterialsRoute
@@ -874,6 +882,7 @@ export interface FileRoutesById {
   '/officer/settings': typeof OfficerSettingsRoute
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/courses': typeof StudentCoursesRoute
+  '/student/d4ai': typeof StudentD4aiRoute
   '/student/examinations': typeof StudentExaminationsRoute
   '/student/history': typeof StudentHistoryRoute
   '/student/materials': typeof StudentMaterialsRoute
@@ -979,6 +988,7 @@ export interface FileRouteTypes {
     | '/officer/settings'
     | '/student/contact-officer'
     | '/student/courses'
+    | '/student/d4ai'
     | '/student/examinations'
     | '/student/history'
     | '/student/materials'
@@ -1077,6 +1087,7 @@ export interface FileRouteTypes {
     | '/officer/settings'
     | '/student/contact-officer'
     | '/student/courses'
+    | '/student/d4ai'
     | '/student/examinations'
     | '/student/history'
     | '/student/materials'
@@ -1179,6 +1190,7 @@ export interface FileRouteTypes {
     | '/officer/settings'
     | '/student/contact-officer'
     | '/student/courses'
+    | '/student/d4ai'
     | '/student/examinations'
     | '/student/history'
     | '/student/materials'
@@ -1654,6 +1666,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StudentCoursesRouteImport
       parentRoute: typeof StudentRoute
     }
+    '/student/d4ai': {
+      id: '/student/d4ai'
+      path: '/d4ai'
+      fullPath: '/student/d4ai'
+      preLoaderRoute: typeof StudentD4aiRouteImport
+      parentRoute: typeof StudentRoute
+    }
     '/student/examinations': {
       id: '/student/examinations'
       path: '/examinations'
@@ -2077,6 +2096,7 @@ const StudentResultsRouteWithChildren = StudentResultsRoute._addFileChildren(
 interface StudentRouteChildren {
   StudentContactOfficerRoute: typeof StudentContactOfficerRoute
   StudentCoursesRoute: typeof StudentCoursesRoute
+  StudentD4aiRoute: typeof StudentD4aiRoute
   StudentExaminationsRoute: typeof StudentExaminationsRoute
   StudentHistoryRoute: typeof StudentHistoryRoute
   StudentMaterialsRoute: typeof StudentMaterialsRoute
@@ -2093,6 +2113,7 @@ interface StudentRouteChildren {
 const StudentRouteChildren: StudentRouteChildren = {
   StudentContactOfficerRoute: StudentContactOfficerRoute,
   StudentCoursesRoute: StudentCoursesRoute,
+  StudentD4aiRoute: StudentD4aiRoute,
   StudentExaminationsRoute: StudentExaminationsRoute,
   StudentHistoryRoute: StudentHistoryRoute,
   StudentMaterialsRoute: StudentMaterialsRoute,
