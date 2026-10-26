@@ -306,49 +306,104 @@ function chunkSpeech(text: string, maxLen = 180): string[] {
 }
 
 function ttsUrl(text: string, seVoice: string): string {
-  // StreamElements free TTS — works in Capacitor WebView (no speechSynthesis needed)
-  return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(seVoice)}&text=${encodeURIComponent(text)}`;
+  // Same-origin proxy avoids CORS / silent failures in the Capacitor WebView
+  return `/api/d4ai/tts?voice=${encodeURIComponent(seVoice)}&text=${encodeURIComponent(text)}`;
 }
 
 function playAudioQueue(
   urls: string[],
-  opts?: { onend?: () => void; onstart?: () => void },
+  opts?: { onend?: () => void; onstart?: () => void; fallbackText?: string; preset?: VoicePreset },
 ) {
   speakingCancelled = false;
-  let i = 0;
   let started = false;
-  const next = () => {
-    if (speakingCancelled) {
-      opts?.onend?.();
-      return;
-    }
-    if (i >= urls.length) {
-      activeAudio = null;
-      opts?.onend?.();
-      return;
-    }
-    const audio = new Audio(urls[i++]);
-    activeAudio = audio;
-    audio.preload = "auto";
-    audio.onplay = () => {
-      if (!started) {
-        started = true;
-        try {
-          opts?.onstart?.();
-        } catch {}
+  let anyPlayed = false;
+  void (async () => {
+    for (const url of urls) {
+      if (speakingCancelled) break;
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.size < 80) continue;
+        if (speakingCancelled) break;
+        const obj = URL.createObjectURL(blob);
+        await new Promise<void>((resolve) => {
+          const audio = new Audio();
+          audio.volume = 1;
+          audio.src = obj;
+          activeAudio = audio;
+          audio.onplay = () => {
+            anyPlayed = true;
+            if (!started) {
+              started = true;
+              try {
+                opts?.onstart?.();
+              } catch {}
+            }
+          };
+          audio.onended = () => {
+            try {
+              URL.revokeObjectURL(obj);
+            } catch {}
+            resolve();
+          };
+          audio.onerror = () => {
+            try {
+              URL.revokeObjectURL(obj);
+            } catch {}
+            resolve();
+          };
+          const p = audio.play();
+          if (p && typeof p.catch === "function") p.catch(() => resolve());
+        });
+      } catch {
+        /* next chunk */
       }
-    };
-    audio.onended = () => next();
-    audio.onerror = () => {
-      // skip failed chunk
-      next();
-    };
-    const p = audio.play();
-    if (p && typeof p.catch === "function") {
-      p.catch(() => next());
     }
-  };
-  next();
+    activeAudio = null;
+    // Browser speechSynthesis fallback if audio produced nothing
+    if (!anyPlayed && !speakingCancelled && opts?.fallbackText && typeof window !== "undefined" && window.speechSynthesis) {
+      try {
+        const u = new SpeechSynthesisUtterance(opts.fallbackText.slice(0, 1500));
+        u.lang = "en-US";
+        u.volume = 1;
+        const char = getVoiceChar(opts.preset || loadVoicePreset());
+        u.rate = char.rate;
+        u.pitch = char.pitch;
+        try {
+          const v = pickVoice(opts.preset || loadVoicePreset());
+          if (v) u.voice = v;
+        } catch {}
+        u.onstart = () => {
+          if (!started) {
+            started = true;
+            try {
+              opts?.onstart?.();
+            } catch {}
+          }
+        };
+        u.onend = () => {
+          try {
+            opts?.onend?.();
+          } catch {}
+        };
+        u.onerror = () => {
+          try {
+            opts?.onend?.();
+          } catch {}
+        };
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+        window.speechSynthesis.speak(u);
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    try {
+      opts?.onend?.();
+    } catch {}
+  })();
 }
 
 function speakText(
@@ -385,13 +440,9 @@ function speakText(
   // Prefer audio TTS in app WebView (reliable). Also try speechSynthesis in parallel path only if audio fails entirely.
   playAudioQueue(urls, {
     onstart: opts?.onstart,
-    onend: () => {
-      if (speakingCancelled) {
-        done();
-        return;
-      }
-      done();
-    },
+    onend: opts?.onend,
+    fallbackText: clean,
+    preset: opts?.preset || loadVoicePreset(),
   });
 }
 
@@ -626,6 +677,9 @@ function D4AiPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [thoughtSeconds, setThoughtSeconds] = useState(0);
+  const [welcomeTyped, setWelcomeTyped] = useState("");
+  const thinkStartRef = useRef<number>(0);
   const [status, setStatus] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -682,6 +736,19 @@ function D4AiPage() {
   useEffect(() => {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
+  // Type the welcome message on mount / new chat (looks alive)
+  useEffect(() => {
+    const full = WELCOME_TEXT;
+    setWelcomeTyped("");
+    let i = 0;
+    const id = window.setInterval(() => {
+      i = Math.min(full.length, i + 2);
+      setWelcomeTyped(full.slice(0, i));
+      if (i >= full.length) window.clearInterval(id);
+    }, 18);
+    return () => window.clearInterval(id);
+  }, [activeId]);
+
 
   // Match phone status bar + nav bar to D4AI dark background
   useEffect(() => {
@@ -738,6 +805,24 @@ function D4AiPage() {
     const activeConv = list.find((c) => c.id === id);
     if (activeConv && activeConv.messages.length > 1) setTab("chat");
   }, []);
+
+  // Welcome typewriter — types intro on fresh / home view
+  useEffect(() => {
+    if (welcomeDone && welcomeTyped === WELCOME_TEXT) return;
+    let i = 0;
+    setWelcomeTyped("");
+    setWelcomeDone(false);
+    const id = window.setInterval(() => {
+      i = Math.min(WELCOME_TEXT.length, i + 2);
+      setWelcomeTyped(WELCOME_TEXT.slice(0, i));
+      if (i >= WELCOME_TEXT.length) {
+        window.clearInterval(id);
+        setWelcomeDone(true);
+      }
+    }, 18);
+    return () => window.clearInterval(id);
+  }, [activeId]);
+
 
   useEffect(() => {
     if (!toast) return;
@@ -903,61 +988,133 @@ function D4AiPage() {
       }
 
       try {
-        const ghToken = readGithubToken();
-        const res = await d4aiChat({
-          data: {
-            messages: history,
-            images: dText ? undefined : imgs,
-            documentText: dText,
-            documentName: dName || (imgs ? "image-ocr.txt" : undefined),
-            githubToken: ghToken || undefined,
-            enableGithubTools: Boolean(ghToken),
-          },
-        });
-        if (!res.ok) {
-          const raw = String(res.error || "Something went wrong.");
-          const friendly =
-            /too_big|at most \d+ element/i.test(raw)
-              ? "Chat history was too long. I trimmed it — please send your message again."
-              : raw.length > 280
-                ? "D4AI had a problem answering. Please try a shorter message."
-                : raw;
-          setError(friendly);
-          updateActiveMessages((m) => [
-            ...m,
-            { id: `e-${Date.now()}`, role: "assistant", content: friendly, createdAt: Date.now() },
-          ]);
-        } else {
-          const full = res.content || "";
-          const aid = `a-${Date.now()}`;
-          updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "", createdAt: Date.now() }]);
-          let i = 0;
-          const step = Math.max(4, Math.ceil(full.length / 80));
-          setStreaming(true);
-          if (typewriterRef.current) clearInterval(typewriterRef.current);
-          // Show text gradually so students see it write live (not one big dump)
-          typewriterRef.current = setInterval(() => {
-            i = Math.min(full.length, i + step);
-            updateActiveMessages((list) =>
-              list.map((x) => (x.id === aid ? { ...x, content: full.slice(0, i) } : x)),
-            );
-            scrollDown();
-            if (i >= full.length) {
-              if (typewriterRef.current) clearInterval(typewriterRef.current);
-              typewriterRef.current = null;
-              setStreaming(false);
-              // Auto-speak only in live call mode (not after typed messages)
-              if (autoSpeakRef.current && callModeRef.current) {
-                setTtsSpeaking(true);
-                ttsSpeakingRef.current = true;
-                speakText(full, {
-                  preset: voicePresetRef.current,
-                  onstart: () => { setTtsSpeaking(true); ttsSpeakingRef.current = true; },
-                  onend: () => { setTtsSpeaking(false); ttsSpeakingRef.current = false; },
-                });
+        thinkStartRef.current = Date.now();
+        setThoughtSeconds(0);
+        const thinkTimer = window.setInterval(() => {
+          setThoughtSeconds(Math.max(1, Math.round((Date.now() - thinkStartRef.current) / 1000)));
+        }, 250);
+
+        const aid = `a-${Date.now()}`;
+        updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "", createdAt: Date.now() }]);
+        setStreaming(true);
+        scrollDown();
+
+        let full = "";
+        let usedStream = false;
+
+        try {
+          const streamRes = await fetch("/api/d4ai/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: history,
+              images: dText ? undefined : imgs,
+              documentText: dText || undefined,
+              documentName: dName || (imgs ? "image-ocr.txt" : undefined),
+            }),
+          });
+
+          if (streamRes.ok && streamRes.body) {
+            usedStream = true;
+            const reader = streamRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split("\n");
+              buf = lines.pop() || "";
+              for (const line of lines) {
+                const t = line.trim();
+                if (!t) continue;
+                try {
+                  const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
+                  if (j.type === "token" && j.content) {
+                    full += j.content;
+                    updateActiveMessages((list) =>
+                      list.map((x) => (x.id === aid ? { ...x, content: full } : x)),
+                    );
+                    scrollDown();
+                  } else if (j.type === "error" && j.error) {
+                    throw new Error(j.error);
+                  }
+                } catch (e) {
+                  if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
+                }
               }
             }
-          }, 12);
+          }
+        } catch (streamErr) {
+          console.warn("stream failed, fallback", streamErr);
+          usedStream = false;
+        }
+
+        if (!usedStream || !full.trim()) {
+          const ghToken = readGithubToken();
+          const res = await d4aiChat({
+            data: {
+              messages: history,
+              images: dText ? undefined : imgs,
+              documentText: dText,
+              documentName: dName || (imgs ? "image-ocr.txt" : undefined),
+              githubToken: ghToken || undefined,
+              enableGithubTools: Boolean(ghToken),
+            },
+          });
+          if (!res.ok) {
+            const raw = String(res.error || "Something went wrong.");
+            const friendly =
+              /too_big|at most \d+ element/i.test(raw)
+                ? "Chat history was too long. I trimmed it — please send again."
+                : raw.length > 280
+                  ? "D4AI had a problem answering. Try a shorter message."
+                  : raw;
+            setError(friendly);
+            updateActiveMessages((m) =>
+              m.map((x) => (x.id === aid ? { ...x, content: friendly } : x)),
+            );
+          } else {
+            full = res.content || "";
+            // Fast typewriter only for fallback path
+            let i = 0;
+            const step = Math.max(6, Math.ceil(full.length / 60));
+            if (typewriterRef.current) clearInterval(typewriterRef.current);
+            await new Promise<void>((resolve) => {
+              typewriterRef.current = setInterval(() => {
+                i = Math.min(full.length, i + step);
+                updateActiveMessages((list) =>
+                  list.map((x) => (x.id === aid ? { ...x, content: full.slice(0, i) } : x)),
+                );
+                scrollDown();
+                if (i >= full.length) {
+                  if (typewriterRef.current) clearInterval(typewriterRef.current);
+                  typewriterRef.current = null;
+                  resolve();
+                }
+              }, 12);
+            });
+          }
+        }
+
+        window.clearInterval(thinkTimer);
+        setThoughtSeconds(Math.max(1, Math.round((Date.now() - thinkStartRef.current) / 1000)));
+        setStreaming(false);
+
+        if (full && autoSpeakRef.current && callModeRef.current) {
+          setTtsSpeaking(true);
+          ttsSpeakingRef.current = true;
+          speakText(full, {
+            preset: voicePresetRef.current,
+            onstart: () => {
+              setTtsSpeaking(true);
+              ttsSpeakingRef.current = true;
+            },
+            onend: () => {
+              setTtsSpeaking(false);
+              ttsSpeakingRef.current = false;
+            },
+          });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to reach D4AI";
@@ -968,6 +1125,7 @@ function D4AiPage() {
         ]);
       } finally {
         setBusy(false);
+        setStreaming(false);
         setStatus(null);
         scrollDown();
       }
@@ -1326,7 +1484,7 @@ function D4AiPage() {
         <h1 className="d4ai-title-grad text-base font-bold">D4AI</h1>
         <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          {busy ? "Writing…" : "Online · v5-Ultimate"}
+          {busy ? (streaming ? "Writing…" : thoughtSeconds > 0 ? `Thinking… ${thoughtSeconds}s` : "Thinking…") : thoughtSeconds > 0 && !busy ? `Thought for ${thoughtSeconds}s` : "Online · v5-Ultimate"}
         </p>
       </div>
       <button type="button" onClick={() => setDrawer(true)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Menu">
@@ -1350,7 +1508,7 @@ function D4AiPage() {
         <div className={cn("mt-6 w-full rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
           <div className="flex items-start gap-2">
             <D4Avatar size={28} className="mt-0.5 shrink-0" />
-            <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
+            <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{welcomeTyped}{!welcomeDone ? <span className="d4ai-write-cursor ml-0.5 inline-block" /> : null}</p>
           </div>
         </div>
       </div>
@@ -1437,7 +1595,7 @@ function D4AiPage() {
             </div>
           </div>
         ))}
-      {busy && !streaming ? <TypingIndicator /> : null}
+      {busy && streaming ? <TypingIndicator /> : null}
       {status ? (
         <p className="flex items-center gap-2 px-2 text-xs text-cyan-200/80">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status}
@@ -1453,7 +1611,7 @@ function D4AiPage() {
       <div className={cn("mx-auto mt-2 w-full max-w-md rounded-2xl p-3.5", dark ? "bg-[#0e2038] ring-1 ring-cyan-400/15" : "bg-white ring-1 ring-slate-200 shadow-sm")}>
         <div className="flex items-start gap-2">
           <D4Avatar size={28} className="mt-0.5 shrink-0" />
-          <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{WELCOME_TEXT}</p>
+          <p className={cn("whitespace-pre-wrap text-[13px] leading-relaxed", dark ? "text-slate-300" : "text-slate-700")}>{welcomeTyped}{!welcomeDone ? <span className="d4ai-write-cursor ml-0.5 inline-block" /> : null}</p>
         </div>
       </div>
       {active && active.messages.length > 1 ? (

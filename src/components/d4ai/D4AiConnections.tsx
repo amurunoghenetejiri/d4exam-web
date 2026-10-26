@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   Github,
+  Database,
+  Heart,
+  Mail,
   Link2,
   Loader2,
   Lock,
   Plus,
   Server,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -97,7 +99,7 @@ const APP_CATALOG: {
   id: AppId;
   title: string;
   description: string;
-  icon: typeof Github;
+  icon: typeof Github | typeof Heart | typeof Database | typeof Mail;
 }[] = [
   {
     id: "github",
@@ -108,14 +110,14 @@ const APP_CATALOG: {
   {
     id: "lovable",
     title: "Lovable",
-    description: "Add HTTP MCP under MCP servers when available.",
-    icon: Sparkles,
+    description: "Add Lovable HTTP MCP under MCP servers when you have a URL.",
+    icon: Heart,
   },
   {
     id: "supabase",
     title: "Supabase",
-    description: "Already powers D4EXAM in-app.",
-    icon: Link2,
+    description: "Connect a project URL + key via MCP, or use D4EXAM built-in data.",
+    icon: Database,
   },
 ];
 

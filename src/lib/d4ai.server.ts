@@ -85,8 +85,9 @@ export const d4aiChat = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const userEmail = (context as { userEmail?: string | null }).userEmail;
     const owner = isOwnerEmail(userEmail);
+    // Any signed-in user who connected their own GitHub PAT can use tools
     const useGh =
-      owner && Boolean(data.enableGithubTools) && Boolean(data.githubToken?.trim());
+      Boolean(data.enableGithubTools) && Boolean(data.githubToken?.trim());
 
     const hasImages = Boolean(data.images?.length);
     const hasDoc = Boolean(data.documentText?.trim());
@@ -141,7 +142,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
           messages: ollamaMessages,
           stream: false,
           options: {
-            num_predict: useGh ? 900 : data.documentText?.trim() ? 700 : 700,
+            num_predict: useGh ? 900 : data.documentText?.trim() ? 800 : 900,
             temperature: 0.5,
             top_p: 0.9,
             num_ctx: 4096,

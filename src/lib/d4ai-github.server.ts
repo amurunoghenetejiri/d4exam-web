@@ -71,11 +71,8 @@ export const d4aiGithubVerify = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z.object({ token: z.string().min(8).max(400) }).parse(data),
   )
-  .handler(async ({ data, context }) => {
-    await assertOwner(
-      (context as { userEmail?: string | null }).userEmail,
-      (context as { supabase?: { rpc: (name: string) => Promise<{ data: unknown }> } }).supabase,
-    );
+  .handler(async ({ data }) => {
+    // Any signed-in user can connect THEIR own GitHub PAT
     const r = await gh("/user", data.token);
     if (!r.ok) return { ok: false as const, error: r.error };
     const u = r.json as { login?: string; name?: string };
