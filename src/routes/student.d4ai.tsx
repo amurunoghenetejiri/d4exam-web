@@ -193,16 +193,65 @@ async function ocrImageDataUrl(dataUrl: string): Promise<string> {
 }
 
 const VOICE_KEY = "d4ai_voice_v1";
-const SILENCE_MS = 3000;
+const SILENCE_MS = 1200;
 
-type VoicePreset = "auto" | "male" | "female" | "deep" | "soft";
+type VoicePreset =
+  | "auto"
+  | "rex"
+  | "atlas"
+  | "nova"
+  | "luna"
+  | "cipher"
+  | "echo"
+  | "kai"
+  | "aria"
+  | "bolt"
+  | "sage"
+  | "pixel"
+  | "volt";
+
+type VoiceChar = {
+  id: VoicePreset;
+  name: string;
+  tag: string;
+  emoji: string;
+  /** StreamElements / similar TTS voice id */
+  seVoice: string;
+  rate: number;
+  pitch: number;
+  sample: string;
+};
+
+const VOICE_CHARS: VoiceChar[] = [
+  { id: "rex", name: "Rex", tag: "Clear male", emoji: "🧑", seVoice: "Brian", rate: 1, pitch: 1, sample: "Hey, I'm Rex. Clear and steady — ready when you are." },
+  { id: "atlas", name: "Atlas", tag: "Deep bass", emoji: "🧔", seVoice: "Brian", rate: 0.85, pitch: 0.7, sample: "I am Atlas. Deep, calm, and grounded." },
+  { id: "nova", name: "Nova", tag: "Warm female", emoji: "👩", seVoice: "Amy", rate: 1, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
+  { id: "luna", name: "Luna", tag: "Soft gentle", emoji: "✨", seVoice: "Emma", rate: 0.95, pitch: 1.12, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
+  { id: "cipher", name: "Cipher", tag: "Robotic AI", emoji: "🤖", seVoice: "Brian", rate: 1.05, pitch: 0.55, sample: "System online. I am Cipher, your robotic assistant." },
+  { id: "echo", name: "Echo", tag: "Modern AI", emoji: "🔮", seVoice: "Amy", rate: 1.02, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
+  { id: "kai", name: "Kai", tag: "Sharp active", emoji: "⚡", seVoice: "Brian", rate: 1.12, pitch: 1.05, sample: "Kai online! Fast, sharp, and full of energy." },
+  { id: "aria", name: "Aria", tag: "Romantic soft", emoji: "💫", seVoice: "Emma", rate: 0.92, pitch: 1.15, sample: "I'm Aria. Soft, smooth, and a little romantic." },
+  { id: "bolt", name: "Bolt", tag: "Bright energetic", emoji: "🔥", seVoice: "Brian", rate: 1.15, pitch: 1.1, sample: "Bolt here — bright, energetic, let's go!" },
+  { id: "sage", name: "Sage", tag: "Deep wise", emoji: "📚", seVoice: "Brian", rate: 0.88, pitch: 0.65, sample: "I am Sage. Deep, thoughtful, and measured." },
+  { id: "pixel", name: "Pixel", tag: "Cartoon fun", emoji: "🎮", seVoice: "Amy", rate: 1.18, pitch: 1.35, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
+  { id: "volt", name: "Volt", tag: "Unlimited power", emoji: "⚡", seVoice: "Brian", rate: 1.08, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
+];
 
 function loadVoicePreset(): VoicePreset {
   try {
     const v = localStorage.getItem(VOICE_KEY);
-    if (v === "male" || v === "female" || v === "deep" || v === "soft" || v === "auto") return v;
+    if (v && VOICE_CHARS.some((c) => c.id === v)) return v as VoicePreset;
+    if (v === "male") return "rex";
+    if (v === "female") return "nova";
+    if (v === "deep") return "atlas";
+    if (v === "soft") return "luna";
+    if (v === "auto") return "rex";
   } catch {}
-  return "auto";
+  return "rex";
+}
+
+function getVoiceChar(id: VoicePreset): VoiceChar {
+  return VOICE_CHARS.find((c) => c.id === id) || VOICE_CHARS[0];
 }
 
 function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
@@ -248,12 +297,34 @@ function stripForSpeech(text: string): string {
     .replace(/[#*_>`\[\]()]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 3000);
+    .slice(0, 2800);
 }
 
-/** Play TTS via Google Translate audio (works in Capacitor WebView when speechSynthesis is missing) */
+function chunkSpeech(text: string, maxLen = 150): string[] {
+  const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  const out: string[] = [];
+  let buf = "";
+  for (const p of parts) {
+    const t = p.trim();
+    if (!t) continue;
+    if ((buf + " " + t).trim().length > maxLen) {
+      if (buf) out.push(buf.trim());
+      buf = t;
+    } else {
+      buf = (buf + " " + t).trim();
+    }
+  }
+  if (buf) out.push(buf.trim());
+  return out.length ? out : [text.slice(0, maxLen)];
+}
+
+function ttsUrl(text: string, seVoice: string): string {
+  return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(seVoice)}&text=${encodeURIComponent(text)}`;
+}
+
 function playTtsChunks(
   chunks: string[],
+  seVoice: string,
   opts?: { onend?: () => void; onstart?: () => void },
 ) {
   speakingCancelled = false;
@@ -269,9 +340,8 @@ function playTtsChunks(
       opts?.onend?.();
       return;
     }
-    const q = encodeURIComponent(chunks[i++].slice(0, 180));
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${q}&tl=en`;
-    const audio = new Audio(url);
+    const piece = chunks[i++];
+    const audio = new Audio(ttsUrl(piece, seVoice));
     activeAudio = audio;
     audio.onplay = () => {
       if (!started) {
@@ -280,28 +350,28 @@ function playTtsChunks(
       }
     };
     audio.onended = () => next();
-    audio.onerror = () => next();
-    audio.play().catch(() => next());
+    audio.onerror = () => {
+      // fallback: try Google TTS once per chunk
+      const g = new Audio(
+        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(piece.slice(0, 160))}&tl=en`,
+      );
+      activeAudio = g;
+      g.onended = () => next();
+      g.onerror = () => next();
+      g.play().catch(() => next());
+    };
+    audio.play().catch(() => {
+      // try google
+      const g = new Audio(
+        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(piece.slice(0, 160))}&tl=en`,
+      );
+      activeAudio = g;
+      g.onended = () => next();
+      g.onerror = () => next();
+      g.play().catch(() => next());
+    });
   };
   next();
-}
-
-function chunkSpeech(text: string): string[] {
-  const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-  const out: string[] = [];
-  let buf = "";
-  for (const p of parts) {
-    const t = p.trim();
-    if (!t) continue;
-    if ((buf + " " + t).trim().length > 160) {
-      if (buf) out.push(buf.trim());
-      buf = t;
-    } else {
-      buf = (buf + " " + t).trim();
-    }
-  }
-  if (buf) out.push(buf.trim());
-  return out.length ? out : [text.slice(0, 160)];
 }
 
 function speakText(
@@ -318,79 +388,25 @@ function speakText(
     done();
     return;
   }
-  const chunks = chunkSpeech(clean);
-  speakingCancelled = false;
-
-  // 1) Browser / WebView SpeechSynthesis when available
+  speakingCancelled = true;
   try {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      const synth = window.speechSynthesis;
-      try {
-        synth.cancel();
-        synth.resume();
-      } catch {}
-      const preset = opts?.preset || loadVoicePreset();
-      let idx = 0;
-      let started = false;
-      const speakNext = () => {
-        if (speakingCancelled) {
-          done();
-          return;
-        }
-        if (idx >= chunks.length) {
-          done();
-          return;
-        }
-        const u = new SpeechSynthesisUtterance(chunks[idx++]);
-        u.lang = "en-US";
-        u.volume = 1;
-        u.rate = preset === "deep" ? 0.9 : 1;
-        u.pitch = preset === "deep" ? 0.75 : preset === "female" || preset === "soft" ? 1.1 : 1;
-        try {
-          const voice = pickVoice(preset);
-          if (voice) u.voice = voice;
-        } catch {}
-        u.onstart = () => {
-          if (!started) {
-            started = true;
-            opts?.onstart?.();
-          }
-        };
-        u.onend = () => speakNext();
-        u.onerror = () => speakNext();
-        try {
-          synth.speak(u);
-        } catch {
-          // fall through to audio backend
-          playTtsChunks(chunks.slice(idx - 1), opts);
-        }
-      };
-      const voices = synth.getVoices();
-      if (!voices.length) {
-        synth.onvoiceschanged = () => speakNext();
-        setTimeout(() => speakNext(), 350);
-      } else {
-        speakNext();
-      }
-      // If nothing starts within 1.2s, use audio fallback
-      setTimeout(() => {
-        try {
-          if (!synth.speaking && !synth.pending && !speakingCancelled) {
-            try {
-              synth.cancel();
-            } catch {}
-            playTtsChunks(chunks, opts);
-          }
-        } catch {
-          playTtsChunks(chunks, opts);
-        }
-      }, 1200);
-      return;
+    window.speechSynthesis?.cancel();
+  } catch {}
+  try {
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.src = "";
+      activeAudio = null;
     }
   } catch {}
+  speakingCancelled = false;
 
-  // 2) Audio fallback (Capacitor WebView — no speechSynthesis)
-  playTtsChunks(chunks, opts);
+  const preset = opts?.preset || loadVoicePreset();
+  const char = getVoiceChar(preset === "auto" ? "rex" : preset);
+  const chunks = chunkSpeech(clean, 140);
+
+  // Prefer audio TTS (works in Capacitor app WebView)
+  playTtsChunks(chunks, char.seVoice, opts);
 }
 
 function stopSpeaking() {
@@ -452,31 +468,55 @@ function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
   if (!parts.length) parts.push({ type: "text", content: text });
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 max-w-full space-y-2 overflow-hidden">
       {parts.map((p, i) =>
         p.type === "code" ? (
-          <div key={i} className={cn("overflow-hidden rounded-xl border", dark ? "border-cyan-500/20 bg-[#061018]" : "border-slate-200 bg-slate-50")}>
-            <div className={cn("flex items-center justify-between px-3 py-1.5 text-[11px]", dark ? "bg-white/5 text-cyan-200" : "bg-slate-100 text-slate-600")}>
-              <span className="font-medium uppercase tracking-wide">{p.lang || "code"}</span>
-              <button
-                type="button"
-                className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10"
-                onClick={() => {
-                  void navigator.clipboard.writeText(p.content);
-                }}
-              >
-                Copy
-              </button>
-            </div>
-            <pre className={cn("max-h-80 overflow-auto p-3 text-[12px] leading-relaxed", dark ? "text-slate-100" : "text-slate-800")}>
-              <code>{p.content}</code>
-            </pre>
-          </div>
+          <CodeBlock key={i} lang={p.lang || ""} content={p.content} dark={dark} />
         ) : (
-          <p key={i} className="whitespace-pre-wrap text-[13px] leading-relaxed">
+          <p key={i} className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
             {p.content}
           </p>
         ),
+      )}
+    </div>
+  );
+}
+
+function CodeBlock({ lang, content, dark }: { lang: string; content: string; dark: boolean }) {
+  const [preview, setPreview] = useState(false);
+  const isHtml = /html|htm|svg/i.test(lang) || /^\s*<(!doctype|html|div|section|body)/i.test(content);
+  return (
+    <div className={cn("max-w-full overflow-hidden rounded-xl border", dark ? "border-cyan-500/20 bg-[#061018]" : "border-slate-200 bg-slate-50")}>
+      <div className={cn("flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-[11px]", dark ? "bg-white/5 text-cyan-200" : "bg-slate-100 text-slate-600")}>
+        <span className="font-medium uppercase tracking-wide">{lang || "code"}</span>
+        <div className="flex items-center gap-1">
+          {isHtml ? (
+            <button type="button" className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10" onClick={() => setPreview((v) => !v)}>
+              {preview ? "Hide" : "Play"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10"
+            onClick={() => {
+              void navigator.clipboard.writeText(content);
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+      {preview && isHtml ? (
+        <iframe
+          title="preview"
+          sandbox="allow-scripts"
+          className="h-56 w-full max-w-full border-t border-white/10 bg-white"
+          srcDoc={content}
+        />
+      ) : (
+        <pre className={cn("max-h-64 max-w-full overflow-x-auto overflow-y-auto p-3 text-[11px] leading-relaxed", dark ? "text-slate-100" : "text-slate-800")}>
+          <code className="break-all whitespace-pre-wrap">{content}</code>
+        </pre>
       )}
     </div>
   );
@@ -609,6 +649,7 @@ function D4AiPage() {
   const [voicePaused, setVoicePaused] = useState(false);
   const [callMode, setCallMode] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [voicePreset, setVoicePreset] = useState<VoicePreset>(() => loadVoicePreset());
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
@@ -880,7 +921,7 @@ function D4AiPage() {
             documentText: dText,
             documentName: dName || (imgs ? "image-ocr.txt" : undefined),
             githubToken: ghToken || undefined,
-            enableGithubTools: Boolean(owner && ghToken),
+            enableGithubTools: Boolean(ghToken),
           },
         });
         if (!res.ok) {
@@ -915,7 +956,8 @@ function D4AiPage() {
               if (typewriterRef.current) clearInterval(typewriterRef.current);
               typewriterRef.current = null;
               setStreaming(false);
-              if (autoSpeakRef.current) {
+              // Auto-speak only in live call mode (not after typed messages)
+              if (autoSpeakRef.current && callModeRef.current) {
                 setTtsSpeaking(true);
                 ttsSpeakingRef.current = true;
                 speakText(full, {
@@ -1327,7 +1369,7 @@ function D4AiPage() {
         .map((m) => (
           <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
             {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
-            <div className={cn("flex max-w-[85%] flex-col", m.role === "user" ? "items-end" : "items-start")}>
+            <div className={cn("flex min-w-0 max-w-[min(85%,100%)] flex-col", m.role === "user" ? "items-end" : "items-start")}>
               <div
                 onPointerDown={(e) => {
                   // long-press only (do not steal scroll / tap)
@@ -1745,44 +1787,18 @@ function D4AiPage() {
               </p>
             </div>
             {/* Voice picker */}
-            <div className="flex items-center gap-1.5">
-              <select
-                value={voicePreset}
-                onChange={(e) => {
-                  const v = e.target.value as VoicePreset;
-                  setVoicePreset(v);
-                  // preview on change
-                  speakText("Hello Boss, I am D4AI, your personal assistant. How can I help you today?", {
-                    preset: v,
-                  });
-                }}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold outline-none",
-                  dark ? "border-cyan-500/40 bg-[#0c1a33] text-cyan-100" : "border-slate-200 bg-white text-slate-700",
-                )}
-                aria-label="Voice"
-              >
-                <option value="auto">⚡ Auto</option>
-                <option value="male">🧑 Rex · Male</option>
-                <option value="deep">🧔 Atlas · Deep male</option>
-                <option value="female">👩 Nova · Female</option>
-                <option value="soft">✨ Luna · Soft</option>
-              </select>
-              <button
-                type="button"
-                onClick={() =>
-                  speakText("Hello Boss, I am D4AI, your personal assistant. How can I help you today?", {
-                    preset: voicePreset,
-                  })
-                }
-                className={cn(
-                  "rounded-full px-2.5 py-1.5 text-[11px] font-semibold",
-                  dark ? "bg-cyan-500/20 text-cyan-200" : "bg-blue-50 text-blue-700",
-                )}
-              >
-                Play
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setVoicePickerOpen(true)}
+              className={cn(
+                "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold",
+                dark ? "border-cyan-500/40 bg-[#0c1a33] text-cyan-100" : "border-slate-200 bg-white text-slate-700",
+              )}
+            >
+              <span className="text-sm">{getVoiceChar(voicePreset).emoji}</span>
+              <span>{getVoiceChar(voicePreset).name}</span>
+              <span className="opacity-60">▾</span>
+            </button>
           </div>
 
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -1931,6 +1947,79 @@ function D4AiPage() {
       ) : null}
 
       {/* ---------- Attach popup ---------- */}
+      
+      {voicePickerOpen ? (
+        <div className="absolute inset-0 z-[90] flex flex-col bg-black/60">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setVoicePickerOpen(false)} />
+          <div
+            className={cn(
+              "relative z-10 mt-auto max-h-[85%] overflow-hidden rounded-t-3xl border-t shadow-2xl",
+              dark ? "border-cyan-500/20 bg-[#071428]" : "border-slate-200 bg-white",
+            )}
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          >
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>Choose a voice</p>
+                <p className="text-[11px] text-slate-400">12 D4AI characters · tap to preview</p>
+              </div>
+              <button type="button" onClick={() => setVoicePickerOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-white/10">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 overflow-y-auto px-3 pb-4 sm:grid-cols-3">
+              {VOICE_CHARS.map((c) => {
+                const active = voicePreset === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      setVoicePreset(c.id);
+                      try {
+                        localStorage.setItem(VOICE_KEY, c.id);
+                      } catch {}
+                      stopSpeaking();
+                      speakText(c.sample, {
+                        preset: c.id,
+                        onend: () => {},
+                      });
+                    }}
+                    className={cn(
+                      "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center transition active:scale-[0.98]",
+                      active
+                        ? dark
+                          ? "border-cyan-400/60 bg-cyan-500/15 ring-1 ring-cyan-400/40"
+                          : "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
+                        : dark
+                          ? "border-white/10 bg-white/5 hover:bg-white/10"
+                          : "border-slate-200 bg-slate-50 hover:bg-slate-100",
+                    )}
+                  >
+                    <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-cyan-500/30 via-blue-600/40 to-fuchsia-500/30 text-2xl ring-2 ring-cyan-300/30">
+                      <span className="d4ai-write-char" style={{ animationDuration: "2.4s" }}>{c.emoji}</span>
+                      <img src={LOGO} alt="" className="absolute inset-0 h-full w-full rounded-full object-cover opacity-25" />
+                    </span>
+                    <span className={cn("text-sm font-bold", dark ? "text-white" : "text-slate-900")}>{c.name}</span>
+                    <span className="text-[10px] text-slate-400">{c.tag}</span>
+                    {active ? <span className="text-[10px] font-semibold text-cyan-300">Selected</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="px-4 pb-2">
+              <button
+                type="button"
+                onClick={() => setVoicePickerOpen(false)}
+                className="w-full rounded-full bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8] py-2.5 text-sm font-semibold text-white"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {attachOpen ? (
         <div className="absolute inset-0 z-[85] flex items-end justify-center bg-black/50 p-4">
           <button type="button" className="absolute inset-0" onClick={() => setAttachOpen(false)} aria-label="Close" />

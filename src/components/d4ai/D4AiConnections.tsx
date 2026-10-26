@@ -149,7 +149,7 @@ export function D4AiConnectionsSheet({
   onClose: () => void;
   session: SessionUser | null;
 }) {
-  const owner = isD4AiOwner(session);
+  const owner = true; // MCP + connectors available to every signed-in user
   const [tab, setTab] = useState<"apps" | "mcp">("apps");
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [apps, setApps] = useState<Record<string, boolean>>({});
@@ -307,7 +307,7 @@ export function D4AiConnectionsSheet({
         <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <p className="text-sm font-bold text-white">Connections</p>
-            <p className="text-[11px] text-cyan-200/70">D4AI · Owner tools</p>
+            <p className="text-[11px] text-cyan-200/70">D4AI · Connect apps & MCP</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-white/70 hover:bg-white/10">
             <X className="h-5 w-5" />
@@ -318,7 +318,7 @@ export function D4AiConnectionsSheet({
           <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
             <Lock className="h-10 w-10 text-slate-400" />
             <p className="text-sm font-semibold text-white">Restricted</p>
-            <p className="text-xs text-slate-400">Only Amurun Destiny can manage connectors.</p>
+            <p className="text-xs text-slate-400">Sign in to connect GitHub, Lovable, Supabase, and MCP servers.</p>
           </div>
         ) : (
           <>

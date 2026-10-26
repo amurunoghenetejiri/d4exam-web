@@ -113,7 +113,11 @@ export function ProfilePage() {
       /^(school\s*admin|examination\s*officer|departmental\s*officer|teacher|student|super\s*admin|user)$/i;
     const seed = (user.fullName || student?.fullName || "").trim();
     setFullName(seed && !roleLike.test(seed) ? seed : "");
-    setEmail(user.email || "");
+    setEmail(
+      user.email && !String(user.email).includes("placeholder.local")
+        ? user.email
+        : "",
+    );
     void (async () => {
       try {
         let data: { phone?: string | null; full_name?: string | null } | null = null;
@@ -150,15 +154,31 @@ export function ProfilePage() {
     try {
       const payload: Record<string, unknown> = { full_name: fullName.trim() };
       if (phone.trim()) payload.phone = phone.trim();
+      const isPlaceholder = (v: string) =>
+        !v ||
+        v.endsWith("@placeholder.local") ||
+        v.includes("placeholder.local") ||
+        !v.includes("@") ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
       const nextEmail = email.trim().toLowerCase();
       const prevEmail = (user.email || "").trim().toLowerCase();
-      if (nextEmail && nextEmail !== prevEmail) {
+      // Never push invalid / placeholder emails to Auth
+      if (nextEmail && !isPlaceholder(nextEmail) && nextEmail !== prevEmail) {
         const { error: authErr } = await supabase.auth.updateUser({ email: nextEmail });
         if (authErr) throw authErr;
         payload.email = nextEmail;
         setEmailNote(
           "Check your inbox to confirm the new email if Supabase asks for verification.",
         );
+      } else if (nextEmail && isPlaceholder(nextEmail)) {
+        setEmailNote("Enter a real email address (Gmail, school mail, etc.). Placeholder emails cannot be saved.");
+        setSaving(false);
+        return;
+      } else if (isPlaceholder(prevEmail) && nextEmail && !isPlaceholder(nextEmail)) {
+        const { error: authErr } = await supabase.auth.updateUser({ email: nextEmail });
+        if (authErr) throw authErr;
+        payload.email = nextEmail;
+        setEmailNote("Email updated. Confirm from your inbox if Supabase asks.");
       }
       const { error: upErr } = await supabase
         .from("profiles")
