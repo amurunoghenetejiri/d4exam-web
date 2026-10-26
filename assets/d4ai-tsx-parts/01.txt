@@ -1,0 +1,134 @@
+00/40", className)}
+      style={{ width: size, height: size }}
+      onError={(e) => {
+        (e.target as HTMLImageElement).src = LOGO;
+      }}
+    />
+  );
+}
+
+function D4AiPage() {
+  const navigate = useNavigate();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { data: session } = useSessionUser();
+  const owner = isD4AiOwner(session);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [imageB64, setImageB64] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [docText, setDocText] = useState<string | null>(null);
+  const [docName, setDocName] = useState<string | null>(null);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [voiceText, setVoiceText] = useState("");
+  const [voiceSecs, setVoiceSecs] = useState(0);
+  const [longPress, setLongPress] = useState<Msg | null>(null);
+  const [editMsg, setEditMsg] = useState<Msg | null>(null);
+  const [editText, setEditText] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<{ stop: () => void; start?: () => void } | null>(null);
+  const voiceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalTranscriptRef = useRef("");
+  const voicePausedRef = useRef(false);
+  const abortRef = useRef(false);
+
+  useEffect(() => {
+    const list = loadStore();
+    let id = localStorage.getItem(ACTIVE_KEY);
+    if (!list.length) {
+      const c: Conversation = {
+        id: newId(),
+        title: "New chat",
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      setConversations([c]);
+      setActiveId(c.id);
+      saveStore([c]);
+      localStorage.setItem(ACTIVE_KEY, c.id);
+      return;
+    }
+    if (!id || !list.find((c) => c.id === id)) id = list[0].id;
+    setConversations(list);
+    setActiveId(id);
+  }, []);
+
+  const active = useMemo(
+    () => conversations.find((c) => c.id === activeId) ?? null,
+    [conversations, activeId],
+  );
+  const messages = active?.messages ?? [];
+  const isEmpty = messages.length === 0;
+
+  const persist = useCallback((list: Conversation[], id: string | null) => {
+    setConversations(list);
+    saveStore(list);
+    if (id) {
+      setActiveId(id);
+      localStorage.setItem(ACTIVE_KEY, id);
+    }
+  }, []);
+
+  const updateActiveMessages = useCallback(
+    (next: Msg[] | ((prev: Msg[]) => Msg[])) => {
+      if (!activeId) return;
+      setConversations((prev) => {
+        const list = prev.map((c) => {
+          if (c.id !== activeId) return c;
+          const msgs = typeof next === "function" ? next(c.messages) : next;
+          const firstUser = msgs.find((m) => m.role === "user");
+          const title =
+            firstUser?.content?.slice(0, 40) || firstUser?.docName || c.title || "Chat";
+          return { ...c, messages: msgs, title, updatedAt: Date.now() };
+        });
+        saveStore(list);
+        return list;
+      });
+    },
+    [activeId],
+  );
+
+  const scrollDown = () =>
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
+
+  const startNewChat = () => {
+    const c: Conversation = {
+      id: newId(),
+      title: "New chat",
+      updatedAt: Date.now(),
+      messages: [],
+    };
+    persist([c, ...conversations].slice(0, 40), c.id);
+    setDrawer(false);
+    setHistoryOpen(false);
+    setError(null);
+  };
+
+  const deleteChat = (id: string) => {
+    const list = conversations.filter((c) => c.id !== id);
+    if (!list.length) {
+      const c: Conversation = {
+        id: newId(),
+        title: "New chat",
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      persist([c], c.id);
+    } else {
+      persist(list, id === activeId ? list[0].id : activeId);
+    }
+  };
+
+  const clearChat = () => {
+    if (!activeId) return;
+    updateActiveMessages([]);
+    setDrawer(fals
