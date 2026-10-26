@@ -1,0 +1,101 @@
+name: Apply Neon D4AI
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Transform D4AI to neon UI
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/routes/student.d4ai.tsx")
+          t = p.read_text()
+          if 'const LOGO' not in t:
+              t = t.replace(
+                  'const ACTIVE_KEY = "d4ai_active_id_v1";',
+                  'const ACTIVE_KEY = "d4ai_active_id_v1";\nconst LOGO = "/d4ai-logo.png";\nconst AVATAR = "/d4ai-avatar.png";',
+              )
+          if 'function D4Avatar' not in t:
+              helper = '''\nfunction D4Avatar({ size = 32, className = "" }: { size?: number; className?: string }) {\n  return (\n    <img\n      src={AVATAR}\n      alt="D4AI"\n      width={size}\n      height={size}\n      className={"rounded-full object-cover ring-1 ring-cyan-400/40 " + className}\n      style={{ width: size, height: size }}\n      onError={(e) => { (e.target as HTMLImageElement).src = LOGO; }}\n    />\n  );\n}\n\n'''
+              t = t.replace('function D4AiPage()', helper + 'function D4AiPage()')
+          if 'function speakText' not in t:
+              t = t.replace(
+                  'function D4Avatar',
+                  '''function speakText(text: string) {\n  try {\n    if (typeof window === "undefined" || !window.speechSynthesis) return;\n    window.speechSynthesis.cancel();\n    const u = new SpeechSynthesisUtterance(text.slice(0, 4000));\n    u.lang = "en-US";\n    u.rate = 1;\n    window.speechSynthesis.speak(u);\n  } catch {}\n}\n\nfunction D4Avatar''',
+              )
+          t = t.replace('Online · D4TECH', 'Online · v5-Ultimate')
+          t = t.replace(
+              'className="fixed inset-0 z-[60] flex flex-col bg-[#0b1b3a] text-slate-100"',
+              'className="fixed inset-0 z-[60] flex flex-col text-slate-100"',
+          )
+          t = t.replace(
+              'style={{ backgroundColor: "#0b1b3a" }}',
+              'style={{ background: "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" }}',
+          )
+          old = '"Hey! I\'m D4AI — built by Amurun Destiny under D4TECH.\\n\\nAsk anything, attach a file, or use the mic to talk."'
+          new = '"Hello, Boss! 👋\\n\\nI\'m D4AI, your all-round AI assistant.\\nI\'m here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\\nJust type a message, or use the mic to talk.\\nLet\'s get started! 🚀"'
+          t = t.replace(old, new)
+          # Use robot avatar instead of Sparkles in message list
+          t = t.replace(
+              '''<div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600">\n                  <Sparkles className="h-3.5 w-3.5 text-white" />\n                </div>''',
+              '<D4Avatar size={30} className="mt-1 shrink-0" />',
+          )
+          t = t.replace(
+              '''<div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600">\n              <Sparkles className="h-3.5 w-3.5 text-white" />\n            </div>''',
+              '<D4Avatar size={30} className="shrink-0" />',
+          )
+          # Header avatar
+          t = t.replace(
+              '''<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 shadow-lg">\n            <Sparkles className="h-5 w-5 text-white" />\n          </div>''',
+              '<D4Avatar size={36} />',
+          )
+          if 'Volume2' not in t:
+              t = t.replace('Trash2,\n  X,', 'Trash2,\n  Volume2,\n  X,')
+          p.write_text(t)
+          print("OK", len(t))
+          PY
+          # Profile page avatar fix
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("src/components/pages/ProfilePage.tsx")
+          if not p.exists():
+              print("no profile"); raise SystemExit(0)
+          t = p.read_text()
+          if 'user.avatarUrl' in t and 'ProfilePhotoButton' in t and 'hasPhoto=' in t:
+              print("profile already fixed")
+          else:
+              old = "<ProfilePhotoButton />"
+              new = '''<div className="flex flex-col items-center gap-2">
+              <div className="relative h-20 w-20 overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 shadow-sm">
+                {user.avatarUrl ? (
+                  <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xl font-bold text-slate-500">
+                    {avatar}
+                  </div>
+                )}
+              </div>
+              <ProfilePhotoButton
+                userId={user.userId}
+                profileId={user.profileId}
+                hasPhoto={Boolean(user.avatarUrl)}
+              />
+            </div>'''
+              if old in t:
+                  t = t.replace(old, new, 1)
+                  p.write_text(t)
+                  print("profile fixed")
+              else:
+                  print("ProfilePhotoButton pattern not found")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status
+          git commit -m "feat(d4ai): neon UI avatar logo TTS + fix profile photo props" || echo nochange
+          git push
