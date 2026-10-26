@@ -1,0 +1,163 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Copy,
+  FileText,
+  History,
+  Info,
+  Link2,
+  Loader2,
+  Menu,
+  Mic,
+  Moon,
+  Pencil,
+  Plus,
+  Send,
+  Settings,
+  Share2,
+  Square,
+  Trash2,
+  Volume2,
+  X,
+  Wrench,
+  Phone,
+  HelpCircle,
+  LogOut,
+} from "lucide-react";
+import { d4aiChat } from "@/lib/d4ai.server";
+import { cn } from "@/lib/utils";
+import { appNavigate } from "@/lib/app-navigate";
+import { useSessionUser } from "@/lib/session";
+import {
+  D4AiConnectionsSheet,
+  isD4AiOwner,
+  readGithubToken,
+} from "@/components/d4ai/D4AiConnections";
+
+export const Route = createFileRoute("/student/d4ai")({
+  ssr: false,
+  head: () => ({ meta: [{ title: "D4AI — D4TECH" }] }),
+  component: D4AiPage,
+});
+
+type Msg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  imagePreview?: string;
+  docName?: string;
+};
+type Conversation = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: Msg[];
+};
+
+const STORE_KEY = "d4ai_conversations_v1";
+const ACTIVE_KEY = "d4ai_active_id_v1";
+const LOGO = "/d4ai-avatar.png";
+const AVATAR = "/d4ai-avatar.png";
+
+const WELCOME_TEXT =
+  "Hello, Boss! 👋\n\nI'm D4AI, your all-round AI assistant.\nI'm here to help you with anything you need — from learning and research to coding, cybersecurity, and more.\nJust type a message, or use the mic to talk.\nLet's get started! 🚀";
+
+function loadStore(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Conversation[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveStore(list: Conversation[]) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 40)));
+  } catch {}
+}
+function newId() {
+  return `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function compressImage(file: File, maxSide = 1280): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+  }
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+  return canvas.toDataURL("image/jpeg", 0.82);
+}
+
+async function extractPdfText(file: File): Promise<string> {
+  try {
+    const pdfjs = await import("pdfjs-dist");
+    // @ts-expect-error worker
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+        "pdfjs-dist/build/pdf.worker.min.mjs",
+        import.meta.url,
+      ).toString();
+    }
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await pdfjs.getDocument({ data }).promise;
+    const maxPages = Math.min(doc.numPages, 8);
+    const parts: string[] = [];
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await doc.getPage(i);
+      const tc = await page.getTextContent();
+      const line = tc.items
+        .map((it) => ("str" in it ? String((it as { str: string }).str) : ""))
+        .join(" ");
+      if (line.trim()) parts.push(line.trim());
+    }
+    return parts.join("\n\n").slice(0, 18000);
+  } catch {
+    return "";
+  }
+}
+
+async function ocrImageDataUrl(dataUrl: string): Promise<string> {
+  try {
+    const { runImageOcr } = await import("@/lib/material-ocr");
+    const blob = await (await fetch(dataUrl)).blob();
+    return (await runImageOcr(blob)).slice(0, 8000);
+  } catch {
+    return "";
+  }
+}
+
+function speakText(text: string) {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.slice(0, 4000));
+    u.lang = "en-US";
+    u.rate = 1;
+    window.speechSynthesis.speak(u);
+  } catch {}
+}
+
+function D4Avatar({ size = 32, className }: { size?: number; className?: string }) {
+  return (
+    <img
+      src={AVATAR}
+      alt="D4AI"
+      width={size}
+      height={size}
+      className={cn("rounded-full object-cover ring-1 ring-cyan-4
