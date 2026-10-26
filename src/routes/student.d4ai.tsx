@@ -300,7 +300,7 @@ function speakText(
   }
 }
 
-function stopSpeakingfunction stopSpeaking() {
+function stopSpeaking() {
   try {
     window.speechSynthesis?.cancel();
   } catch {}
@@ -339,12 +339,12 @@ function dedupeTranscript(text: string): string {
 
 function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
   const parts: { type: "text" | "code"; lang?: string; content: string }[] = [];
-  const re = /```([\\w-]*)\\n?([\\s\\S]*?)```/g;
+  const re = /```([\w-]*)\n?([\s\S]*?)```/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push({ type: "text", content: text.slice(last, m.index) });
-    parts.push({ type: "code", lang: m[1] || "", content: m[2].replace(/\\n$/, "") });
+    parts.push({ type: "code", lang: m[1] || "", content: m[2].replace(/\n$/, "") });
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push({ type: "text", content: text.slice(last) });
