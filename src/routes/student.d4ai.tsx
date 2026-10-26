@@ -1298,11 +1298,11 @@ function D4AiPage() {
         ) : (
           <button
             type="button"
-            onClick={startVoiceNote}
+            onClick={startCallMode}
             className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white shadow-lg ring-2 ring-white/50 transition active:scale-95"
-            aria-label="Voice message"
+            aria-label="Talk with D4AI"
           >
-            <Mic className="h-5 w-5" />
+            <img src={LOGO} alt="D4AI" className="h-7 w-7 rounded-full object-cover" />
           </button>
         )}
       </div>
@@ -1593,18 +1593,14 @@ function D4AiPage() {
                 className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_40px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
                 aria-label="Tap to speak"
               >
-                {callMode ? (
-                  <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
-                ) : (
-                  <Mic className="h-12 w-12 text-white" />
-                )}
+                <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
               </button>
             </div>
             <p className={cn("mt-6 text-lg font-semibold", dark ? "text-white" : "text-slate-900")}>
               {ttsSpeaking ? "D4AI is speaking…" : voicePaused ? "Paused" : "Tap to speak"}
             </p>
             <p className={cn("mt-1 text-sm", dark ? "text-slate-400" : "text-slate-500")}>
-              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Live call · auto-reply after silence" : "Voice message · tap Send when done"}
+              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Listening… (auto-send after 4s silence)" : "Listening…"}
             </p>
             <p className={cn("mt-1 font-mono text-sm", dark ? "text-cyan-300/80" : "text-blue-600")}>
               {String(Math.floor(voiceSecs / 60)).padStart(2, "0")}:{String(voiceSecs % 60).padStart(2, "0")}
@@ -1668,11 +1664,7 @@ function D4AiPage() {
               className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] text-white shadow-xl ring-4 ring-cyan-400/30"
               aria-label="Mic"
             >
-              {callMode ? (
-                <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
-              ) : (
-                <Mic className="h-7 w-7 text-white" />
-              )}
+              <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
             </button>
             <button
               type="button"
