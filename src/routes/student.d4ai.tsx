@@ -303,14 +303,76 @@ function stopSpeaking() {
 function dedupeTranscript(text: string): string {
   let s = text.replace(/\s+/g, " ").trim();
   if (!s) return "";
-  // Collapse any repeated phrase of 1–5 words (handles "okay okay", "what can what can", "what can you do what can you do")
-  for (let n = 5; n >= 1; n--) {
-    const re = new RegExp(`\\b((?:\\w+\\s+){${n - 1}}\\w+)(?:\\s+\\1)+\\b`, "gi");
-    s = s.replace(re, "$1");
+  // strip common STT artifacts
+  s = s.replace(/[.]{2,}/g, " ");
+  // collapse immediate word repeats: "okay okay okay" -> "okay"
+  for (let n = 0; n < 4; n++) s = s.replace(/\b(\w+)(?:\s+\1\b)+/gi, "$1");
+  // collapse repeated 2-word phrases
+  for (let n = 0; n < 3; n++) s = s.replace(/\b((?:\w+\s+)\w+)(?:\s+\1)+\b/gi, "$1");
+  // collapse longer repeated runs of 3-6 words
+  for (let n = 0; n < 3; n++) s = s.replace(/\b((?:\w+\s+){2,5}\w+)(?:\s+\1)+\b/gi, "$1");
+  // sliding window: drop if last 3-5 words equal previous 3-5
+  const words = s.split(" ").filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const prev = out[out.length - 1];
+    if (prev && prev.toLowerCase() === w.toLowerCase()) continue;
+    let skip = false;
+    for (let k = 2; k <= 5 && out.length >= k && i + k - 1 < words.length; k++) {
+      const a = out.slice(-k).map((x) => x.toLowerCase()).join(" ");
+      const b = words.slice(i, i + k).map((x) => x.toLowerCase()).join(" ");
+      if (a === b) { skip = true; break; }
+    }
+    if (skip) continue;
+    out.push(w);
   }
-  // Consecutive identical words
-  s = s.replace(/\b(\w+)(?:\s+\1)+\b/gi, "$1");
-  return s.trim();
+  return out.join(" ").trim();
+}
+
+
+function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
+  const parts: { type: "text" | "code"; lang?: string; content: string }[] = [];
+  const re = /```([\\w-]*)\\n?([\\s\\S]*?)```/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ type: "text", content: text.slice(last, m.index) });
+    parts.push({ type: "code", lang: m[1] || "", content: m[2].replace(/\\n$/, "") });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: "text", content: text.slice(last) });
+  if (!parts.length) parts.push({ type: "text", content: text });
+
+  return (
+    <div className="space-y-2">
+      {parts.map((p, i) =>
+        p.type === "code" ? (
+          <div key={i} className={cn("overflow-hidden rounded-xl border", dark ? "border-cyan-500/20 bg-[#061018]" : "border-slate-200 bg-slate-50")}>
+            <div className={cn("flex items-center justify-between px-3 py-1.5 text-[11px]", dark ? "bg-white/5 text-cyan-200" : "bg-slate-100 text-slate-600")}>
+              <span className="font-medium uppercase tracking-wide">{p.lang || "code"}</span>
+              <button
+                type="button"
+                className="rounded-md px-2 py-0.5 font-semibold hover:bg-white/10"
+                onClick={() => {
+                  void navigator.clipboard.writeText(p.content);
+                }}
+              >
+                Copy
+              </button>
+            </div>
+            <pre className={cn("max-h-80 overflow-auto p-3 text-[12px] leading-relaxed", dark ? "text-slate-100" : "text-slate-800")}>
+              <code>{p.content}</code>
+            </pre>
+          </div>
+        ) : (
+          <p key={i} className="whitespace-pre-wrap text-[13px] leading-relaxed">
+            {p.content}
+          </p>
+        ),
+      )}
+    </div>
+  );
 }
 
 function D4Avatar({ size = 32, className = "" }: { size?: number; className?: string }) {
@@ -638,7 +700,10 @@ function D4AiPage() {
         docName: dName || undefined,
         createdAt: Date.now(),
       };
-      updateActiveMessages((m) => [...m.filter((x) => x.id !== "welcome"), userMsg]);
+      updateActiveMessages((m) => {
+        const base = m.some((x) => x.id === "welcome") ? m : [WELCOME, ...m];
+        return [...base, userMsg];
+      });
       scrollDown();
 
       if (imgs?.[0] && !dText) {
@@ -770,29 +835,40 @@ function D4AiPage() {
     rec.maxAlternatives = 1;
     rec.lang = "en-US";
     rec.onresult = (ev: any) => {
-      // If AI is speaking in call mode, interrupt TTS and listen
+      // Interrupt TTS if user speaks during call mode
       if (callModeRef.current && ttsSpeakingRef.current) {
         stopSpeaking();
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
       }
       let interim = "";
-      let finalPart = finalTranscriptRef.current;
+      let addedFinal = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
         const piece = String(r[0]?.transcript || "").replace(/\s+/g, " ").trim();
         if (!piece) continue;
         if (r.isFinal) {
-          finalPart = dedupeTranscript((finalPart + " " + piece).trim());
+          // only append if not already contained at the end
+          const prev = finalTranscriptRef.current;
+          const low = piece.toLowerCase();
+          if (!prev.toLowerCase().endsWith(low) && !prev.toLowerCase().includes(low + " ")) {
+            addedFinal = (addedFinal + " " + piece).trim();
+          }
         } else {
-          interim = piece;
+          interim = piece; // always take latest interim only
         }
       }
-      finalTranscriptRef.current = finalPart;
-      const display = dedupeTranscript([finalPart, interim].filter(Boolean).join(" ").trim());
+      if (addedFinal) {
+        finalTranscriptRef.current = dedupeTranscript(
+          (finalTranscriptRef.current + " " + addedFinal).trim(),
+        );
+      }
+      const display = dedupeTranscript(
+        [finalTranscriptRef.current, interim].filter(Boolean).join(" ").trim(),
+      );
       setVoiceText(display);
 
-      // Call mode: after silence, auto-send to AI
+      // Call mode only: after silence, auto-send to AI
       if (callModeRef.current && !voicePausedRef.current) {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
@@ -886,6 +962,15 @@ function D4AiPage() {
     setVoiceText("");
     setTab("chat");
     await sendWithText(clean);
+  };
+
+
+  const startVoiceNote = () => {
+    setCallMode(false);
+    callModeRef.current = false;
+    finalTranscriptRef.current = "";
+    setVoiceText("");
+    startVoice();
   };
 
   const startCallMode = () => {
@@ -1029,7 +1114,9 @@ function D4AiPage() {
           </div>
         </div>
       ) : (
-        messages.map((m) => (
+        messages
+        .filter((m) => !(messages.length <= 1 && m.id === "welcome"))
+        .map((m) => (
           <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
             {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
             <div className={cn("flex max-w-[85%] flex-col", m.role === "user" ? "items-end" : "items-start")}>
@@ -1053,7 +1140,7 @@ function D4AiPage() {
                     <FileText className="h-3.5 w-3.5" /> {m.docName}
                   </p>
                 ) : null}
-                <div className="whitespace-pre-wrap">{m.content}</div>
+                <MarkdownText text={m.content} dark={dark} />
               </div>
               {m.role === "user" ? (
                 <div className="mt-1 flex items-center gap-1 pr-1 text-[10px] text-slate-400">
@@ -1211,11 +1298,11 @@ function D4AiPage() {
         ) : (
           <button
             type="button"
-            onClick={startCallMode}
+            onClick={startVoiceNote}
             className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white shadow-lg ring-2 ring-white/50 transition active:scale-95"
-            aria-label="Talk with D4AI"
+            aria-label="Voice message"
           >
-            <img src={LOGO} alt="D4AI" className="h-7 w-7 rounded-full object-cover" />
+            <Mic className="h-5 w-5" />
           </button>
         )}
       </div>
@@ -1448,21 +1535,44 @@ function D4AiPage() {
               </p>
             </div>
             {/* Voice picker */}
-            <select
-              value={voicePreset}
-              onChange={(e) => setVoicePreset(e.target.value as VoicePreset)}
-              className={cn(
-                "rounded-lg border px-2 py-1 text-[11px] font-medium outline-none",
-                dark ? "border-cyan-500/30 bg-[#0c1a33] text-cyan-100" : "border-slate-200 bg-white text-slate-700",
-              )}
-              aria-label="Voice"
-            >
-              <option value="auto">Auto voice</option>
-              <option value="male">Male</option>
-              <option value="deep">Deep male</option>
-              <option value="female">Female</option>
-              <option value="soft">Soft / animated</option>
-            </select>
+            <div className="flex items-center gap-1.5">
+              <select
+                value={voicePreset}
+                onChange={(e) => {
+                  const v = e.target.value as VoicePreset;
+                  setVoicePreset(v);
+                  // preview on change
+                  speakText("Hello Boss, I am D4AI, your personal assistant. How can I help you today?", {
+                    preset: v,
+                  });
+                }}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold outline-none",
+                  dark ? "border-cyan-500/40 bg-[#0c1a33] text-cyan-100" : "border-slate-200 bg-white text-slate-700",
+                )}
+                aria-label="Voice"
+              >
+                <option value="auto">⚡ Auto</option>
+                <option value="male">🧑 Rex · Male</option>
+                <option value="deep">🧔 Atlas · Deep male</option>
+                <option value="female">👩 Nova · Female</option>
+                <option value="soft">✨ Luna · Soft</option>
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  speakText("Hello Boss, I am D4AI, your personal assistant. How can I help you today?", {
+                    preset: voicePreset,
+                  })
+                }
+                className={cn(
+                  "rounded-full px-2.5 py-1.5 text-[11px] font-semibold",
+                  dark ? "bg-cyan-500/20 text-cyan-200" : "bg-blue-50 text-blue-700",
+                )}
+              >
+                Play
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -1483,14 +1593,18 @@ function D4AiPage() {
                 className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_40px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
                 aria-label="Tap to speak"
               >
-                <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
+                {callMode ? (
+                  <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
+                ) : (
+                  <Mic className="h-12 w-12 text-white" />
+                )}
               </button>
             </div>
             <p className={cn("mt-6 text-lg font-semibold", dark ? "text-white" : "text-slate-900")}>
               {ttsSpeaking ? "D4AI is speaking…" : voicePaused ? "Paused" : "Tap to speak"}
             </p>
             <p className={cn("mt-1 text-sm", dark ? "text-slate-400" : "text-slate-500")}>
-              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Listening… (auto-send after 4s silence)" : "Listening…"}
+              {ttsSpeaking ? "Talk to interrupt" : voicePaused ? "Tap mic to resume" : callMode ? "Live call · auto-reply after silence" : "Voice message · tap Send when done"}
             </p>
             <p className={cn("mt-1 font-mono text-sm", dark ? "text-cyan-300/80" : "text-blue-600")}>
               {String(Math.floor(voiceSecs / 60)).padStart(2, "0")}:{String(voiceSecs % 60).padStart(2, "0")}
@@ -1546,7 +1660,6 @@ function D4AiPage() {
               onClick={() => {
                 if (voicePaused) resumeVoice();
                 else {
-                  // restart listening
                   stopSpeaking();
                   setTtsSpeaking(false);
                   if (!recognitionRef.current) startVoice();
@@ -1555,7 +1668,11 @@ function D4AiPage() {
               className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] text-white shadow-xl ring-4 ring-cyan-400/30"
               aria-label="Mic"
             >
-              <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
+              {callMode ? (
+                <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
+              ) : (
+                <Mic className="h-7 w-7 text-white" />
+              )}
             </button>
             <button
               type="button"
