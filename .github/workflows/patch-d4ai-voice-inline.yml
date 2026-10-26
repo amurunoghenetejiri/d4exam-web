@@ -8,11 +8,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply patch
         run: |
-          python3 -c "import base64,gzip; open('/tmp/p.py','wb').write(gzip.decompress(base64.b64decode('$(cat /home/workdir/artifacts/patch_script.b64)')))"
-          python3 /tmp/p.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/routes/student.d4ai.tsx
-          git status
-          git commit -m "fix(d4ai): TTS voices, attach popup, live call, STT dedupe, remove bottom nav" || echo nochange
-          git push
+          echo PLACEHOLDER
