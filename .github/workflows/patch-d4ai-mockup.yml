@@ -1,0 +1,37 @@
+name: Patch D4AI Mockup UI
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply mockup UI patches
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+          p = Path("src/routes/student.d4ai.tsx")
+          t = p.read_text()
+          t = re.sub(r'const LOGO = "[^"]*"', 'const LOGO = "/d4ai-avatar.png"', t)
+          t = re.sub(r'const AVATAR = "[^"]*"', 'const AVATAR = "/d4ai-avatar.png"', t)
+          if "Link2" not in t and "Paperclip" in t:
+              t = t.replace("Paperclip,", "Link2,\n  Paperclip,")
+          if "v5-Ultimate" not in t:
+              t = t.replace("Online", "Online · v5-Ultimate")
+          while "v5-Ultimate · v5-Ultimate" in t:
+              t = t.replace("v5-Ultimate · v5-Ultimate", "v5-Ultimate")
+          p.write_text(t)
+          print("patched", p.stat().st_size)
+          for s in ["LOGO", "AVATAR", "speakText", "D4Avatar", "Hello"]:
+              print(s, s in t)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx
+          git diff --cached --stat
+          git commit -m "fix(d4ai): mockup paths + welcome + v5 badge" || echo nochange
+          git push
