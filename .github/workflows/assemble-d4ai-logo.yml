@@ -1,0 +1,40 @@
+name: Assemble Exact D4AI Logo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble logo and avatar from base64 parts
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          cat assets/d4ai-logo-b64/*.txt | tr -d '\n' | base64 -d > public/d4ai-logo.jpg
+          cat assets/d4ai-avatar-b64/*.txt | tr -d '\n' | base64 -d > public/d4ai-avatar.png
+          cp public/d4ai-avatar.png public/d4ai-logo.png
+          python3 -c "
+          d=open('public/d4ai-logo.jpg','rb').read()
+          assert d[:2]==b'\\xff\\xd8', d[:10]
+          print('logo jpg ok', len(d))
+          d=open('public/d4ai-avatar.png','rb').read()
+          assert d[:4]==b'\\x89PNG', d[:10]
+          print('avatar png ok', len(d))
+          "
+          ls -la public/d4ai*
+      - name: Update student.d4ai.tsx paths
+        run: |
+          set -euo pipefail
+          if [ -f src/routes/student.d4ai.tsx ]; then
+            sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-logo.jpg"|g' src/routes/student.d4ai.tsx
+            sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+            grep -n "LOGO\|AVATAR\|D4Avatar\|Sparkles" src/routes/student.d4ai.tsx | head -20 || true
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/d4ai-logo.jpg public/d4ai-avatar.png public/d4ai-logo.png src/routes/student.d4ai.tsx
+          git status
+          git commit -m "assets: exact neon robot D4AI logo (user provided art)" || echo nochange
+          git push
