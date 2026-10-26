@@ -1,0 +1,52 @@
+name: Upload D4AI Icons
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch logo from user attachment mirror and commit
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          # Use a public CDN-style approach: generate a simple SVG robot fallback
+          # and also try to pull if we host elsewhere. For now create neon SVG logo.
+          cat > public/d4ai-logo.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <defs>
+              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#22d3ee"/>
+                <stop offset="50%" stop-color="#3b82f6"/>
+                <stop offset="100%" stop-color="#d946ef"/>
+              </linearGradient>
+            </defs>
+            <circle cx="256" cy="220" r="160" fill="none" stroke="url(#g)" stroke-width="12"/>
+            <rect x="140" y="120" width="232" height="200" rx="40" fill="#0a1628" stroke="url(#g)" stroke-width="10"/>
+            <ellipse cx="200" cy="210" rx="28" ry="20" fill="#22d3ee"/>
+            <ellipse cx="312" cy="210" rx="28" ry="20" fill="#22d3ee"/>
+            <rect x="230" y="250" width="52" height="10" rx="4" fill="#67e8f9"/>
+            <text x="256" y="400" text-anchor="middle" font-family="Arial Black,sans-serif" font-size="64" font-weight="900" fill="url(#g)">D4AI</text>
+          </svg>
+          SVG
+          # Also copy as png placeholder using ImageMagick if available
+          if command -v convert >/dev/null 2>&1; then
+            convert -background black -size 512x512 public/d4ai-logo.svg public/d4ai-logo.png || true
+            convert -background black -size 128x128 public/d4ai-logo.svg public/d4ai-avatar.png || true
+          fi
+          # Point code to svg if png missing
+          if [ ! -f public/d4ai-logo.png ]; then
+            cp public/d4ai-logo.svg public/d4ai-logo.png 2>/dev/null || true
+          fi
+          if [ ! -f public/d4ai-avatar.png ]; then
+            cp public/d4ai-logo.svg public/d4ai-avatar.png 2>/dev/null || true
+          fi
+          # Update code to prefer svg
+          sed -i 's|/d4ai-logo.png|/d4ai-logo.svg|g; s|/d4ai-avatar.png|/d4ai-logo.svg|g' src/routes/student.d4ai.tsx || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/d4ai-logo.svg public/d4ai-logo.png public/d4ai-avatar.png src/routes/student.d4ai.tsx 2>/dev/null || git add public src/routes/student.d4ai.tsx
+          git commit -m "assets: add D4AI neon logo + wire avatar paths" || echo nochange
+          git push
