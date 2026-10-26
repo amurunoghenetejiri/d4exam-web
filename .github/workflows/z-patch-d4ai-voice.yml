@@ -11,4 +11,14 @@ jobs:
       - name: Apply patches
         run: |
           set -euo pipefail
-          python3 -c "import base64,gzip; open('/tmp/patch_d4ai_voice.py','wb').write(gzip.decompress(base64.b64decode(open('/tmp/p.b64').read())))" 2>/dev/null || true
+          cat > /tmp/p.b64 << 'B64'
+          H4sIAPws32oC/+Vb647bNhb+76dgFGBHyli+zCWbzBVpukUHSNsgM2l/2EZAS7StRpYEkbZn6hjYh9h32f/7KPskew4pSqQte5y03UWwAWJbvBye+/lIcUZ5OiUZFZM4GpJomqW5IG/hsVH8zlmjkZFL2eY6PA/aeToTjLe5mIUsEa3whEYtwe8dryFgXNbKGQ0/CHYvXK9BOWdAxBnNkkBEaUK+PXkVvaVj5pAoIYKkud13U/U1iTONOI+SMbAHjY3GU+L7PrmZZnk6ZyHhGaMf72AdsojEhMzTKGCEs5gpajC2kbDFBzkMGMsPDg4a5VrlZBc5PSNc5LBSU1H5kU7ZtW7zyLJBiMgf5Dch0Yi44iFj6QjWTcJ0QS4vL4kzS0I2ihIWOuTTJ/JEdbVgGRZMbh8SMWE84h6oU8zy5FxSqh/TCmgSsNj11KAgTbggQcxoAkLcSpYkz7iM43ig7iymAXPbfX7YBgkcAo0wbOp6LR6DNG6nSU46nU5BEPl/IunZ3KiFZrAIaI3c2ky9F4LlyJerZqops1ZMwTwgPUv897eObs2pYNDa1c9ZJIJJ1aBWkprm0LpFDWMmfpZDrluuh8L2Bub0LArAqrKBELc0G/nLXwrKLbBG6Lpzj1xekXkrwU60VDnUQ6oFgZopbSnTJ5Z8eH/bBg9nXLhzKbCHi7RHbEpj9onTKQWW6adxmo5jRmacsGQcR3xSTUr2Wm1tkY3xvc6gsiCK74FqlddfSnXs9Crp8O5MWm5FAooWWa4aq4YREyLNbnEYutjjbv9kze1BKdu8fg9P38ITKLJwA9c7W/dK2dEb/AkBWjpb8fh5PlrKYpIoukA6TEQyV+asxWdDV4062MxNfSs59b0+f9Zf9vq8fzt4dt1P+quDppwb0+kwpOTD9IyUGa+FkzLXUyNEswidWSIuu82Gp7PpOzaFZEqGqRBQBxI6l3kTmRNlZnGWqvtHOl85kGCW7WfmhFySCMm///4P8H5GpiyZkWftVVEQbCFV8Jb0oL/vglgXQEgLdtGGhyuU1TsvBKyZlsziWHdvle4m+RWqgUxoXGBSQuHAPxzOxCshaDD5KWOJQ5JUyJpzpshZ0hcxSIijmOjJkHtLQdSwCfVGeYB6HsBM+L7FtdwRjTnzzp3m76XQT5yKhM5/PVryL2lU4uxPQvEBmYPlJZ2f7bb9ianKy0JJQJK6NVtMQhfKoa/cvtN3ttGLozl7TeNYknpTPOzNDo9iBsnlLpqyXM15x0YX72Qo3kFyuCgyBNDGMQBprsgn6VRXLn5uIRtAJs8pkKpofn/3w5ubJJuJv8UMXF/snE9nYZTuNb1wm9KVb+/uSMjCWcbIoZYOGsQa2kmTnPFZLArAk7OgZTS5bH5GaPIgS86yYC9m6PxQ36MplvKiiqt2SJg0fktznCx/3wEK4AFkFgHMt4JZngPPesYI4JwrycFwNm+pdW8g8d6fQ9tF1cZbIMBYTKD58NArWdFqys35vBcNzssBSD6LmCx6BRrKoTJeA+TRnO2BjCp6Eg5Jgh4uLqJkxqpevZL8hvQfR8KVZEZRDBpz3UWTROF9k9A8l0qFB1luOsjEoiXSN+mC5a8pZ1AgsGLCwB4O8kl3YHd7rV/TKJHkbfbyVsS/Q+WbitKqiikvjYOGKjCfrzhWWvbshc4NIkhfkkDe1BybKWtJYjmEWz0conLhUylyP81jMSx/EQaxbK1VuaQkWs3Ts/T3dr809aLnF+lhki4QT/fK/qZecKBt+02aSqxbmWVNBJ0t5TZCUiy7pFqLnIXAqFzG1CcOMvOUZtuTcD8v8lL9kEoddd0gWZXYXNcK99LpS/7AU42KZOjP3iCY+pMbkF0pocbaEpfBvMIpyRXprnsXsBEiUUDPUrOvkvCWJSFm/62e0yTHp+XmRveszreALEiIfTMj9nVK7EslVfDKNC5AlF4JuwbPLACEHOLDER
+          B64
+          python3 -c "import base64,gzip; open('/tmp/patch_d4ai_voice.py','wb').write(gzip.decompress(base64.b64decode(open('/tmp/p.b64').read())))"
+          python3 /tmp/patch_d4ai_voice.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/student.d4ai.tsx
+          git status
+          git commit -m "fix(d4ai): attach sheet, live call TTS voices, STT dedupe, remove bottom nav" || echo nochange
+          git push
