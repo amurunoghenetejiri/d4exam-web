@@ -688,7 +688,7 @@ function D4AiPage() {
         {messages.length <= 1 && messages[0]?.id === "welcome" ? (
           <div className="mx-auto mt-8 flex max-w-sm flex-col items-center text-center">
             <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-700 shadow-xl">
-              <Sparkles className="h-9 w-9 text-white" />
+              <img src="/d4ai-avatar.png" alt="D4AI" className="h-9 w-9 rounded-full object-cover" />
             </div>
             <h2 className="text-xl font-bold text-white">D4AI</h2>
             <p className="mt-1 text-sm text-cyan-100/80">Study · Build · Adapt</p>
@@ -733,7 +733,7 @@ function D4AiPage() {
         {busy ? (
           <div className="flex w-full items-end justify-start gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 shadow">
-              <Sparkles className="h-3.5 w-3.5 text-white" />
+              <img src="/d4ai-avatar.png" alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
             </div>
             <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-[#132742] px-3.5 py-2.5 ring-1 ring-white/10">
               <span className="d4ai-dot h-1.5 w-1.5 rounded-full bg-cyan-300" />
