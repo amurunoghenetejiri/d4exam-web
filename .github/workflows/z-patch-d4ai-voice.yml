@@ -1,0 +1,14 @@
+name: Patch D4AI Voice Composer
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patches
+        run: |
+          set -euo pipefail
+          python3 -c "import base64,gzip; open('/tmp/patch_d4ai_voice.py','wb').write(gzip.decompress(base64.b64decode(open('/tmp/p.b64').read())))" 2>/dev/null || true
