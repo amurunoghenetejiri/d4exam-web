@@ -1,0 +1,35 @@
+name: Decode D4AI Logo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode logo if payload is valid
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          if [ -f .github/payloads/d4ai-logo-96.b64 ]; then
+            # strip non-base64 chars
+            tr -d '\n\r \t' < .github/payloads/d4ai-logo-96.b64 | head -c 50000 > /tmp/logo.b64
+            if base64 -d /tmp/logo.b64 > public/d4ai-avatar.png 2>/dev/null; then
+              file public/d4ai-avatar.png || true
+              # verify PNG magic
+              python3 -c "d=open('public/d4ai-avatar.png','rb').read(8); assert d[:4]==b'\\x89PNG', d; print('ok', len(open('public/d4ai-avatar.png','rb').read()))"
+              cp public/d4ai-avatar.png public/d4ai-logo.png
+            else
+              echo "decode failed - generating fallback"
+              convert -size 256x256 xc:'#000000' public/d4ai-logo.png || true
+              cp public/d4ai-logo.png public/d4ai-avatar.png || true
+            fi
+          fi
+          sed -i 's|const LOGO = "[^"]*"|const LOGO = "/d4ai-logo.png"|g' src/routes/student.d4ai.tsx
+          sed -i 's|const AVATAR = "[^"]*"|const AVATAR = "/d4ai-avatar.png"|g' src/routes/student.d4ai.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/d4ai-logo.png public/d4ai-avatar.png src/routes/student.d4ai.tsx .github/payloads || true
+          git commit -m "assets: wire D4AI exact robot logo PNG" || echo nochange
+          git push
