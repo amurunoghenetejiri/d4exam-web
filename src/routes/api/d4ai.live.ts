@@ -1,6 +1,6 @@
 /**
  * Live facts for D4AI.
- * 1) User backend: D4AI_LIVE_URL / http://102.90.101.164:5000/api/chat
+ * 1) User backend: D4AI_LIVE_URL / http://147.224.179.220:5000/api/chat
  * 2) Built-in Wikipedia / web fallbacks (works from Vercel when user server is firewalled)
  *
  * POST /api/d4ai/live  { message: string }
@@ -14,7 +14,7 @@ function liveTargets(): string[] {
     .filter(Boolean);
   const single = (process.env.D4AI_LIVE_URL || process.env.D4AI_SEARCH_URL || "").trim();
   const defaults = [
-    "http://102.90.101.164:5000/api/chat",
+    "http://147.224.179.220:5000/api/chat",
     "http://127.0.0.1:5000/api/chat",
   ];
   return [...new Set([...(single ? [single] : []), ...multi, ...defaults].map((u) => u.replace(/\/$/, "")))];

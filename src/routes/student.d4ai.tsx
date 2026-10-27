@@ -91,7 +91,7 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
-const LIVE_CHAT_URL = "http://102.90.101.164:5000/api/chat";
+const LIVE_CHAT_URL = "http://147.224.179.220:5000/api/chat";
 const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
@@ -279,13 +279,20 @@ let speakingCancelled = false;
 
 
 function needsLiveSearch(text: string): boolean {
-  const t = text.toLowerCase();
+  const t = text.toLowerCase().trim();
+  if (!t || t.length < 3) return false;
+  // Never live-search pure greetings / short chat
+  if (/^(hi|hello|hey|how far|good morning|good evening|good afternoon|thanks|thank you|ok|okay|yo|sup|wassup)[\s!?.]*$/i.test(t)) {
+    return false;
+  }
   if (/https?:\/\//i.test(text)) return true;
-  if (/\b(current|today|latest|live|who is the|governor|president|price of|how much|news|itel|gsmarena|wikipedia)\b/i.test(t)) return true;
-  if (/\b(2024|2025|2026)\b/.test(t) && /\b(phone|specs?|features?|governor|election)\b/i.test(t)) return true;
+  if (/\b(current|today|latest|live|right now|this year|2024|2025|2026)\b/i.test(t)) return true;
+  if (/\b(who is the|governor|president|minister|mayor|prime minister)\b/i.test(t)) return true;
+  if (/\b(price of|how much|stock|exchange rate|news about|weather in)\b/i.test(t)) return true;
+  if (/\b(itel|gsmarena|specs of|features of)\b/i.test(t) && /\b(phone|mobile|device)\b/i.test(t)) return true;
+  if (/\b(when did|when was|released in)\b/i.test(t) && /\b(movie|film|album|game)\b/i.test(t)) return true;
   return false;
 }
-
 function stripForSpeech(text: string): string {
   return String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -825,6 +832,9 @@ const GLOBAL_CSS = `
 .d4ai-write-label{background:linear-gradient(90deg,#67e8f9,#3b82f6,#c084fc,#67e8f9);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:d4ai-grad 2.4s linear infinite}
 .d4ai-write-char{display:inline-block;opacity:0;animation:d4ai-write-in 1.6s ease-in-out infinite}
 @keyframes d4ai-write-in{0%,10%{opacity:0;transform:translateY(4px)}20%,70%{opacity:1;transform:translateY(0)}85%,100%{opacity:.35}}
+.d4ai-talk-mouth{position:absolute;left:50%;bottom:26%;width:30%;height:10%;margin-left:0;border-radius:0 0 50% 50%/0 0 100% 100%;background:linear-gradient(180deg,#67e8f9,#2563eb);box-shadow:0 0 10px rgba(34,211,238,.5);transform:translateX(-50%) scaleY(.4);transform-origin:50% 0%;opacity:.9}
+.d4ai-talk-mouth.on{animation:d4ai-mouth .26s ease-in-out infinite alternate}
+@keyframes d4ai-mouth{from{transform:translateX(-50%) scaleY(.3)}to{transform:translateX(-50%) scaleY(1.2)}}
 .d4ai-write-cursor{display:inline-block;width:2px;height:1em;margin-left:3px;vertical-align:-2px;background:linear-gradient(180deg,#67e8f9,#3b82f6);animation:d4ai-blink .9s step-end infinite}
 @keyframes d4ai-blink{0%,100%{opacity:1}50%{opacity:0}}
 @keyframes d4ai-grad{0%{background-position:0% 50%}100%{background-position:200% 50%}}
@@ -1010,13 +1020,13 @@ function D4AiPage() {
       localStorage.setItem(ACTIVE_KEY, c.id);
       return;
     }
-    // Prefer saved active id; else most recently updated chat (not the oldest first)
+    // Always land on most recently updated chat
     const sorted = [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    if (!id || !list.find((c) => c.id === id)) id = sorted[0]?.id || list[0].id;
+    id = sorted[0]?.id || list[0].id;
     setConversations(list);
     setActiveId(id);
+    try { localStorage.setItem(ACTIVE_KEY, id); } catch {}
     const activeConv = list.find((c) => c.id === id);
-    // Open on last conversation content if it has real messages
     if (activeConv && activeConv.messages.filter((m) => m.id !== "welcome").length > 0) {
       setTab("chat");
     }
@@ -1062,7 +1072,11 @@ function D4AiPage() {
     [activeId],
   );
 
-  const scrollDown = () => setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
+  const scrollDown = (smooth = false) => {
+    try {
+      bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
+    } catch {}
+  };
 
   const startNewChat = () => {
     const c: Conversation = { id: newId(), title: "New chat", updatedAt: Date.now(), messages: [WELCOME] };
@@ -1218,7 +1232,8 @@ function D4AiPage() {
         // Live search: try public API from device first (Nigeria IP works on phone),
         // then Vercel proxy, then Ollama fallback
         const liveQuery = body || userMsg.content;
-        if (!imgs?.length) {
+        // Only live/Wikipedia for fact queries — normal chat uses Ollama
+        if (!imgs?.length && needsLiveSearch(liveQuery)) {
           const tryLive = async (url: string) => {
             const liveRes = await fetch(url, {
               method: "POST",
@@ -2283,7 +2298,14 @@ function D4AiPage() {
                 className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_40px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
                 aria-label="Tap to speak"
               >
-                <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
+                <span className="relative inline-flex h-16 w-16 items-center justify-center">
+                  <img src={LOGO} alt="D4AI" className="h-16 w-16 rounded-full object-cover" />
+                  {/* Robotic talking mouth when D4AI is speaking */}
+                  <span
+                    className={cn("d4ai-talk-mouth", ttsSpeaking && "on")}
+                    aria-hidden
+                  />
+                </span>
               </button>
             </div>
             <p className={cn("mt-6 text-lg font-semibold", dark ? "text-white" : "text-slate-900")}>
