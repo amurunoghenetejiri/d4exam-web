@@ -435,14 +435,95 @@ function speakText(
 
   const char = getVoiceChar(opts?.preset || loadVoicePreset());
   const chunks = chunkSpeech(clean, 160);
-  const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
+  const preset = opts?.preset || loadVoicePreset();
 
-  // Prefer audio TTS in app WebView (reliable). Also try speechSynthesis in parallel path only if audio fails entirely.
+  // Prefer browser speechSynthesis (Chrome website)
+  if (typeof window !== "undefined" && window.speechSynthesis) {
+    const synth = window.speechSynthesis;
+    try {
+      synth.resume();
+    } catch {}
+    let idx = 0;
+    let started = false;
+    const next = () => {
+      if (speakingCancelled) {
+        done();
+        return;
+      }
+      if (idx >= chunks.length) {
+        done();
+        return;
+      }
+      const u = new SpeechSynthesisUtterance(chunks[idx++]);
+      u.lang = "en-US";
+      u.volume = 1;
+      u.rate = char.rate;
+      u.pitch = char.pitch;
+      try {
+        const v = pickVoice(preset);
+        if (v) u.voice = v;
+      } catch {}
+      u.onstart = () => {
+        if (!started) {
+          started = true;
+          try {
+            opts?.onstart?.();
+          } catch {}
+        }
+      };
+      u.onend = () => next();
+      u.onerror = () => next();
+      try {
+        synth.speak(u);
+      } catch {
+        next();
+      }
+    };
+    const start = () => next();
+    const voices = synth.getVoices();
+    if (!voices.length) {
+      synth.onvoiceschanged = () => start();
+      window.setTimeout(start, 350);
+    } else {
+      start();
+    }
+    // Keep Android from pausing mid-speech
+    const kick = window.setInterval(() => {
+      try {
+        if (synth.speaking && synth.paused) synth.resume();
+        if (!synth.speaking && !synth.pending) window.clearInterval(kick);
+      } catch {
+        window.clearInterval(kick);
+      }
+    }, 300);
+    window.setTimeout(() => window.clearInterval(kick), 120000);
+    // If nothing starts, use audio proxy
+    window.setTimeout(() => {
+      try {
+        if (!synth.speaking && !synth.pending && !speakingCancelled && !started) {
+          try {
+            synth.cancel();
+          } catch {}
+          const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
+          playAudioQueue(urls, {
+            onstart: opts?.onstart,
+            onend: opts?.onend,
+            fallbackText: clean,
+            preset,
+          });
+        }
+      } catch {}
+    }, 1200);
+    return;
+  }
+
+  // Capacitor / no speechSynthesis — same-origin TTS proxy
+  const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
   playAudioQueue(urls, {
     onstart: opts?.onstart,
     onend: opts?.onend,
     fallbackText: clean,
-    preset: opts?.preset || loadVoicePreset(),
+    preset,
   });
 }
 
@@ -626,18 +707,17 @@ function GlowHero({ compact = false }: { compact?: boolean }) {
 }
 
 function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
+  // Not a message bubble — branded "writing D4AI" animation while thinking/streaming
   return (
-    <div className="flex items-end gap-2">
-      <D4Avatar size={30} className="mb-1 shrink-0" />
-      <div className="rounded-2xl rounded-bl-md bg-[#0e2038] px-4 py-3 ring-1 ring-cyan-400/20">
-        <div className="d4ai-write-label text-[15px] font-bold tracking-wide">
-          <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
-          <span className="d4ai-write-char" style={{ animationDelay: "120ms" }}>4</span>
-          <span className="d4ai-write-char" style={{ animationDelay: "240ms" }}>A</span>
-          <span className="d4ai-write-char" style={{ animationDelay: "360ms" }}>I</span>
-          <span className="d4ai-write-cursor" />
-        </div>
+    <div className="flex w-full flex-col items-center gap-2 py-3">
+      <div className="d4ai-write-label text-lg font-bold tracking-[0.2em]">
+        <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "110ms" }}>4</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "220ms" }}>A</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "330ms" }}>I</span>
+        <span className="d4ai-write-cursor" />
       </div>
+      <p className="text-[11px] text-cyan-300/80">Writing…</p>
     </div>
   );
 }
@@ -679,6 +759,7 @@ function D4AiPage() {
   const [streaming, setStreaming] = useState(false);
   const [thoughtSeconds, setThoughtSeconds] = useState(0);
   const [welcomeTyped, setWelcomeTyped] = useState("");
+  const [welcomeDone, setWelcomeDone] = useState(false);
   const thinkStartRef = useRef<number>(0);
   const [status, setStatus] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -737,17 +818,7 @@ function D4AiPage() {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
   // Type the welcome message on mount / new chat (looks alive)
-  useEffect(() => {
-    const full = WELCOME_TEXT;
-    setWelcomeTyped("");
-    let i = 0;
-    const id = window.setInterval(() => {
-      i = Math.min(full.length, i + 2);
-      setWelcomeTyped(full.slice(0, i));
-      if (i >= full.length) window.clearInterval(id);
-    }, 18);
-    return () => window.clearInterval(id);
-  }, [activeId]);
+
 
 
   // Match phone status bar + nav bar to D4AI dark background
@@ -803,25 +874,35 @@ function D4AiPage() {
     setConversations(list);
     setActiveId(id);
     const activeConv = list.find((c) => c.id === id);
+
     if (activeConv && activeConv.messages.length > 1) setTab("chat");
   }, []);
 
-  // Welcome typewriter — types intro on fresh / home view
+  // Personalized welcome typewriter (Hi + first two names)
   useEffect(() => {
-    if (welcomeDone && welcomeTyped === WELCOME_TEXT) return;
+    const rawName = String(session?.fullName || nickname || "").trim();
+    const parts = rawName.split(/\s+/).filter(Boolean);
+    const two = parts.slice(0, 2).join(" ");
+    const greeting = two
+      ? `Hi ${two}! 👋 I'm D4AI — your AI buddy on D4EXAM.`
+      : `Hey! 👋 I'm D4AI — your AI buddy on D4EXAM.`;
+    const full =
+      greeting +
+      "\n\nI'm here anytime you need help: study, code, ideas, or just figuring something out. Talk to me like a friend.\n\nIntroduce yourself and ask me anything — what's on your mind?";
     let i = 0;
     setWelcomeTyped("");
     setWelcomeDone(false);
     const id = window.setInterval(() => {
-      i = Math.min(WELCOME_TEXT.length, i + 2);
-      setWelcomeTyped(WELCOME_TEXT.slice(0, i));
-      if (i >= WELCOME_TEXT.length) {
+      i = Math.min(full.length, i + 2);
+      setWelcomeTyped(full.slice(0, i));
+      if (i >= full.length) {
         window.clearInterval(id);
         setWelcomeDone(true);
       }
-    }, 18);
+    }, 16);
     return () => window.clearInterval(id);
-  }, [activeId]);
+  }, [activeId, session?.fullName, nickname]);
+
 
 
   useEffect(() => {
@@ -1349,30 +1430,26 @@ function D4AiPage() {
       setSpeakingMsgId(null);
       return;
     }
-    // speechSynthesis may be missing in Capacitor — speakText has audio fallback
-    // Unlock audio on user gesture (required on many phones)
+    // Must call speechSynthesis.speak() in the same user gesture (no setTimeout)
     try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
+      window.speechSynthesis?.cancel();
+      window.speechSynthesis?.resume();
     } catch {}
     if (msgId) setSpeakingMsgId(msgId);
     setTtsSpeaking(true);
     ttsSpeakingRef.current = true;
-    // Defer one tick so UI paints Stop icon first
-    setTimeout(() => {
-      speakText(text, {
-        preset: voicePreset,
-        onstart: () => {
-          setTtsSpeaking(true);
-          ttsSpeakingRef.current = true;
-        },
-        onend: () => {
-          setTtsSpeaking(false);
-          ttsSpeakingRef.current = false;
-          setSpeakingMsgId(null);
-        },
-      });
-    }, 30);
+    speakText(text, {
+      preset: voicePreset,
+      onstart: () => {
+        setTtsSpeaking(true);
+        ttsSpeakingRef.current = true;
+      },
+      onend: () => {
+        setTtsSpeaking(false);
+        ttsSpeakingRef.current = false;
+        setSpeakingMsgId(null);
+      },
+    });
   };
 
   const stopAi = () => {
@@ -1595,7 +1672,7 @@ function D4AiPage() {
             </div>
           </div>
         ))}
-      {busy && streaming ? <TypingIndicator /> : null}
+      {busy ? <TypingIndicator /> : null}
       {status ? (
         <p className="flex items-center gap-2 px-2 text-xs text-cyan-200/80">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status}
@@ -2115,7 +2192,8 @@ function D4AiPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2 overflow-y-auto px-3 pb-4 sm:grid-cols-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-6" style={{ WebkitOverflowScrolling: "touch" }}>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {VOICE_CHARS.map((c) => {
                 const active = voicePreset === c.id;
                 return (
@@ -2154,6 +2232,7 @@ function D4AiPage() {
                   </button>
                 );
               })}
+            </div>
             </div>
             <div className="px-4 pb-2">
               <button
