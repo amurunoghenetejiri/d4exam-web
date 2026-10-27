@@ -45,7 +45,6 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { d4aiChat } from "@/lib/d4ai.server";
 import { cn } from "@/lib/utils";
 import { appNavigate } from "@/lib/app-navigate";
 import { useSessionUser } from "@/lib/session";
@@ -91,7 +90,7 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
-const LIVE_CHAT_URL = "http://147.224.179.220:5000/api/chat";
+// Backend is only reached via same-origin /api/d4ai/chat (Vercel → Flask). Never call :11434 or :5000 from the browser.
 const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
@@ -1244,162 +1243,52 @@ function D4AiPage() {
         };
 
         let full = "";
-        let usedStream = false;
 
-        // Live search: try public API from device first (Nigeria IP works on phone),
-        // then Vercel proxy, then Ollama fallback
-        const liveQuery = body || userMsg.content;
-        // Only live/Wikipedia for fact queries — normal chat uses Ollama
-        if (!imgs?.length && needsLiveSearch(liveQuery)) {
-          const tryLive = async (url: string) => {
-            const liveRes = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Accept: "application/json" },
-              body: JSON.stringify({ message: liveQuery }),
-            });
-            if (!liveRes.ok) return null;
-            const liveJson = (await liveRes.json()) as {
-              ok?: boolean;
-              answer?: string;
-              response?: string;
-              sources?: string[];
-            };
-            const ans = String(liveJson.answer || liveJson.response || "").trim();
-            if (!ans) return null;
-            let out = ans;
-            if (liveJson.sources?.length) {
-              out += "\n\n" + liveJson.sources.map((s) => `🔗 ${s}`).join("\n");
-            }
-            // If proxy wraps with ok flag and false, skip
-            if (liveJson.ok === false) return null;
-            return out;
-          };
-          try {
-            let liveAns: string | null = null;
-            // 1) Same-origin Vercel live (user backend + Wikipedia/builtin fallbacks)
-            try {
-              const proxied = await fetch("/api/d4ai/live", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: liveQuery }),
-              });
-              if (proxied.ok) {
-                const j = (await proxied.json()) as { ok?: boolean; answer?: string; sources?: string[] };
-                if (j.ok && j.answer?.trim()) {
-                  liveAns = j.answer.trim();
-                  if (j.sources?.length) liveAns += "\n\n" + j.sources.map((s) => `🔗 ${s}`).join("\n");
-                }
-              }
-            } catch (e) {
-              console.warn("proxy live failed", e);
-            }
-            // 2) Direct public live API (if phone can reach the VPS)
-            if (!liveAns) {
-              try {
-                liveAns = await tryLive(LIVE_CHAT_URL);
-              } catch (e) {
-                console.warn("direct live failed", e);
-              }
-            }
-            if (liveAns) {
-              // Hybrid: attach live notes to the last user message; Ollama answers in its own style
-              const last = history[history.length - 1];
-              if (last && last.role === "user") {
-                last.content =
-                  last.content +
-                  "\n\n[Live research notes for D4AI — use these facts if relevant, reply naturally in your own words as D4AI. Do not dump raw notes or start with Error. Be friendly:]\n" +
-                  liveAns.slice(0, 6000);
-              }
-            }
-          } catch (liveErr) {
-            console.warn("live search failed", liveErr);
-          }
+        // ONLY call same-origin proxy → Flask (never Ollama / :11434 / raw :5000 from browser)
+        const userText = body || userMsg.content;
+        const chatRes = await fetch("/api/d4ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            message: userText,
+            // optional context for future backend upgrades
+            messages: history.slice(-12),
+          }),
+          cache: "no-store",
+        });
+
+        let payload: { ok?: boolean; answer?: string; error?: string; sources?: string[] } = {};
+        try {
+          payload = (await chatRes.json()) as typeof payload;
+        } catch {
+          throw new Error("Invalid response from D4AI server");
         }
 
-        // Stream from Ollama if live did not answer
-        if (!usedStream || !full.trim()) {
-          try {
-            const streamRes = await fetch("/api/d4ai/stream", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messages: history,
-                images: dText ? undefined : imgs,
-                documentText: dText || undefined,
-                documentName: dName || (imgs ? "image-ocr.txt" : undefined),
-              }),
-            });
+        if (!chatRes.ok || payload.ok === false || !String(payload.answer || "").trim()) {
+          throw new Error(payload.error || `HTTP ${chatRes.status}`);
+        }
 
-            if (streamRes.ok && streamRes.body) {
-              usedStream = true;
-              const reader = streamRes.body.getReader();
-              const decoder = new TextDecoder();
-              let buf = "";
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buf += decoder.decode(value, { stream: true });
-                const lines = buf.split("\n");
-                buf = lines.pop() || "";
-                for (const line of lines) {
-                  const t = line.trim();
-                  if (!t) continue;
-                  try {
-                    const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
-                    if (j.type === "token" && j.content) {
-                      full += j.content;
-                      ensureAssistant(full);
-                    } else if (j.type === "error" && j.error) {
-                      throw new Error(j.error);
-                    }
-                  } catch (e) {
-                    if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
-                  }
-                }
-              }
+        full = String(payload.answer).trim();
+        if (payload.sources?.length) {
+          // sources optional; only append if not already in answer
+          const extra = payload.sources.filter((s) => !full.includes(s));
+          if (extra.length) full += "\n\n" + extra.map((s) => `🔗 ${s}`).join("\n");
+        }
+
+        // Smooth typewriter for fast backend answers
+        let i = 0;
+        const step = Math.max(8, Math.ceil(full.length / 40));
+        await new Promise<void>((resolve) => {
+          typewriterRef.current = setInterval(() => {
+            i = Math.min(full.length, i + step);
+            ensureAssistant(full.slice(0, i));
+            if (i >= full.length) {
+              if (typewriterRef.current) clearInterval(typewriterRef.current);
+              typewriterRef.current = null;
+              resolve();
             }
-          } catch (streamErr) {
-            console.warn("stream failed, fallback", streamErr);
-            usedStream = false;
-          }
-        }
-
-                if (!usedStream || !full.trim()) {
-          const ghToken = readGithubToken();
-          const res = await d4aiChat({
-            data: {
-              messages: history,
-              images: dText ? undefined : imgs,
-              documentText: dText,
-              documentName: dName || (imgs ? "image-ocr.txt" : undefined),
-              githubToken: ghToken || undefined,
-              enableGithubTools: Boolean(ghToken),
-            },
-          });
-          if (!res.ok) {
-            const friendly = friendlyError(String(res.error || "Something went wrong."));
-            setError(friendly);
-            ensureAssistant(friendly);
-          } else {
-            full = res.content || "";
-            if (full) ensureAssistant("");
-            // Fast typewriter only for fallback path
-            let i = 0;
-            const step = Math.max(6, Math.ceil(full.length / 60));
-            if (typewriterRef.current) clearInterval(typewriterRef.current);
-            await new Promise<void>((resolve) => {
-              typewriterRef.current = setInterval(() => {
-                i = Math.min(full.length, i + step);
-                ensureAssistant(full.slice(0, i));
-                if (i >= full.length) {
-                  if (typewriterRef.current) clearInterval(typewriterRef.current);
-                  typewriterRef.current = null;
-                  resolve();
-                }
-              }, 12);
-            });
-          }
-        }
+          }, 10);
+        });
 
         window.clearInterval(thinkTimer);
         setThoughtSeconds(Math.max(1, Math.round((Date.now() - thinkStartRef.current) / 1000)));
@@ -1408,19 +1297,30 @@ function D4AiPage() {
         if (full && autoSpeakRef.current && callModeRef.current) {
           setTtsSpeaking(true);
           ttsSpeakingRef.current = true;
+          isAiSpeakingRef.current = true;
+          try {
+            recognitionRef.current?.stop();
+          } catch {}
           speakText(full, {
             preset: voicePresetRef.current,
             onstart: () => {
               setTtsSpeaking(true);
               ttsSpeakingRef.current = true;
+              isAiSpeakingRef.current = true;
             },
             onend: () => {
               setTtsSpeaking(false);
               ttsSpeakingRef.current = false;
+              isAiSpeakingRef.current = false;
+              if (callModeRef.current && voiceOn) {
+                window.setTimeout(() => {
+                  if (callModeRef.current && !isAiSpeakingRef.current) startVoice();
+                }, 900);
+              }
             },
           });
         }
-      } catch (e) {
+            } catch (e) {
         const msg = friendlyError(e instanceof Error ? e.message : "Failed to reach D4AI");
         setError(msg);
         // Prefer updating empty assistant bubble if we created one; else append once
