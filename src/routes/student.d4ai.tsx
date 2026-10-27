@@ -423,10 +423,9 @@ function speakText(
     try { opts?.onend?.(); } catch {}
     return;
   }
-  speakingCancelled = true;
-  try {
-    window.speechSynthesis?.cancel();
-  } catch {}
+
+  // Stop previous speech only
+  speakingCancelled = false;
   try {
     if (activeAudio) {
       activeAudio.pause();
@@ -434,15 +433,103 @@ function speakText(
       activeAudio = null;
     }
   } catch {}
-  speakingCancelled = false;
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {}
 
   const preset = opts?.preset || loadVoicePreset();
   const char = getVoiceChar(preset);
 
-  // 1) Immediate speechSynthesis on the same user gesture (works in Chrome + WebView)
-  let usedSynth = false;
-  if (typeof window !== "undefined" && window.speechSynthesis) {
+  const finish = () => {
+    try { opts?.onend?.(); } catch {}
+  };
+  const start = () => {
+    try { opts?.onstart?.(); } catch {}
+  };
+
+  // Prefer server audio (Google TTS via proxy) — more reliable volume in WebView
+  const chunks = chunkSpeech(clean, 160);
+  const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
+
+  // Run speechSynthesis in parallel as backup if audio fails; started on same tick as gesture
+  let audioStarted = false;
+  let synthStarted = false;
+  let finished = false;
+  const onceEnd = () => {
+    if (finished) return;
+    finished = true;
+    finish();
+  };
+
+  // Kick audio queue
+  void (async () => {
+    for (const url of urls) {
+      if (speakingCancelled || finished) break;
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.size < 200) continue;
+        if (speakingCancelled) break;
+        // Cancel synth if audio works
+        try { window.speechSynthesis?.cancel(); } catch {}
+        const obj = URL.createObjectURL(blob);
+        await new Promise<void>((resolve) => {
+          const audio = new Audio();
+          audio.volume = 1;
+          audio.src = obj;
+          activeAudio = audio;
+          audio.onplay = () => {
+            audioStarted = true;
+            if (!synthStarted) start();
+          };
+          audio.onended = () => {
+            try { URL.revokeObjectURL(obj); } catch {}
+            resolve();
+          };
+          audio.onerror = () => {
+            try { URL.revokeObjectURL(obj); } catch {}
+            resolve();
+          };
+          const p = audio.play();
+          if (p && typeof p.catch === "function") p.catch(() => resolve());
+        });
+      } catch {
+        /* next */
+      }
+    }
+    if (audioStarted) {
+      onceEnd();
+      return;
+    }
+    // Audio failed — use speechSynthesis
+    if (speakingCancelled || finished) {
+      onceEnd();
+      return;
+    }
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      onceEnd();
+      return;
+    }
     try {
+      const ensureVoices = () =>
+        new Promise<void>((resolve) => {
+          const vs = window.speechSynthesis.getVoices();
+          if (vs.length) {
+            resolve();
+            return;
+          }
+          const t = window.setTimeout(() => resolve(), 600);
+          window.speechSynthesis.onvoiceschanged = () => {
+            window.clearTimeout(t);
+            resolve();
+          };
+        });
+      await ensureVoices();
+      if (speakingCancelled) {
+        onceEnd();
+        return;
+      }
       const u = new SpeechSynthesisUtterance(clean.slice(0, 1500));
       u.lang = "en-US";
       u.volume = 1;
@@ -453,45 +540,21 @@ function speakText(
         if (v) u.voice = v;
       } catch {}
       u.onstart = () => {
-        usedSynth = true;
-        try { opts?.onstart?.(); } catch {}
+        synthStarted = true;
+        start();
       };
-      u.onend = () => {
-        try { opts?.onend?.(); } catch {}
-      };
-      u.onerror = () => {
-        // if synth fails, try audio path
-        if (!usedSynth) {
-          const chunks = chunkSpeech(clean, 160);
-          const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
-          playAudioQueue(urls, {
-            onstart: opts?.onstart,
-            onend: opts?.onend,
-            fallbackText: clean,
-            preset,
-          });
-        } else {
-          try { opts?.onend?.(); } catch {}
-        }
-      };
+      u.onend = () => onceEnd();
+      u.onerror = () => onceEnd();
       window.speechSynthesis.resume();
       window.speechSynthesis.speak(u);
-      // Also preload server TTS in background — if it arrives and synth not preferred, skip
-      return;
+      // Safety: if onstart never fires within 2s, end
+      window.setTimeout(() => {
+        if (!synthStarted && !audioStarted) onceEnd();
+      }, 2500);
     } catch {
-      /* fall through to audio */
+      onceEnd();
     }
-  }
-
-  // 2) Server TTS (Google/Edge via proxy)
-  const chunks = chunkSpeech(clean, 160);
-  const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
-  playAudioQueue(urls, {
-    onstart: opts?.onstart,
-    onend: opts?.onend,
-    fallbackText: clean,
-    preset,
-  });
+  })();
 }
 
 function stopSpeaking() {
@@ -1181,29 +1244,29 @@ function D4AiPage() {
           };
           try {
             let liveAns: string | null = null;
-            // 1) Direct from phone/browser to public live API
+            // 1) Same-origin Vercel live (user backend + Wikipedia/builtin fallbacks)
             try {
-              liveAns = await tryLive(LIVE_CHAT_URL);
+              const proxied = await fetch("/api/d4ai/live", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: liveQuery }),
+              });
+              if (proxied.ok) {
+                const j = (await proxied.json()) as { ok?: boolean; answer?: string; sources?: string[] };
+                if (j.ok && j.answer?.trim()) {
+                  liveAns = j.answer.trim();
+                  if (j.sources?.length) liveAns += "\n\n" + j.sources.map((s) => `🔗 ${s}`).join("\n");
+                }
+              }
             } catch (e) {
-              console.warn("direct live failed", e);
+              console.warn("proxy live failed", e);
             }
-            // 2) Same-origin Vercel proxy
+            // 2) Direct public live API (if phone can reach the VPS)
             if (!liveAns) {
               try {
-                const proxied = await fetch("/api/d4ai/live", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ message: liveQuery }),
-                });
-                if (proxied.ok) {
-                  const j = (await proxied.json()) as { ok?: boolean; answer?: string; sources?: string[] };
-                  if (j.ok && j.answer?.trim()) {
-                    liveAns = j.answer.trim();
-                    if (j.sources?.length) liveAns += "\n\n" + j.sources.map((s) => `🔗 ${s}`).join("\n");
-                  }
-                }
+                liveAns = await tryLive(LIVE_CHAT_URL);
               } catch (e) {
-                console.warn("proxy live failed", e);
+                console.warn("direct live failed", e);
               }
             }
             if (liveAns) {
