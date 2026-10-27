@@ -259,25 +259,15 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
     const voices = window.speechSynthesis.getVoices();
     if (!voices.length) return null;
     const en = voices.filter((v) => /en[-_]?/i.test(v.lang));
-    const pool = en.length ? en : voices;
+    const pool = en.length ? en : [...voices];
     const char = getVoiceChar(preset);
+    const idx = Math.max(0, VOICE_CHARS.findIndex((c) => c.id === char.id));
+    const female = pool.filter((v) => /female|samantha|karen|zira|amy|emma|salli|ivy|joanna|woman|girl|fiona|moira|veena|tessa/i.test(v.name));
+    const male = pool.filter((v) => /male|david|daniel|mark|george|fred|brian|matthew|joey|alex|thomas|ravi|man/i.test(v.name) || !/female|samantha|karen|zira|amy|emma|salli|ivy|joanna|woman|girl/i.test(v.name));
     const preferFemale = /nova|luna|aria|pixel|echo/.test(char.id);
-    const preferMale = /rex|atlas|cipher|kai|bolt|sage|volt/.test(char.id);
-    const preferDeep = /atlas|sage|cipher|bass/.test(char.id);
-    const score = (v: SpeechSynthesisVoice) => {
-      const n = `${v.name} ${v.lang}`.toLowerCase();
-      let s = 0;
-      if (preferFemale && /female|samantha|karen|zira|amy|emma|salli|ivy|joanna|woman|girl/.test(n)) s += 12;
-      if (preferMale && /male|david|daniel|mark|george|fred|brian|matthew|joey|man|boy/.test(n)) s += 12;
-      if (preferDeep && /male|daniel|david|fred|ravi/.test(n)) s += 6;
-      if (/en-us/i.test(v.lang) && v.localService) s += 4;
-      if (/en-gb/i.test(v.lang)) s += 2;
-      if (/en/i.test(v.lang)) s += 1;
-      // diversify by hashing name against char id
-      s += (v.name.length + char.id.charCodeAt(0)) % 3;
-      return s;
-    };
-    return [...pool].sort((a, b) => score(b) - score(a))[0] || null;
+    const list = preferFemale ? (female.length ? female : pool) : (male.length ? male : pool);
+    // Pick different voice per character index so 12 characters map across available voices
+    return list[idx % list.length] || pool[idx % pool.length] || null;
   } catch {
     return null;
   }
@@ -786,18 +776,19 @@ function GlowHero({ compact = false }: { compact?: boolean }) {
 
 function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
   return (
-    <div className="flex w-full flex-col items-center gap-1.5 py-2">
-      <div className="relative flex h-11 w-11 items-center justify-center">
-        <span className="d4ai-ring absolute inset-0 rounded-full border border-cyan-400/40" />
-        <img src={LOGO} alt="" className="relative h-9 w-9 rounded-full object-cover ring-1 ring-cyan-400/40" />
+    <div className="flex w-full flex-col items-center gap-2 py-3">
+      <div className="relative flex h-20 w-20 items-center justify-center">
+        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-cyan-400/45" />
+        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-fuchsia-400/30" style={{ animationDelay: "0.7s" }} />
+        <img src={LOGO} alt="" className="relative h-16 w-16 rounded-full object-cover shadow-[0_0_28px_rgba(34,211,238,0.35)] ring-2 ring-cyan-400/50" />
       </div>
-      <div className="d4ai-write-label text-[13px] font-bold tracking-[0.22em]">
+      <div className="d4ai-write-label text-base font-bold tracking-[0.28em]">
         <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
         <span className="d4ai-write-char" style={{ animationDelay: "120ms" }}>4</span>
         <span className="d4ai-write-char" style={{ animationDelay: "240ms" }}>A</span>
         <span className="d4ai-write-char" style={{ animationDelay: "360ms" }}>I</span>
       </div>
-      <p className="text-[10px] font-medium text-cyan-300/90">Thinking…</p>
+      <p className="text-[10px] font-medium tracking-wide text-cyan-300/85">Thinking…</p>
     </div>
   );
 }
@@ -879,6 +870,7 @@ function D4AiPage() {
   const callModeRef = useRef(false);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsSpeakingRef = useRef(false);
+  const welcomeTypedForRef = useRef<string | null>(null);
   const audioFileRef = useRef<HTMLInputElement>(null);
   const cameraFileRef = useRef<HTMLInputElement>(null);
 
@@ -897,39 +889,6 @@ function D4AiPage() {
   useEffect(() => {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
-  // Welcome typewriter — only on brand-new chats; stays static when reopening existing
-  useEffect(() => {
-    const conv = conversations.find((c) => c.id === activeId);
-    const realMsgs = (conv?.messages || []).filter((m) => m.id !== "welcome");
-    const isNew = realMsgs.length === 0;
-    if (!isNew) {
-      // Existing chat: show full welcome text immediately if present, no re-type
-      setWelcomeTyped(
-        (conv?.messages || []).find((m) => m.id === "welcome")?.content ||
-          WELCOME_TEXT,
-      );
-      setWelcomeDone(true);
-      return;
-    }
-    const rawName = String(session?.fullName || nickname || "").trim();
-    const parts = rawName.split(/\s+/).filter(Boolean);
-    const two = parts.slice(0, 2).join(" ");
-    const full = two
-      ? `Hi ${two}! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`
-      : `Hi there! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`;
-    let i = 0;
-    setWelcomeTyped("");
-    setWelcomeDone(false);
-    const id = window.setInterval(() => {
-      i = Math.min(full.length, i + 1);
-      setWelcomeTyped(full.slice(0, i));
-      if (i >= full.length) {
-        window.clearInterval(id);
-        setWelcomeDone(true);
-      }
-    }, 26);
-    return () => window.clearInterval(id);
-  }, [activeId, session?.fullName, nickname, conversations]);
 
   // Match phone status bar + nav bar to D4AI dark background
   useEffect(() => {
@@ -954,6 +913,54 @@ function D4AiPage() {
       localStorage.setItem(VOICE_KEY, voicePreset);
     } catch {}
   }, [voicePreset]);
+
+  // Smooth welcome typewriter — once per chat id, no loop
+  useEffect(() => {
+    if (!activeId) return;
+    const conv = conversations.find((c) => c.id === activeId);
+    const realCount = (conv?.messages || []).filter((m) => m.id !== "welcome").length;
+
+    // Existing conversation with real messages: show static welcome, never re-type
+    if (realCount > 0) {
+      const existing =
+        (conv?.messages || []).find((m) => m.id === "welcome")?.content || WELCOME_TEXT;
+      setWelcomeTyped(existing);
+      setWelcomeDone(true);
+      welcomeTypedForRef.current = activeId;
+      return;
+    }
+
+    // Already typed this chat
+    if (welcomeTypedForRef.current === activeId && welcomeDone) return;
+
+    const rawName = String(session?.fullName || nickname || "").trim();
+    const parts = rawName.split(/\s+/).filter(Boolean);
+    const two = parts.slice(0, 2).join(" ");
+    const full = two
+      ? `Hi ${two}! 👋\n\nI'm D4AI — your study companion and AI buddy on D4EXAM.\n\nAsk me anything: lessons, code, research, or ideas. I'm right here with you.`
+      : `Hi there! 👋\n\nI'm D4AI — your study companion and AI buddy on D4EXAM.\n\nAsk me anything: lessons, code, research, or ideas. I'm right here with you.`;
+
+    let i = 0;
+    let cancelled = false;
+    setWelcomeTyped("");
+    setWelcomeDone(false);
+    const id = window.setInterval(() => {
+      if (cancelled) return;
+      i = Math.min(full.length, i + 1);
+      setWelcomeTyped(full.slice(0, i));
+      if (i >= full.length) {
+        window.clearInterval(id);
+        setWelcomeDone(true);
+        welcomeTypedForRef.current = activeId;
+      }
+    }, 32);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // intentionally NOT depending on conversations (that caused the hi-hi-hi loop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, session?.fullName, nickname]);
 
   // Warm up voices for TTS
   useEffect(() => {
@@ -988,34 +995,6 @@ function D4AiPage() {
     if (activeConv && activeConv.messages.length > 1) setTab("chat");
   }, []);
 
-  // Welcome typewriter — only on a brand-new chat (just the welcome message)
-  useEffect(() => {
-    const conv = conversations.find((c) => c.id === activeId);
-    const isNew = !conv || conv.messages.length <= 1;
-    if (!isNew) {
-      setWelcomeTyped("");
-      setWelcomeDone(true);
-      return;
-    }
-    const rawName = String(session?.fullName || nickname || "").trim();
-    const parts = rawName.split(/\s+/).filter(Boolean);
-    const two = parts.slice(0, 2).join(" ");
-    const full = two
-      ? `Hi ${two}! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`
-      : `Hi there! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`;
-    let i = 0;
-    setWelcomeTyped("");
-    setWelcomeDone(false);
-    const id = window.setInterval(() => {
-      i = Math.min(full.length, i + 1);
-      setWelcomeTyped(full.slice(0, i));
-      if (i >= full.length) {
-        window.clearInterval(id);
-        setWelcomeDone(true);
-      }
-    }, 28);
-    return () => window.clearInterval(id);
-  }, [activeId, session?.fullName, nickname, conversations]);
 
 
 
@@ -1448,12 +1427,12 @@ function D4AiPage() {
           interim = piece;
         }
       }
-      // Barge-in: if user speaks while AI is talking, stop TTS and take the utterance
-      if (ttsSpeakingRef.current && (addedFinal || interim.length > 3)) {
-        stopSpeaking();
-        setTtsSpeaking(false);
-        ttsSpeakingRef.current = false;
-        setSpeakingMsgId(null);
+      // Never transcribe while AI is speaking (stops self-reply loop)
+      if (ttsSpeakingRef.current) {
+        try {
+          recognitionRef.current?.stop();
+        } catch {}
+        return;
       }
       if (addedFinal) {
         finalTranscriptRef.current = dedupeTranscript(
@@ -1613,18 +1592,24 @@ function D4AiPage() {
         try {
           recognitionRef.current?.stop();
         } catch {}
+        finalTranscriptRef.current = "";
+        setVoiceText("");
       },
       onend: () => {
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
         setSpeakingMsgId(null);
-        // Resume live-call listening only after AI finishes speaking
+        finalTranscriptRef.current = "";
+        setVoiceText("");
+        // Resume live-call listening only after AI finishes + short cooldown
         if (callModeRef.current && voiceOn) {
-          try {
-            window.setTimeout(() => {
-              if (callModeRef.current && !ttsSpeakingRef.current) startVoice();
-            }, 400);
-          } catch {}
+          window.setTimeout(() => {
+            if (callModeRef.current && !ttsSpeakingRef.current) {
+              finalTranscriptRef.current = "";
+              setVoiceText("");
+              startVoice();
+            }
+          }, 700);
         }
       },
     });
