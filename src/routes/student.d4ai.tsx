@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -223,18 +223,18 @@ type VoiceChar = {
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  { id: "rex", name: "Rex", tag: "Clear male", emoji: "🧑", seVoice: "Brian", rate: 1, pitch: 1, sample: "Hey, I'm Rex. Clear and steady — ready when you are." },
-  { id: "atlas", name: "Atlas", tag: "Deep bass", emoji: "🧔", seVoice: "Brian", rate: 0.85, pitch: 0.7, sample: "I am Atlas. Deep, calm, and grounded." },
-  { id: "nova", name: "Nova", tag: "Warm female", emoji: "👩", seVoice: "Amy", rate: 1, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
-  { id: "luna", name: "Luna", tag: "Soft gentle", emoji: "✨", seVoice: "Emma", rate: 0.95, pitch: 1.12, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
-  { id: "cipher", name: "Cipher", tag: "Robotic AI", emoji: "🤖", seVoice: "Brian", rate: 1.05, pitch: 0.55, sample: "System online. I am Cipher, your robotic assistant." },
-  { id: "echo", name: "Echo", tag: "Modern AI", emoji: "🔮", seVoice: "Amy", rate: 1.02, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
-  { id: "kai", name: "Kai", tag: "Sharp active", emoji: "⚡", seVoice: "Brian", rate: 1.12, pitch: 1.05, sample: "Kai online! Fast, sharp, and full of energy." },
-  { id: "aria", name: "Aria", tag: "Romantic soft", emoji: "💫", seVoice: "Emma", rate: 0.92, pitch: 1.15, sample: "I'm Aria. Soft, smooth, and a little romantic." },
-  { id: "bolt", name: "Bolt", tag: "Bright energetic", emoji: "🔥", seVoice: "Brian", rate: 1.15, pitch: 1.1, sample: "Bolt here — bright, energetic, let's go!" },
-  { id: "sage", name: "Sage", tag: "Deep wise", emoji: "📚", seVoice: "Brian", rate: 0.88, pitch: 0.65, sample: "I am Sage. Deep, thoughtful, and measured." },
-  { id: "pixel", name: "Pixel", tag: "Cartoon fun", emoji: "🎮", seVoice: "Amy", rate: 1.18, pitch: 1.35, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
-  { id: "volt", name: "Volt", tag: "Unlimited power", emoji: "⚡", seVoice: "Brian", rate: 1.08, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
+  { id: "rex", name: "Rex", tag: "Clear male", emoji: "🧑", seVoice: "Brian", rate: 1.0, pitch: 1.0, sample: "Hey, I'm Rex. Clear and steady — ready when you are." },
+  { id: "atlas", name: "Atlas", tag: "Deep bass", emoji: "🧔", seVoice: "Matthew", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
+  { id: "nova", name: "Nova", tag: "Warm female", emoji: "👩", seVoice: "Amy", rate: 1.0, pitch: 1.08, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
+  { id: "luna", name: "Luna", tag: "Soft gentle", emoji: "✨", seVoice: "Emma", rate: 0.9, pitch: 1.2, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
+  { id: "cipher", name: "Cipher", tag: "Robotic AI", emoji: "🤖", seVoice: "Justin", rate: 1.15, pitch: 0.4, sample: "System online. I am Cipher, your robotic assistant." },
+  { id: "echo", name: "Echo", tag: "Modern AI", emoji: "🔮", seVoice: "Joanna", rate: 1.05, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
+  { id: "kai", name: "Kai", tag: "Sharp active", emoji: "⚡", seVoice: "Joey", rate: 1.2, pitch: 1.15, sample: "Kai online! Fast, sharp, and full of energy." },
+  { id: "aria", name: "Aria", tag: "Romantic soft", emoji: "💫", seVoice: "Salli", rate: 0.88, pitch: 1.25, sample: "I'm Aria. Soft, smooth, and a little romantic." },
+  { id: "bolt", name: "Bolt", tag: "Bright energetic", emoji: "🔥", seVoice: "Matthew", rate: 1.22, pitch: 1.2, sample: "Bolt here — bright, energetic, let's go!" },
+  { id: "sage", name: "Sage", tag: "Deep wise", emoji: "📚", seVoice: "Brian", rate: 0.8, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
+  { id: "pixel", name: "Pixel", tag: "Cartoon fun", emoji: "🎮", seVoice: "Ivy", rate: 1.25, pitch: 1.45, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
+  { id: "volt", name: "Volt", tag: "Unlimited power", emoji: "⚡", seVoice: "Joey", rate: 1.1, pitch: 0.85, sample: "Volt charged. Unlimited power. Let's build." },
 ];
 
 function loadVoicePreset(): VoicePreset {
@@ -261,13 +261,21 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
     const en = voices.filter((v) => /en[-_]?/i.test(v.lang));
     const pool = en.length ? en : voices;
     const char = getVoiceChar(preset);
+    const preferFemale = /nova|luna|aria|pixel|echo/.test(char.id);
+    const preferMale = /rex|atlas|cipher|kai|bolt|sage|volt/.test(char.id);
+    const preferDeep = /atlas|sage|cipher|bass/.test(char.id);
     const score = (v: SpeechSynthesisVoice) => {
       const n = `${v.name} ${v.lang}`.toLowerCase();
-      if (/female|samantha|karen|zira|amy|emma|salli|ivy|joanna/.test(n) && /nova|luna|aria|neon|spark/.test(char.id)) return 10;
-      if (/male|david|mark|daniel|brian|matthew|joey/.test(n) && /rex|atlas|echo|bolt|kai|sage|bass/.test(char.id)) return 10;
-      if (/en-us/i.test(v.lang) && v.localService) return 6;
-      if (/en/i.test(v.lang)) return 4;
-      return 1;
+      let s = 0;
+      if (preferFemale && /female|samantha|karen|zira|amy|emma|salli|ivy|joanna|woman|girl/.test(n)) s += 12;
+      if (preferMale && /male|david|daniel|mark|george|fred|brian|matthew|joey|man|boy/.test(n)) s += 12;
+      if (preferDeep && /male|daniel|david|fred|ravi/.test(n)) s += 6;
+      if (/en-us/i.test(v.lang) && v.localService) s += 4;
+      if (/en-gb/i.test(v.lang)) s += 2;
+      if (/en/i.test(v.lang)) s += 1;
+      // diversify by hashing name against char id
+      s += (v.name.length + char.id.charCodeAt(0)) % 3;
+      return s;
     };
     return [...pool].sort((a, b) => score(b) - score(a))[0] || null;
   } catch {
@@ -572,6 +580,42 @@ function dedupeTranscript(text: string): string {
 }
 
 
+function formatInline(text: string, dark: boolean): ReactNode[] {
+  // Math-ish plain replacements
+  let s = text
+    .replace(/\^2\b/g, "²")
+    .replace(/\^3\b/g, "³")
+    .replace(/\bsqrt\(([^)]+)\)/gi, "√($1)")
+    .replace(/!=/g, "≠")
+    .replace(/<=/g, "≤")
+    .replace(/>=/g, "≥")
+    .replace(/->/g, "→");
+  const nodes: ReactNode[] = [];
+  // **bold**, *italic*, `code`
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) nodes.push(<span key={key++}>{s.slice(last, m.index)}</span>);
+    const tok = m[0];
+    if (tok.startsWith("**") && tok.endsWith("**")) {
+      nodes.push(<strong key={key++} className="font-semibold">{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith("*") && tok.endsWith("*")) {
+      nodes.push(<em key={key++}>{tok.slice(1, -1)}</em>);
+    } else if (tok.startsWith("`") && tok.endsWith("`")) {
+      nodes.push(
+        <code key={key++} className={dark ? "rounded bg-white/10 px-1 text-[12px]" : "rounded bg-slate-100 px-1 text-[12px]"}>
+          {tok.slice(1, -1)}
+        </code>,
+      );
+    }
+    last = m.index + tok.length;
+  }
+  if (last < s.length) nodes.push(<span key={key++}>{s.slice(last)}</span>);
+  return nodes;
+}
+
 function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
   const parts: { type: "text" | "code"; lang?: string; content: string }[] = [];
   const re = /```([\w-]*)\n?([\s\S]*?)```/g;
@@ -591,9 +635,34 @@ function MarkdownText({ text, dark }: { text: string; dark: boolean }) {
         p.type === "code" ? (
           <CodeBlock key={i} lang={p.lang || ""} content={p.content} dark={dark} />
         ) : (
-          <p key={i} className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
-            {p.content}
-          </p>
+          <div key={i} className="space-y-1.5">
+            {p.content.split("\n").map((line, li) => {
+              const t = line.trimEnd();
+              if (!t) return <div key={li} className="h-2" />;
+              // headings ## /
+              if (/^#{1,3}\s+/.test(t)) {
+                const body = t.replace(/^#{1,3}\s+/, "");
+                return (
+                  <p key={li} className="text-[14px] font-bold leading-snug">
+                    {formatInline(body, dark)}
+                  </p>
+                );
+              }
+              if (/^[-*•]\s+/.test(t)) {
+                return (
+                  <p key={li} className="flex gap-2 text-[13px] leading-relaxed">
+                    <span className="text-cyan-400">•</span>
+                    <span>{formatInline(t.replace(/^[-*•]\s+/, ""), dark)}</span>
+                  </p>
+                );
+              }
+              return (
+                <p key={li} className="text-[13px] leading-relaxed">
+                  {formatInline(t, dark)}
+                </p>
+              );
+            })}
+          </div>
         ),
       )}
     </div>
@@ -707,17 +776,20 @@ function GlowHero({ compact = false }: { compact?: boolean }) {
 }
 
 function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
-  // Not a message bubble — branded "writing D4AI" animation while thinking/streaming
   return (
-    <div className="flex w-full flex-col items-center gap-2 py-3">
-      <div className="d4ai-write-label text-lg font-bold tracking-[0.2em]">
+    <div className="flex w-full flex-col items-center gap-3 py-4">
+      <div className="relative flex h-16 w-16 items-center justify-center">
+        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-cyan-400/40" />
+        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-fuchsia-400/30" style={{ animationDelay: "0.7s" }} />
+        <img src={LOGO} alt="" className="relative h-12 w-12 rounded-full object-cover ring-2 ring-cyan-400/50" />
+      </div>
+      <div className="d4ai-write-label text-base font-bold tracking-[0.28em]">
         <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "110ms" }}>4</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "220ms" }}>A</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "330ms" }}>I</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "140ms" }}>4</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "280ms" }}>A</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "420ms" }}>I</span>
         <span className="d4ai-write-cursor" />
       </div>
-      <p className="text-[11px] text-cyan-300/80">Writing…</p>
     </div>
   );
 }
@@ -878,30 +950,34 @@ function D4AiPage() {
     if (activeConv && activeConv.messages.length > 1) setTab("chat");
   }, []);
 
-  // Personalized welcome typewriter (Hi + first two names)
+  // Welcome typewriter — only on a brand-new chat (just the welcome message)
   useEffect(() => {
+    const conv = conversations.find((c) => c.id === activeId);
+    const isNew = !conv || conv.messages.length <= 1;
+    if (!isNew) {
+      setWelcomeTyped("");
+      setWelcomeDone(true);
+      return;
+    }
     const rawName = String(session?.fullName || nickname || "").trim();
     const parts = rawName.split(/\s+/).filter(Boolean);
     const two = parts.slice(0, 2).join(" ");
-    const greeting = two
-      ? `Hi ${two}! 👋 I'm D4AI — your AI buddy on D4EXAM.`
-      : `Hey! 👋 I'm D4AI — your AI buddy on D4EXAM.`;
-    const full =
-      greeting +
-      "\n\nI'm here anytime you need help: study, code, ideas, or just figuring something out. Talk to me like a friend.\n\nIntroduce yourself and ask me anything — what's on your mind?";
+    const full = two
+      ? `Hi ${two}! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`
+      : `Hi there! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`;
     let i = 0;
     setWelcomeTyped("");
     setWelcomeDone(false);
     const id = window.setInterval(() => {
-      i = Math.min(full.length, i + 2);
+      i = Math.min(full.length, i + 1);
       setWelcomeTyped(full.slice(0, i));
       if (i >= full.length) {
         window.clearInterval(id);
         setWelcomeDone(true);
       }
-    }, 16);
+    }, 28);
     return () => window.clearInterval(id);
-  }, [activeId, session?.fullName, nickname]);
+  }, [activeId, session?.fullName, nickname, conversations]);
 
 
 
@@ -1076,9 +1152,21 @@ function D4AiPage() {
         }, 250);
 
         const aid = `a-${Date.now()}`;
-        updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content: "", createdAt: Date.now() }]);
+        let assistantInserted = false;
         setStreaming(true);
         scrollDown();
+
+        const ensureAssistant = (content: string) => {
+          if (!assistantInserted) {
+            assistantInserted = true;
+            updateActiveMessages((m) => [...m, { id: aid, role: "assistant", content, createdAt: Date.now() }]);
+          } else {
+            updateActiveMessages((list) =>
+              list.map((x) => (x.id === aid ? { ...x, content } : x)),
+            );
+          }
+          scrollDown();
+        };
 
         let full = "";
         let usedStream = false;
@@ -1113,10 +1201,7 @@ function D4AiPage() {
                   const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
                   if (j.type === "token" && j.content) {
                     full += j.content;
-                    updateActiveMessages((list) =>
-                      list.map((x) => (x.id === aid ? { ...x, content: full } : x)),
-                    );
-                    scrollDown();
+                    ensureAssistant(full);
                   } else if (j.type === "error" && j.error) {
                     throw new Error(j.error);
                   }
@@ -1152,11 +1237,10 @@ function D4AiPage() {
                   ? "D4AI had a problem answering. Try a shorter message."
                   : raw;
             setError(friendly);
-            updateActiveMessages((m) =>
-              m.map((x) => (x.id === aid ? { ...x, content: friendly } : x)),
-            );
+            ensureAssistant(friendly);
           } else {
             full = res.content || "";
+            if (full) ensureAssistant("");
             // Fast typewriter only for fallback path
             let i = 0;
             const step = Math.max(6, Math.ceil(full.length / 60));
@@ -1164,10 +1248,7 @@ function D4AiPage() {
             await new Promise<void>((resolve) => {
               typewriterRef.current = setInterval(() => {
                 i = Math.min(full.length, i + step);
-                updateActiveMessages((list) =>
-                  list.map((x) => (x.id === aid ? { ...x, content: full.slice(0, i) } : x)),
-                );
-                scrollDown();
+                ensureAssistant(full.slice(0, i));
                 if (i >= full.length) {
                   if (typewriterRef.current) clearInterval(typewriterRef.current);
                   typewriterRef.current = null;
@@ -1269,11 +1350,8 @@ function D4AiPage() {
     rec.lang = "en-US";
     rec.onresult = (ev: any) => {
       // Interrupt TTS if user speaks during call mode
-      if (callModeRef.current && ttsSpeakingRef.current) {
-        stopSpeaking();
-        setTtsSpeaking(false);
-        ttsSpeakingRef.current = false;
-      }
+      // Ignore mic while D4AI is talking (prevents echo / self-reply loop)
+      if (ttsSpeakingRef.current) return;
       let interim = "";
       let addedFinal = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -1430,7 +1508,10 @@ function D4AiPage() {
       setSpeakingMsgId(null);
       return;
     }
-    // Must call speechSynthesis.speak() in the same user gesture (no setTimeout)
+    // Pause mic so we never transcribe our own TTS
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
     try {
       window.speechSynthesis?.cancel();
       window.speechSynthesis?.resume();
@@ -1443,11 +1524,22 @@ function D4AiPage() {
       onstart: () => {
         setTtsSpeaking(true);
         ttsSpeakingRef.current = true;
+        try {
+          recognitionRef.current?.stop();
+        } catch {}
       },
       onend: () => {
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
         setSpeakingMsgId(null);
+        // Resume live-call listening only after AI finishes speaking
+        if (callModeRef.current && voiceOn) {
+          try {
+            window.setTimeout(() => {
+              if (callModeRef.current && !ttsSpeakingRef.current) startVoice();
+            }, 400);
+          } catch {}
+        }
       },
     });
   };
@@ -1561,7 +1653,7 @@ function D4AiPage() {
         <h1 className="d4ai-title-grad text-base font-bold">D4AI</h1>
         <p className="flex items-center gap-1 text-[11px] text-cyan-300/90">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          {busy ? (streaming ? "Writing…" : thoughtSeconds > 0 ? `Thinking… ${thoughtSeconds}s` : "Thinking…") : thoughtSeconds > 0 && !busy ? `Thought for ${thoughtSeconds}s` : "Online · v5-Ultimate"}
+          {"Online · v5-Ultimate"}
         </p>
       </div>
       <button type="button" onClick={() => setDrawer(true)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Menu">
@@ -1590,7 +1682,7 @@ function D4AiPage() {
         </div>
       </div>
       {messages
-        .filter((m) => m.id !== "welcome")
+        .filter((m) => m.id !== "welcome" && !(m.role === "assistant" && !String(m.content || "").trim()))
         .map((m) => (
           <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
             {m.role === "assistant" ? <D4Avatar size={30} className="mt-1 shrink-0" /> : null}
@@ -2014,7 +2106,10 @@ function D4AiPage() {
             {/* Voice picker */}
             <button
               type="button"
-              onClick={() => setVoicePickerOpen(true)}
+              onClick={() => {
+              try { recognitionRef.current?.stop(); } catch {}
+              setVoicePickerOpen(true);
+            }}
               className={cn(
                 "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold",
                 dark ? "border-cyan-500/40 bg-[#0c1a33] text-cyan-100" : "border-slate-200 bg-white text-slate-700",
@@ -2188,7 +2283,12 @@ function D4AiPage() {
                 <p className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>Choose a voice</p>
                 <p className="text-[11px] text-slate-400">12 D4AI characters · tap to preview</p>
               </div>
-              <button type="button" onClick={() => setVoicePickerOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-white/10">
+              <button type="button" onClick={() => {
+                  setVoicePickerOpen(false);
+                  if (callModeRef.current && voiceOn && !ttsSpeakingRef.current) {
+                    window.setTimeout(() => startVoice(), 300);
+                  }
+                }} className="rounded-full p-2 text-slate-400 hover:bg-white/10">
                 <X className="h-5 w-5" />
               </button>
             </div>

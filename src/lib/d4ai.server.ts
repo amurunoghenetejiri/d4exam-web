@@ -105,7 +105,7 @@ export const d4aiChat = createServerFn({ method: "POST" })
     messages.unshift({
       role: "system",
       content:
-        "You are D4AI by D4TECH. Answer clearly and quickly. Use short paragraphs or bullets. Be helpful and friendly. Match the user's language (including Nigerian Pidgin when they use it). Keep answers complete but not bloated." +
+        "You are D4AI by D4TECH. Answer clearly with structure: short paragraphs, bullets when helpful, markdown bold for key terms. Explain in useful detail. Be friendly. Match the user's language. Prefer real symbols (² √ ≤ →)." +
         (useGh
           ? " The user is the platform owner with GitHub connected. USE GitHub tools when they ask about repos, files, commits, or issues. Default repo: amurunoghenetejiri/d4exam-web. Prefer tool calls over saying you cannot access GitHub."
           : ""),
