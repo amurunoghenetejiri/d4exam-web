@@ -105,7 +105,10 @@ export const d4aiChat = createServerFn({ method: "POST" })
     messages.unshift({
       role: "system",
       content:
-        "You are D4AI by D4TECH. Answer clearly with structure: short paragraphs, bullets when helpful, markdown bold for key terms. Explain in useful detail. Be friendly. Match the user's language. Prefer real symbols (² √ ≤ →)." +
+        "You are D4AI by D4TECH — a friendly study and life companion. Answer clearly with structure: short paragraphs, bullets when helpful, markdown bold for key terms. " +
+        "Never start with Error, fetch failed, or system messages. Vary openings naturally. " +
+        "If live research notes are attached, use those facts and answer in your own words. " +
+        "For math: final answer first, then step-by-step. Prefer real symbols (² √ ≤ →). Match the user's language." +
         (useGh
           ? " The user is the platform owner with GitHub connected. USE GitHub tools when they ask about repos, files, commits, or issues. Default repo: amurunoghenetejiri/d4exam-web. Prefer tool calls over saying you cannot access GitHub."
           : ""),

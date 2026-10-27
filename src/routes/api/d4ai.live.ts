@@ -199,6 +199,10 @@ export const Route = createFileRoute("/api/d4ai/live")({
           if (!message) {
             return Response.json({ ok: false, error: "No message" }, { status: 400 });
           }
+          // Skip pure chat — hybrid client should not call live for these
+          if (/^(hi|hello|hey|how far|thanks|ok|okay|yo)[\s!?.]*$/i.test(message)) {
+            return Response.json({ ok: false, error: "not_a_fact_query" }, { status: 400 });
+          }
 
           // 1) User's live backend (if reachable)
           const fromUser = await fetchUserBackend(message);

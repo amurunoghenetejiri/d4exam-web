@@ -278,6 +278,23 @@ let activeAudio: HTMLAudioElement | null = null;
 let speakingCancelled = false;
 
 
+function friendlyError(raw: string): string {
+  const m = String(raw || "").toLowerCase();
+  if (/failed to fetch|fetch failed|networkerror|load failed|network request failed/i.test(m)) {
+    return "I'm having trouble reaching the D4AI server right now. Please check your connection and try again in a moment.";
+  }
+  if (/timeout|timed out|abort/i.test(m)) {
+    return "That took too long on my side. Please try again — a shorter question often works better.";
+  }
+  if (/too_big|at most \d+ element/i.test(m)) {
+    return "This chat got very long. I trimmed the history — send your question once more.";
+  }
+  if (m.length > 200 || /error|exception|stack/i.test(m)) {
+    return "Something went wrong on my side. Please try again in a moment.";
+  }
+  return String(raw || "Something went wrong. Please try again.").slice(0, 220);
+}
+
 function needsLiveSearch(text: string): boolean {
   const t = text.toLowerCase().trim();
   if (!t || t.length < 3) return false;
@@ -1285,21 +1302,14 @@ function D4AiPage() {
               }
             }
             if (liveAns) {
-              full = liveAns;
-              let i = 0;
-              const step = Math.max(4, Math.ceil(full.length / 80));
-              await new Promise<void>((resolve) => {
-                typewriterRef.current = setInterval(() => {
-                  i = Math.min(full.length, i + step);
-                  ensureAssistant(full.slice(0, i));
-                  if (i >= full.length) {
-                    if (typewriterRef.current) clearInterval(typewriterRef.current);
-                    typewriterRef.current = null;
-                    resolve();
-                  }
-                }, 14);
-              });
-              usedStream = true;
+              // Hybrid: attach live notes to the last user message; Ollama answers in its own style
+              const last = history[history.length - 1];
+              if (last && last.role === "user") {
+                last.content =
+                  last.content +
+                  "\n\n[Live research notes for D4AI — use these facts if relevant, reply naturally in your own words as D4AI. Do not dump raw notes or start with Error. Be friendly:]\n" +
+                  liveAns.slice(0, 6000);
+              }
             }
           } catch (liveErr) {
             console.warn("live search failed", liveErr);
@@ -1367,13 +1377,7 @@ function D4AiPage() {
             },
           });
           if (!res.ok) {
-            const raw = String(res.error || "Something went wrong.");
-            const friendly =
-              /too_big|at most \d+ element/i.test(raw)
-                ? "Chat history was too long. I trimmed it — please send again."
-                : raw.length > 280
-                  ? "D4AI had a problem answering. Try a shorter message."
-                  : raw;
+            const friendly = friendlyError(String(res.error || "Something went wrong."));
             setError(friendly);
             ensureAssistant(friendly);
           } else {
@@ -1417,12 +1421,18 @@ function D4AiPage() {
           });
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to reach D4AI";
+        const msg = friendlyError(e instanceof Error ? e.message : "Failed to reach D4AI");
         setError(msg);
-        updateActiveMessages((m) => [
-          ...m,
-          { id: `e-${Date.now()}`, role: "assistant", content: msg, createdAt: Date.now() },
-        ]);
+        // Prefer updating empty assistant bubble if we created one; else append once
+        updateActiveMessages((m) => {
+          const last = m[m.length - 1];
+          if (last && last.role === "assistant" && !String(last.content || "").trim()) {
+            return m.map((x, i) => (i === m.length - 1 ? { ...x, content: msg } : x));
+          }
+          // avoid stacking identical error bubbles
+          if (last && last.role === "assistant" && last.content === msg) return m;
+          return [...m, { id: `e-${Date.now()}`, role: "assistant", content: msg, createdAt: Date.now() }];
+        });
       } finally {
         setBusy(false);
         setStreaming(false);
