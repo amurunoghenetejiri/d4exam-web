@@ -1397,6 +1397,13 @@ function D4AiPage() {
     rec.maxAlternatives = 1;
     rec.lang = "en-US";
     rec.onresult = (ev: any) => {
+      // Hard mute: ignore everything while D4AI is talking
+      if (ttsSpeakingRef.current || isAiSpeakingRef.current) {
+        try {
+          recognitionRef.current?.stop();
+        } catch {}
+        return;
+      }
       let interim = "";
       let addedFinal = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -1412,13 +1419,6 @@ function D4AiPage() {
         } else {
           interim = piece;
         }
-      }
-      // Never transcribe while AI is speaking (stops self-reply loop)
-      if (ttsSpeakingRef.current || isAiSpeakingRef.current) {
-        try {
-          recognitionRef.current?.stop();
-        } catch {}
-        return;
       }
       if (addedFinal) {
         finalTranscriptRef.current = dedupeTranscript(
@@ -1450,14 +1450,22 @@ function D4AiPage() {
       }
     };
     rec.onend = () => {
-      // Keep mic alive continuously until user Pause / Send / Close
-      if (!voicePausedRef.current && recognitionRef.current === rec) {
+      // Do NOT restart mic while D4AI is speaking (prevents self-interrupt loop)
+      if (ttsSpeakingRef.current || isAiSpeakingRef.current) return;
+      if (!voicePausedRef.current && recognitionRef.current === rec && voiceOn) {
         try {
           setTimeout(() => {
             try {
-              if (!voicePausedRef.current && recognitionRef.current === rec) rec.start();
+              if (
+                !voicePausedRef.current &&
+                !ttsSpeakingRef.current &&
+                !isAiSpeakingRef.current &&
+                recognitionRef.current === rec
+              ) {
+                rec.start();
+              }
             } catch {}
-          }, 120);
+          }, 200);
         } catch {}
       }
     };
