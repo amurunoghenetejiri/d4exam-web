@@ -336,9 +336,8 @@ function chunkSpeech(text: string, maxLen = 180): string[] {
   return out.length ? out : [text.slice(0, maxLen)];
 }
 
-function ttsUrl(text: string, seVoice: string): string {
-  // Same-origin proxy avoids CORS / silent failures in the Capacitor WebView
-  return `/api/d4ai/tts?voice=${encodeURIComponent(seVoice)}&text=${encodeURIComponent(text)}`;
+function ttsUrl(text: string, voiceId: string): string {
+  return `/api/d4ai/tts?voice=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}`;
 }
 
 function playAudioQueue(
