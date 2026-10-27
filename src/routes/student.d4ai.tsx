@@ -91,6 +91,7 @@ type Conversation = {
 
 const STORE_KEY = "d4ai_conversations_v1";
 const ACTIVE_KEY = "d4ai_active_id_v1";
+const LIVE_CHAT_URL = "http://102.90.101.164:5000/api/chat";
 const THEME_KEY = "d4ai_theme_v1";
 const SPEAK_KEY = "d4ai_autospeak_v1";
 const LOGO = "/d4ai-avatar.png";
@@ -417,14 +418,9 @@ function speakText(
   text: string,
   opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void },
 ) {
-  const done = () => {
-    try {
-      opts?.onend?.();
-    } catch {}
-  };
   const clean = stripForSpeech(text);
   if (!clean) {
-    done();
+    try { opts?.onend?.(); } catch {}
     return;
   }
   speakingCancelled = true;
@@ -440,15 +436,61 @@ function speakText(
   } catch {}
   speakingCancelled = false;
 
-  const char = getVoiceChar(opts?.preset || loadVoicePreset());
-  const chunks = chunkSpeech(clean, 180);
-  // Edge Neural voices via same-origin proxy — each character has a different voice id
-  const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
+  const preset = opts?.preset || loadVoicePreset();
+  const char = getVoiceChar(preset);
+
+  // 1) Immediate speechSynthesis on the same user gesture (works in Chrome + WebView)
+  let usedSynth = false;
+  if (typeof window !== "undefined" && window.speechSynthesis) {
+    try {
+      const u = new SpeechSynthesisUtterance(clean.slice(0, 1500));
+      u.lang = "en-US";
+      u.volume = 1;
+      u.rate = char.rate;
+      u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+      try {
+        const v = pickVoice(preset);
+        if (v) u.voice = v;
+      } catch {}
+      u.onstart = () => {
+        usedSynth = true;
+        try { opts?.onstart?.(); } catch {}
+      };
+      u.onend = () => {
+        try { opts?.onend?.(); } catch {}
+      };
+      u.onerror = () => {
+        // if synth fails, try audio path
+        if (!usedSynth) {
+          const chunks = chunkSpeech(clean, 160);
+          const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
+          playAudioQueue(urls, {
+            onstart: opts?.onstart,
+            onend: opts?.onend,
+            fallbackText: clean,
+            preset,
+          });
+        } else {
+          try { opts?.onend?.(); } catch {}
+        }
+      };
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(u);
+      // Also preload server TTS in background — if it arrives and synth not preferred, skip
+      return;
+    } catch {
+      /* fall through to audio */
+    }
+  }
+
+  // 2) Server TTS (Google/Edge via proxy)
+  const chunks = chunkSpeech(clean, 160);
+  const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
   playAudioQueue(urls, {
     onstart: opts?.onstart,
     onend: opts?.onend,
     fallbackText: clean,
-    preset: opts?.preset || loadVoicePreset(),
+    preset,
   });
 }
 
@@ -706,7 +748,6 @@ function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
         <span className="d4ai-write-char" style={{ animationDelay: "240ms" }}>A</span>
         <span className="d4ai-write-char" style={{ animationDelay: "360ms" }}>I</span>
       </div>
-      <p className="text-[10px] font-medium tracking-wide text-cyan-300/85">Thinking…</p>
     </div>
   );
 }
@@ -906,12 +947,16 @@ function D4AiPage() {
       localStorage.setItem(ACTIVE_KEY, c.id);
       return;
     }
-    if (!id || !list.find((c) => c.id === id)) id = list[0].id;
+    // Prefer saved active id; else most recently updated chat (not the oldest first)
+    const sorted = [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    if (!id || !list.find((c) => c.id === id)) id = sorted[0]?.id || list[0].id;
     setConversations(list);
     setActiveId(id);
     const activeConv = list.find((c) => c.id === id);
-
-    if (activeConv && activeConv.messages.length > 1) setTab("chat");
+    // Open on last conversation content if it has real messages
+    if (activeConv && activeConv.messages.filter((m) => m.id !== "welcome").length > 0) {
+      setTab("chat");
+    }
   }, []);
 
 
@@ -1107,42 +1152,76 @@ function D4AiPage() {
         let full = "";
         let usedStream = false;
 
-        // Prefer live search backend (URL scrape, governors, phone specs, current facts)
+        // Live search: try public API from device first (Nigeria IP works on phone),
+        // then Vercel proxy, then Ollama fallback
         const liveQuery = body || userMsg.content;
         if (!imgs?.length) {
-          try {
-            const liveRes = await fetch("/api/d4ai/live", {
+          const tryLive = async (url: string) => {
+            const liveRes = await fetch(url, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
               body: JSON.stringify({ message: liveQuery }),
             });
-            if (liveRes.ok) {
-              const liveJson = (await liveRes.json()) as {
-                ok?: boolean;
-                answer?: string;
-                sources?: string[];
-                error?: string;
-              };
-              if (liveJson.ok && liveJson.answer?.trim()) {
-                full = liveJson.answer.trim();
-                if (liveJson.sources?.length) {
-                  full += "\n\n" + liveJson.sources.map((s) => `🔗 ${s}`).join("\n");
-                }
-                let i = 0;
-                const step = Math.max(4, Math.ceil(full.length / 80));
-                await new Promise<void>((resolve) => {
-                  typewriterRef.current = setInterval(() => {
-                    i = Math.min(full.length, i + step);
-                    ensureAssistant(full.slice(0, i));
-                    if (i >= full.length) {
-                      if (typewriterRef.current) clearInterval(typewriterRef.current);
-                      typewriterRef.current = null;
-                      resolve();
-                    }
-                  }, 14);
+            if (!liveRes.ok) return null;
+            const liveJson = (await liveRes.json()) as {
+              ok?: boolean;
+              answer?: string;
+              response?: string;
+              sources?: string[];
+            };
+            const ans = String(liveJson.answer || liveJson.response || "").trim();
+            if (!ans) return null;
+            let out = ans;
+            if (liveJson.sources?.length) {
+              out += "\n\n" + liveJson.sources.map((s) => `🔗 ${s}`).join("\n");
+            }
+            // If proxy wraps with ok flag and false, skip
+            if (liveJson.ok === false) return null;
+            return out;
+          };
+          try {
+            let liveAns: string | null = null;
+            // 1) Direct from phone/browser to public live API
+            try {
+              liveAns = await tryLive(LIVE_CHAT_URL);
+            } catch (e) {
+              console.warn("direct live failed", e);
+            }
+            // 2) Same-origin Vercel proxy
+            if (!liveAns) {
+              try {
+                const proxied = await fetch("/api/d4ai/live", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ message: liveQuery }),
                 });
-                usedStream = true;
+                if (proxied.ok) {
+                  const j = (await proxied.json()) as { ok?: boolean; answer?: string; sources?: string[] };
+                  if (j.ok && j.answer?.trim()) {
+                    liveAns = j.answer.trim();
+                    if (j.sources?.length) liveAns += "\n\n" + j.sources.map((s) => `🔗 ${s}`).join("\n");
+                  }
+                }
+              } catch (e) {
+                console.warn("proxy live failed", e);
               }
+            }
+            if (liveAns) {
+              full = liveAns;
+              let i = 0;
+              const step = Math.max(4, Math.ceil(full.length / 80));
+              await new Promise<void>((resolve) => {
+                typewriterRef.current = setInterval(() => {
+                  i = Math.min(full.length, i + step);
+                  ensureAssistant(full.slice(0, i));
+                  if (i >= full.length) {
+                    if (typewriterRef.current) clearInterval(typewriterRef.current);
+                    typewriterRef.current = null;
+                    resolve();
+                  }
+                }, 14);
+              });
+              usedStream = true;
             }
           } catch (liveErr) {
             console.warn("live search failed", liveErr);

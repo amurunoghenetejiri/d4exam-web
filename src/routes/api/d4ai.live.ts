@@ -16,7 +16,7 @@ function liveTargets(): string[] {
   // Public live API first — NEVER use Ollama 11434 here
   const defaults = [
     "http://102.90.101.164:5000/api/chat",
-    "http://10.0.0.22:5000/api/chat",
+    "http://102.90.101.164:5000/api/chat",
     "http://127.0.0.1:5000/api/chat",
   ];
   const all = [
