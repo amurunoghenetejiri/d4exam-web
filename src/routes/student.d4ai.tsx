@@ -286,6 +286,15 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
 let activeAudio: HTMLAudioElement | null = null;
 let speakingCancelled = false;
 
+
+function needsLiveSearch(text: string): boolean {
+  const t = text.toLowerCase();
+  if (/https?:\/\//i.test(text)) return true;
+  if (/\b(current|today|latest|live|who is the|governor|president|price of|how much|news|itel|gsmarena|wikipedia)\b/i.test(t)) return true;
+  if (/\b(2024|2025|2026)\b/.test(t) && /\b(phone|specs?|features?|governor|election)\b/i.test(t)) return true;
+  return false;
+}
+
 function stripForSpeech(text: string): string {
   return String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -777,19 +786,18 @@ function GlowHero({ compact = false }: { compact?: boolean }) {
 
 function TypingIndicator({ dark: _dark }: { dark?: boolean }) {
   return (
-    <div className="flex w-full flex-col items-center gap-3 py-4">
-      <div className="relative flex h-16 w-16 items-center justify-center">
-        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-cyan-400/40" />
-        <span className="d4ai-ring absolute inset-0 rounded-full border-2 border-fuchsia-400/30" style={{ animationDelay: "0.7s" }} />
-        <img src={LOGO} alt="" className="relative h-12 w-12 rounded-full object-cover ring-2 ring-cyan-400/50" />
+    <div className="flex w-full flex-col items-center gap-1.5 py-2">
+      <div className="relative flex h-11 w-11 items-center justify-center">
+        <span className="d4ai-ring absolute inset-0 rounded-full border border-cyan-400/40" />
+        <img src={LOGO} alt="" className="relative h-9 w-9 rounded-full object-cover ring-1 ring-cyan-400/40" />
       </div>
-      <div className="d4ai-write-label text-base font-bold tracking-[0.28em]">
+      <div className="d4ai-write-label text-[13px] font-bold tracking-[0.22em]">
         <span className="d4ai-write-char" style={{ animationDelay: "0ms" }}>D</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "140ms" }}>4</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "280ms" }}>A</span>
-        <span className="d4ai-write-char" style={{ animationDelay: "420ms" }}>I</span>
-        <span className="d4ai-write-cursor" />
+        <span className="d4ai-write-char" style={{ animationDelay: "120ms" }}>4</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "240ms" }}>A</span>
+        <span className="d4ai-write-char" style={{ animationDelay: "360ms" }}>I</span>
       </div>
+      <p className="text-[10px] font-medium text-cyan-300/90">Thinking…</p>
     </div>
   );
 }
@@ -889,9 +897,39 @@ function D4AiPage() {
   useEffect(() => {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
-  // Type the welcome message on mount / new chat (looks alive)
-
-
+  // Welcome typewriter — only on brand-new chats; stays static when reopening existing
+  useEffect(() => {
+    const conv = conversations.find((c) => c.id === activeId);
+    const realMsgs = (conv?.messages || []).filter((m) => m.id !== "welcome");
+    const isNew = realMsgs.length === 0;
+    if (!isNew) {
+      // Existing chat: show full welcome text immediately if present, no re-type
+      setWelcomeTyped(
+        (conv?.messages || []).find((m) => m.id === "welcome")?.content ||
+          WELCOME_TEXT,
+      );
+      setWelcomeDone(true);
+      return;
+    }
+    const rawName = String(session?.fullName || nickname || "").trim();
+    const parts = rawName.split(/\s+/).filter(Boolean);
+    const two = parts.slice(0, 2).join(" ");
+    const full = two
+      ? `Hi ${two}! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`
+      : `Hi there! 👋\n\nI'm D4AI — your AI buddy on D4EXAM. I'm here for study, code, ideas, or anything you need. Ask me anything anytime.`;
+    let i = 0;
+    setWelcomeTyped("");
+    setWelcomeDone(false);
+    const id = window.setInterval(() => {
+      i = Math.min(full.length, i + 1);
+      setWelcomeTyped(full.slice(0, i));
+      if (i >= full.length) {
+        window.clearInterval(id);
+        setWelcomeDone(true);
+      }
+    }, 26);
+    return () => window.clearInterval(id);
+  }, [activeId, session?.fullName, nickname, conversations]);
 
   // Match phone status bar + nav bar to D4AI dark background
   useEffect(() => {
@@ -1171,52 +1209,97 @@ function D4AiPage() {
         let full = "";
         let usedStream = false;
 
-        try {
-          const streamRes = await fetch("/api/d4ai/stream", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: history,
-              images: dText ? undefined : imgs,
-              documentText: dText || undefined,
-              documentName: dName || (imgs ? "image-ocr.txt" : undefined),
-            }),
-          });
+        // Prefer live search backend (URL scrape, governors, phone specs, current facts)
+        const liveQuery = body || userMsg.content;
+        if (!imgs?.length) {
+          try {
+            const liveRes = await fetch("/api/d4ai/live", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: liveQuery }),
+            });
+            if (liveRes.ok) {
+              const liveJson = (await liveRes.json()) as {
+                ok?: boolean;
+                answer?: string;
+                sources?: string[];
+                error?: string;
+              };
+              if (liveJson.ok && liveJson.answer?.trim()) {
+                full = liveJson.answer.trim();
+                if (liveJson.sources?.length) {
+                  full += "\n\n" + liveJson.sources.map((s) => `🔗 ${s}`).join("\n");
+                }
+                let i = 0;
+                const step = Math.max(4, Math.ceil(full.length / 80));
+                await new Promise<void>((resolve) => {
+                  typewriterRef.current = setInterval(() => {
+                    i = Math.min(full.length, i + step);
+                    ensureAssistant(full.slice(0, i));
+                    if (i >= full.length) {
+                      if (typewriterRef.current) clearInterval(typewriterRef.current);
+                      typewriterRef.current = null;
+                      resolve();
+                    }
+                  }, 14);
+                });
+                usedStream = true;
+              }
+            }
+          } catch (liveErr) {
+            console.warn("live search failed", liveErr);
+          }
+        }
 
-          if (streamRes.ok && streamRes.body) {
-            usedStream = true;
-            const reader = streamRes.body.getReader();
-            const decoder = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buf += decoder.decode(value, { stream: true });
-              const lines = buf.split("\n");
-              buf = lines.pop() || "";
-              for (const line of lines) {
-                const t = line.trim();
-                if (!t) continue;
-                try {
-                  const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
-                  if (j.type === "token" && j.content) {
-                    full += j.content;
-                    ensureAssistant(full);
-                  } else if (j.type === "error" && j.error) {
-                    throw new Error(j.error);
+        // Stream from Ollama if live did not answer
+        if (!usedStream || !full.trim()) {
+          try {
+            const streamRes = await fetch("/api/d4ai/stream", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messages: history,
+                images: dText ? undefined : imgs,
+                documentText: dText || undefined,
+                documentName: dName || (imgs ? "image-ocr.txt" : undefined),
+              }),
+            });
+
+            if (streamRes.ok && streamRes.body) {
+              usedStream = true;
+              const reader = streamRes.body.getReader();
+              const decoder = new TextDecoder();
+              let buf = "";
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split("\n");
+                buf = lines.pop() || "";
+                for (const line of lines) {
+                  const t = line.trim();
+                  if (!t) continue;
+                  try {
+                    const j = JSON.parse(t) as { type?: string; content?: string; error?: string };
+                    if (j.type === "token" && j.content) {
+                      full += j.content;
+                      ensureAssistant(full);
+                    } else if (j.type === "error" && j.error) {
+                      throw new Error(j.error);
+                    }
+                  } catch (e) {
+                    if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
                   }
-                } catch (e) {
-                  if (e instanceof Error && e.message && !e.message.includes("JSON")) throw e;
                 }
               }
             }
+          } catch (streamErr) {
+            console.warn("stream failed, fallback", streamErr);
+            usedStream = false;
           }
-        } catch (streamErr) {
-          console.warn("stream failed, fallback", streamErr);
-          usedStream = false;
         }
 
-        if (!usedStream || !full.trim()) {
+                if (!usedStream || !full.trim()) {
           const ghToken = readGithubToken();
           const res = await d4aiChat({
             data: {
@@ -1349,9 +1432,6 @@ function D4AiPage() {
     rec.maxAlternatives = 1;
     rec.lang = "en-US";
     rec.onresult = (ev: any) => {
-      // Interrupt TTS if user speaks during call mode
-      // Ignore mic while D4AI is talking (prevents echo / self-reply loop)
-      if (ttsSpeakingRef.current) return;
       let interim = "";
       let addedFinal = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -1359,15 +1439,21 @@ function D4AiPage() {
         const piece = String(r[0]?.transcript || "").replace(/\s+/g, " ").trim();
         if (!piece) continue;
         if (r.isFinal) {
-          // only append if not already contained at the end
           const prev = finalTranscriptRef.current;
           const low = piece.toLowerCase();
           if (!prev.toLowerCase().endsWith(low) && !prev.toLowerCase().includes(low + " ")) {
             addedFinal = (addedFinal + " " + piece).trim();
           }
         } else {
-          interim = piece; // always take latest interim only
+          interim = piece;
         }
+      }
+      // Barge-in: if user speaks while AI is talking, stop TTS and take the utterance
+      if (ttsSpeakingRef.current && (addedFinal || interim.length > 3)) {
+        stopSpeaking();
+        setTtsSpeaking(false);
+        ttsSpeakingRef.current = false;
+        setSpeakingMsgId(null);
       }
       if (addedFinal) {
         finalTranscriptRef.current = dedupeTranscript(
@@ -1700,7 +1786,7 @@ function D4AiPage() {
                   e.preventDefault();
                   setLongPress(m);
                 }}
-                className={cn("px-3.5 py-2.5 text-[15px] leading-relaxed shadow select-text", bubbleClasses(m.role))}
+                className={cn("px-3.5 py-2.5 text-[15px] leading-relaxed shadow select-none", bubbleClasses(m.role))}
               >
                 {m.imagePreview ? (
                   <img src={m.imagePreview} alt="" className="mb-2 max-h-48 w-full rounded-xl object-cover" />
@@ -2292,7 +2378,7 @@ function D4AiPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-6" style={{ WebkitOverflowScrolling: "touch" }}>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-8" style={{ WebkitOverflowScrolling: "touch", maxHeight: "55vh" }}>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {VOICE_CHARS.map((c) => {
                 const active = voicePreset === c.id;
