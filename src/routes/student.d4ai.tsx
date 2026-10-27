@@ -223,18 +223,18 @@ type VoiceChar = {
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  { id: "rex", name: "Rex", tag: "Clear male", emoji: "🧑", seVoice: "Brian", rate: 1.0, pitch: 1.0, sample: "Hey, I'm Rex. Clear and steady — ready when you are." },
-  { id: "atlas", name: "Atlas", tag: "Deep bass", emoji: "🧔", seVoice: "Matthew", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
-  { id: "nova", name: "Nova", tag: "Warm female", emoji: "👩", seVoice: "Amy", rate: 1.0, pitch: 1.08, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
-  { id: "luna", name: "Luna", tag: "Soft gentle", emoji: "✨", seVoice: "Emma", rate: 0.9, pitch: 1.2, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
-  { id: "cipher", name: "Cipher", tag: "Robotic AI", emoji: "🤖", seVoice: "Justin", rate: 1.15, pitch: 0.4, sample: "System online. I am Cipher, your robotic assistant." },
-  { id: "echo", name: "Echo", tag: "Modern AI", emoji: "🔮", seVoice: "Joanna", rate: 1.05, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
-  { id: "kai", name: "Kai", tag: "Sharp active", emoji: "⚡", seVoice: "Joey", rate: 1.2, pitch: 1.15, sample: "Kai online! Fast, sharp, and full of energy." },
-  { id: "aria", name: "Aria", tag: "Romantic soft", emoji: "💫", seVoice: "Salli", rate: 0.88, pitch: 1.25, sample: "I'm Aria. Soft, smooth, and a little romantic." },
-  { id: "bolt", name: "Bolt", tag: "Bright energetic", emoji: "🔥", seVoice: "Matthew", rate: 1.22, pitch: 1.2, sample: "Bolt here — bright, energetic, let's go!" },
-  { id: "sage", name: "Sage", tag: "Deep wise", emoji: "📚", seVoice: "Brian", rate: 0.8, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
-  { id: "pixel", name: "Pixel", tag: "Cartoon fun", emoji: "🎮", seVoice: "Ivy", rate: 1.25, pitch: 1.45, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
-  { id: "volt", name: "Volt", tag: "Unlimited power", emoji: "⚡", seVoice: "Joey", rate: 1.1, pitch: 0.85, sample: "Volt charged. Unlimited power. Let's build." },
+  { id: "rex", name: "Rex", tag: "Deep male · calm", emoji: "🧑", seVoice: "en-US-ChristopherNeural", rate: 0.95, pitch: 0.85, sample: "Hey, I'm Rex. Clear, calm, and ready when you are." },
+  { id: "atlas", name: "Atlas", tag: "Deep bass · wise", emoji: "🧔", seVoice: "en-US-EricNeural", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
+  { id: "nova", name: "Nova", tag: "Female · warm", emoji: "👩", seVoice: "en-US-JennyNeural", rate: 1.0, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
+  { id: "luna", name: "Luna", tag: "Female · soft", emoji: "✨", seVoice: "en-US-AriaNeural", rate: 0.92, pitch: 1.15, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
+  { id: "cipher", name: "Cipher", tag: "Robotic · AI", emoji: "🤖", seVoice: "en-US-JasonNeural", rate: 1.1, pitch: 0.45, sample: "System online. I am Cipher, your robotic assistant." },
+  { id: "echo", name: "Echo", tag: "British male", emoji: "🔮", seVoice: "en-GB-RyanNeural", rate: 1.0, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
+  { id: "kai", name: "Kai", tag: "Young · energetic", emoji: "⚡", seVoice: "en-US-GuyNeural", rate: 1.15, pitch: 1.1, sample: "Kai online! Fast, sharp, and full of energy." },
+  { id: "aria", name: "Aria", tag: "Female · bright", emoji: "💫", seVoice: "en-US-MichelleNeural", rate: 0.95, pitch: 1.2, sample: "I'm Aria. Soft, smooth, and a little romantic." },
+  { id: "bolt", name: "Bolt", tag: "Sharp · active", emoji: "🔥", seVoice: "en-US-GuyNeural", rate: 1.2, pitch: 1.15, sample: "Bolt here — bright, energetic, let's go!" },
+  { id: "sage", name: "Sage", tag: "Old wise · slow", emoji: "📚", seVoice: "en-US-EricNeural", rate: 0.78, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
+  { id: "pixel", name: "Pixel", tag: "Playful · high", emoji: "🎮", seVoice: "en-US-AnaNeural", rate: 1.22, pitch: 1.4, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
+  { id: "volt", name: "Volt", tag: "Narrator · strong", emoji: "⚡", seVoice: "en-US-SteffanNeural", rate: 1.05, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
 ];
 
 function loadVoicePreset(): VoicePreset {
@@ -441,96 +441,14 @@ function speakText(
   speakingCancelled = false;
 
   const char = getVoiceChar(opts?.preset || loadVoicePreset());
-  const chunks = chunkSpeech(clean, 160);
-  const preset = opts?.preset || loadVoicePreset();
-
-  // Prefer browser speechSynthesis (Chrome website)
-  if (typeof window !== "undefined" && window.speechSynthesis) {
-    const synth = window.speechSynthesis;
-    try {
-      synth.resume();
-    } catch {}
-    let idx = 0;
-    let started = false;
-    const next = () => {
-      if (speakingCancelled) {
-        done();
-        return;
-      }
-      if (idx >= chunks.length) {
-        done();
-        return;
-      }
-      const u = new SpeechSynthesisUtterance(chunks[idx++]);
-      u.lang = "en-US";
-      u.volume = 1;
-      u.rate = char.rate;
-      u.pitch = char.pitch;
-      try {
-        const v = pickVoice(preset);
-        if (v) u.voice = v;
-      } catch {}
-      u.onstart = () => {
-        if (!started) {
-          started = true;
-          try {
-            opts?.onstart?.();
-          } catch {}
-        }
-      };
-      u.onend = () => next();
-      u.onerror = () => next();
-      try {
-        synth.speak(u);
-      } catch {
-        next();
-      }
-    };
-    const start = () => next();
-    const voices = synth.getVoices();
-    if (!voices.length) {
-      synth.onvoiceschanged = () => start();
-      window.setTimeout(start, 350);
-    } else {
-      start();
-    }
-    // Keep Android from pausing mid-speech
-    const kick = window.setInterval(() => {
-      try {
-        if (synth.speaking && synth.paused) synth.resume();
-        if (!synth.speaking && !synth.pending) window.clearInterval(kick);
-      } catch {
-        window.clearInterval(kick);
-      }
-    }, 300);
-    window.setTimeout(() => window.clearInterval(kick), 120000);
-    // If nothing starts, use audio proxy
-    window.setTimeout(() => {
-      try {
-        if (!synth.speaking && !synth.pending && !speakingCancelled && !started) {
-          try {
-            synth.cancel();
-          } catch {}
-          const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
-          playAudioQueue(urls, {
-            onstart: opts?.onstart,
-            onend: opts?.onend,
-            fallbackText: clean,
-            preset,
-          });
-        }
-      } catch {}
-    }, 1200);
-    return;
-  }
-
-  // Capacitor / no speechSynthesis — same-origin TTS proxy
+  const chunks = chunkSpeech(clean, 180);
+  // Edge Neural voices via same-origin proxy — each character has a different voice id
   const urls = chunks.map((c) => ttsUrl(c, char.seVoice));
   playAudioQueue(urls, {
     onstart: opts?.onstart,
     onend: opts?.onend,
     fallbackText: clean,
-    preset,
+    preset: opts?.preset || loadVoicePreset(),
   });
 }
 
@@ -870,6 +788,7 @@ function D4AiPage() {
   const callModeRef = useRef(false);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsSpeakingRef = useRef(false);
+  const isAiSpeakingRef = useRef(false);
   const welcomeTypedForRef = useRef<string | null>(null);
   const audioFileRef = useRef<HTMLInputElement>(null);
   const cameraFileRef = useRef<HTMLInputElement>(null);
@@ -1428,7 +1347,7 @@ function D4AiPage() {
         }
       }
       // Never transcribe while AI is speaking (stops self-reply loop)
-      if (ttsSpeakingRef.current) {
+      if (ttsSpeakingRef.current || isAiSpeakingRef.current) {
         try {
           recognitionRef.current?.stop();
         } catch {}
@@ -1584,11 +1503,22 @@ function D4AiPage() {
     if (msgId) setSpeakingMsgId(msgId);
     setTtsSpeaking(true);
     ttsSpeakingRef.current = true;
+    isAiSpeakingRef.current = true;
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    finalTranscriptRef.current = "";
+    setVoiceText("");
     speakText(text, {
       preset: voicePreset,
       onstart: () => {
         setTtsSpeaking(true);
         ttsSpeakingRef.current = true;
+        isAiSpeakingRef.current = true;
         try {
           recognitionRef.current?.stop();
         } catch {}
@@ -1598,18 +1528,19 @@ function D4AiPage() {
       onend: () => {
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
+        isAiSpeakingRef.current = false;
         setSpeakingMsgId(null);
         finalTranscriptRef.current = "";
         setVoiceText("");
-        // Resume live-call listening only after AI finishes + short cooldown
+        // Resume live-call listening only after AI finishes + cooldown (avoids hearing itself)
         if (callModeRef.current && voiceOn) {
           window.setTimeout(() => {
-            if (callModeRef.current && !ttsSpeakingRef.current) {
+            if (callModeRef.current && !isAiSpeakingRef.current) {
               finalTranscriptRef.current = "";
               setVoiceText("");
               startVoice();
             }
-          }, 700);
+          }, 900);
         }
       },
     });

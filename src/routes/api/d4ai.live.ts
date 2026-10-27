@@ -2,10 +2,8 @@
  * Proxy to D4AI live search backend.
  * POST /api/d4ai/live  { message: string }
  *
- * Env (set on Vercel):
- *   D4AI_LIVE_URL = http://YOUR_PUBLIC_HOST:5000/api/chat
- * Optional fallback list:
- *   D4AI_LIVE_URLS = http://a:5000/api/chat,http://b:5000/api/chat
+ * Primary public API: http://102.90.101.164:5000/api/chat
+ * Override with env D4AI_LIVE_URL if needed.
  */
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -15,9 +13,17 @@ function liveTargets(): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
   const single = (process.env.D4AI_LIVE_URL || process.env.D4AI_SEARCH_URL || "").trim();
-  const defaults = ["http://10.0.0.22:5000/api/chat", "http://127.0.0.1:5000/api/chat"];
-  const all = [...multi, ...(single ? [single] : []), ...defaults];
-  // unique
+  // Public live API first — NEVER use Ollama 11434 here
+  const defaults = [
+    "http://102.90.101.164:5000/api/chat",
+    "http://10.0.0.22:5000/api/chat",
+    "http://127.0.0.1:5000/api/chat",
+  ];
+  const all = [
+    ...(single ? [single] : []),
+    ...multi,
+    ...defaults,
+  ];
   return [...new Set(all.map((u) => u.replace(/\/$/, "")))];
 }
 
@@ -36,11 +42,14 @@ export const Route = createFileRoute("/api/d4ai/live")({
           let lastErr = "No live backend reachable";
           for (const url of targets) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 40_000);
+            const timer = setTimeout(() => controller.abort(), 55_000);
             try {
               const res = await fetch(url, {
                 method: "POST",
-                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
                 body: JSON.stringify({ message }),
                 signal: controller.signal,
               });
