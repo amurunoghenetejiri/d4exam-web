@@ -228,12 +228,35 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           };
 
           let message = String(body.message || body.query || "").trim();
-          if (!message && Array.isArray(body.messages) && body.messages.length) {
-            const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
+          const prior = Array.isArray(body.messages) ? body.messages : [];
+          if (!message && prior.length) {
+            const lastUser = [...prior].reverse().find((m) => m.role === "user");
             message = String(lastUser?.content || "").trim();
           }
           if (!message) {
             return Response.json({ ok: false, error: "No message" }, { status: 400 });
+          }
+
+          // Conversation continuity: pack recent turns so follow-ups make sense
+          let contextBlock = "";
+          if (prior.length > 1) {
+            const lines: string[] = [];
+            for (const m of prior.slice(-10)) {
+              const role = m.role === "assistant" ? "D4AI" : "User";
+              const content = String(m.content || "")
+                .replace(/\[INTERNAL RESEARCH[\s\S]*$/i, "")
+                .replace(/https?:\/\/\S+/g, "")
+                .trim()
+                .slice(0, 600);
+              if (!content) continue;
+              lines.push(`${role}: ${content}`);
+            }
+            if (lines.length > 1) {
+              contextBlock =
+                "\n\n[CONVERSATION SO FAR — stay on this topic unless the user clearly changes subject. " +
+                "If they say 'explain them / more details / continue', expand the PREVIOUS answer, not something else:]\n" +
+                lines.join("\n");
+            }
           }
 
           // Multi-source research (server-side only — not shown as links to user)
@@ -251,7 +274,11 @@ export const Route = createFileRoute("/api/d4ai/chat")({
             }
           }
 
-          const outbound = message + researchBlock;
+          const styleHint =
+            "\n\n[STYLE] Answer in detail. When listing people/things, explain EACH item (who/what, year, why it matters) — not a bare name list. " +
+            "Stay on the conversation topic. Never explain emoji meanings unless asked about emojis.";
+
+          const outbound = message + contextBlock + researchBlock + styleHint;
           const url = flaskChatUrl();
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 60_000);

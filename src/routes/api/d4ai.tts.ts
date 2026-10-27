@@ -73,15 +73,20 @@ async function googleSpeak(text: string, tl: string): Promise<ArrayBuffer | null
   return null;
 }
 
-async function edgeSpeak(text: string, voice: string): Promise<ArrayBuffer | null> {
+async function edgeSpeak(
+  text: string,
+  voice: string,
+  rate = "medium",
+  pitch = "default",
+): Promise<ArrayBuffer | null> {
   const clean = text
-    .slice(0, 300)
+    .slice(0, 400)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   const ssml =
     `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
-    `<voice name='${voice}'>${clean}</voice></speak>`;
+    `<voice name='${voice}'><prosody rate='${rate}' pitch='${pitch}'>${clean}</prosody></voice></speak>`;
   const gec = secMsGec();
   const url =
     `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` +
@@ -115,9 +120,33 @@ export const Route = createFileRoute("/api/d4ai/tts")({
         if (!text) return new Response("missing text", { status: 400 });
 
         const cfg = resolve(voiceRaw);
-        // Google first (reliable), Edge second
-        let buf = await googleSpeak(text, cfg.tl);
-        if (!buf) buf = await edgeSpeak(text, cfg.edge);
+        // Edge Neural first = real different character voices; Google accent fallback
+        const prosodyByEdge: Record<string, [string, string]> = {
+          "en-US-ChristopherNeural": ["0.95", "-2Hz"],
+          "en-US-EricNeural": ["0.82", "-5Hz"],
+          "en-US-JennyNeural": ["1.0", "+1Hz"],
+          "en-US-AriaNeural": ["0.9", "+3Hz"],
+          "en-US-JasonNeural": ["1.12", "-8Hz"],
+          "en-GB-RyanNeural": ["1.0", "default"],
+          "en-US-GuyNeural": ["1.15", "+2Hz"],
+          "en-US-MichelleNeural": ["0.95", "+4Hz"],
+          "en-US-AnaNeural": ["1.25", "+8Hz"],
+          "en-US-SteffanNeural": ["1.05", "default"],
+          "en-GB-SoniaNeural": ["0.95", "+2Hz"],
+        };
+        const charKey = voiceRaw.toLowerCase();
+        const prosodyByChar: Record<string, [string, string]> = {
+          rex: ["0.95", "-2Hz"], atlas: ["0.82", "-5Hz"], nova: ["1.0", "+1Hz"],
+          luna: ["0.9", "+3Hz"], cipher: ["1.12", "-8Hz"], echo: ["1.0", "default"],
+          kai: ["1.15", "+2Hz"], aria: ["0.95", "+4Hz"], bolt: ["1.2", "+2Hz"],
+          sage: ["0.78", "-4Hz"], pixel: ["1.25", "+8Hz"], volt: ["1.05", "default"],
+        };
+        const [rate, pitch] =
+          prosodyByChar[charKey] ||
+          prosodyByEdge[cfg.edge] ||
+          ["1.0", "default"];
+        let buf = await edgeSpeak(text, cfg.edge, rate, pitch);
+        if (!buf) buf = await googleSpeak(text, cfg.tl);
         if (!buf) return new Response("tts unavailable", { status: 502 });
 
         return new Response(buf, {

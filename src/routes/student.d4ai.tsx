@@ -472,7 +472,7 @@ function speakText(
 
   // Prefer server audio (Google TTS via proxy) — more reliable volume in WebView
   const chunks = chunkSpeech(clean, 160);
-  const urls = chunks.map((c) => ttsUrl(c, char.seVoice || char.id));
+  const urls = chunks.map((c) => ttsUrl(c, char.id));
 
   // Run speechSynthesis in parallel as backup if audio fails; started on same tick as gesture
   let audioStarted = false;
@@ -939,7 +939,7 @@ function D4AiPage() {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
 
-  // Match phone status bar + nav bar to D4AI dark background
+  // Match phone status bar + system nav bar to D4AI background (not exam navy)
   useEffect(() => {
     const color = theme === "dark" ? "#050b18" : "#f5f9ff";
     let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
@@ -954,6 +954,40 @@ function D4AiPage() {
       document.documentElement.style.backgroundColor = color;
       document.body.style.backgroundColor = color;
     } catch {}
+    // Capacitor native bars when available
+    void (async () => {
+      try {
+        const w = window as unknown as {
+          Capacitor?: { Plugins?: Record<string, any>; isNativePlatform?: () => boolean };
+        };
+        const plugins = w.Capacitor?.Plugins;
+        if (!plugins) return;
+        if (plugins.StatusBar) {
+          await plugins.StatusBar.setBackgroundColor?.({ color });
+          await plugins.StatusBar.setStyle?.({
+            style: theme === "dark" ? "DARK" : "LIGHT",
+          });
+          await plugins.StatusBar.show?.();
+        }
+        if (plugins.NavigationBar) {
+          await plugins.NavigationBar.setColor?.({ color, darkButtons: theme !== "dark" });
+        }
+        // Some builds expose NavigationBar under different names
+        if (plugins.App) {
+          // no-op; keeps WebView chrome aligned via theme-color
+        }
+      } catch {
+        /* web or plugin missing */
+      }
+    })();
+    return () => {
+      // restore a neutral color when leaving D4AI so other pages can set their own
+      try {
+        const restore = "#0a1628";
+        const m = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+        if (m) m.content = restore;
+      } catch {}
+    };
   }, [theme]);
 
 
@@ -1251,8 +1285,11 @@ function D4AiPage() {
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({
             message: userText,
-            // optional context for future backend upgrades
-            messages: history.slice(-12),
+            // Full recent thread so follow-ups ("explain them") keep context
+            messages: history.slice(-12).map((m) => ({
+              role: m.role,
+              content: String(m.content || "").slice(0, 2000),
+            })),
           }),
           cache: "no-store",
         });
