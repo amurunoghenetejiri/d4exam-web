@@ -495,7 +495,7 @@ function speakText(
       try { opts?.onend?.(); } catch {}
       return;
     }
-    const chunks = chunkSpeech(clean, 240);
+    const chunks = clean.length <= 280 ? [clean] : chunkSpeech(clean, 200);
     let anyAudio = false;
     for (const piece of chunks) {
       if (speakingCancelled || session !== speakSession) break;
@@ -925,8 +925,9 @@ function D4AiPage() {
   const [voicePaused, setVoicePaused] = useState(false);
   const [callMode, setCallMode] = useState(false);
   const [callMinimized, setCallMinimized] = useState(false);
+  const callMinimizedRef = useRef(false);
   const [callBubbleOpen, setCallBubbleOpen] = useState(false);
-  const [bubblePos, setBubblePos] = useState({ x: 0, y: 0 });
+  const [bubblePos, setBubblePos] = useState<{ x: number; y: number } | null>(null);
   const [nearBottom, setNearBottom] = useState(true);
   const [attachOpen, setAttachOpen] = useState(false);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
@@ -980,6 +981,9 @@ function D4AiPage() {
   useEffect(() => {
     callModeRef.current = callMode;
   }, [callMode]);
+  useEffect(() => {
+    callMinimizedRef.current = callMinimized;
+  }, [callMinimized]);
 
   useEffect(() => {
     ttsSpeakingRef.current = ttsSpeaking;
@@ -1418,9 +1422,10 @@ function D4AiPage() {
               setTtsSpeaking(false);
               ttsSpeakingRef.current = false;
               isAiSpeakingRef.current = false;
-              if (callModeRef.current && !voicePausedRef.current) {
+              // Stay on chat if minimized; only resume full call screen mic
+              if (callModeRef.current && !callMinimizedRef.current && !voicePausedRef.current) {
                 window.setTimeout(() => {
-                  if (callModeRef.current && !isAiSpeakingRef.current) {
+                  if (callModeRef.current && !callMinimizedRef.current && !isAiSpeakingRef.current) {
                     finalTranscriptRef.current = "";
                     setVoiceText("");
                     startVoice();
@@ -1445,16 +1450,11 @@ function D4AiPage() {
         } else {
           // Chat mode: typewriter + speak chunks as text appears (no wait for full reply)
           let i = 0;
-          const step = Math.max(3, Math.ceil(full.length / 80));
+          const step = Math.max(2, Math.ceil(full.length / 100));
           const doSpeak = Boolean(autoSpeakRef.current);
           const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 90) : [];
           let speakIdx = 0;
           let speakQueue = Promise.resolve();
-          if (doSpeak) {
-            setTtsSpeaking(true);
-            ttsSpeakingRef.current = true;
-            setSpeakingMsgId(aid);
-          }
           let speakStarted = false;
           const enqueueSpeak = (piece: string) => {
             speakQueue = speakQueue.then(
@@ -1489,7 +1489,12 @@ function D4AiPage() {
                 // Speak next phrase once typewriter has revealed enough of it
                 while (speakIdx < speechChunks.length) {
                   const revealed = speechChunks.slice(0, speakIdx + 1).join(" ");
-                  if (i < Math.min(full.length, Math.floor(revealed.length * 0.85))) break;
+                  // Start speaking as soon as ~40% of the phrase is on screen
+                  if (speakIdx === 0) {
+                    if (i < 8) break; // first words visible
+                  } else if (i < Math.min(full.length, Math.floor(revealed.length * 0.5))) {
+                    break;
+                  }
                   enqueueSpeak(speechChunks[speakIdx++]);
                 }
               }
@@ -1645,7 +1650,8 @@ function D4AiPage() {
     };
     rec.onerror = (ev: any) => {
       const err = String(ev?.error || "");
-      if (err === "no-speech" || err === "aborted") return;
+      // no-speech / aborted: keep going (voice note must stay open)
+      if (err === "no-speech" || err === "aborted" || err === "network") return;
       if (err === "not-allowed") {
         setError("Microphone permission denied.");
         stopVoice(true);
@@ -1859,15 +1865,15 @@ function D4AiPage() {
         setSpeakingMsgId(null);
         finalTranscriptRef.current = "";
         setVoiceText("");
-        // Resume live-call listening only after AI finishes + cooldown (avoids hearing itself)
-        if (callModeRef.current && voiceOn) {
+        // ONLY resume mic in live-call full screen — never open voice-note page after chat TTS
+        if (callModeRef.current && !callMinimizedRef.current && voiceOnRef.current) {
           window.setTimeout(() => {
-            if (callModeRef.current && !isAiSpeakingRef.current) {
+            if (callModeRef.current && !callMinimizedRef.current && !isAiSpeakingRef.current) {
               finalTranscriptRef.current = "";
               setVoiceText("");
               startVoice();
             }
-          }, 900);
+          }, 600);
         }
       },
     });
@@ -2278,12 +2284,14 @@ function D4AiPage() {
         <div
           className="fixed z-[90]"
           style={{
-            left: bubblePos.x || 12,
-            top: bubblePos.y || undefined,
-            bottom: bubblePos.y ? undefined : 96,
+            left: bubblePos ? bubblePos.x : 12,
+            top: bubblePos ? bubblePos.y : undefined,
+            bottom: bubblePos ? undefined : 96,
             touchAction: "none",
+            transition: "none",
           }}
           onPointerDown={(e) => {
+            // Only drag from the orb itself — options use stopPropagation
             const startX = e.clientX;
             const startY = e.clientY;
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -2291,26 +2299,27 @@ function D4AiPage() {
             const origY = rect.top;
             let moved = false;
             const onMove = (ev: PointerEvent) => {
+              ev.preventDefault();
               const dx = ev.clientX - startX;
               const dy = ev.clientY - startY;
-              if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
+              if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
               const nx = Math.max(4, Math.min(window.innerWidth - 76, origX + dx));
-              const ny = Math.max(48, Math.min(window.innerHeight - 140, origY + dy));
+              const ny = Math.max(56, Math.min(window.innerHeight - 120, origY + dy));
               setBubblePos({ x: nx, y: ny });
             };
             const onUp = () => {
               window.removeEventListener("pointermove", onMove);
               window.removeEventListener("pointerup", onUp);
-              // Snap to left or right edge
               setBubblePos((p) => {
+                const cur = p || { x: origX, y: origY };
                 const mid = window.innerWidth / 2;
-                const cx = (p.x || 12) + 32;
+                const cx = cur.x + 32;
                 const snapX = cx < mid ? 10 : window.innerWidth - 78;
-                return { x: snapX, y: p.y || 120 };
+                return { x: snapX, y: cur.y };
               });
               if (!moved) setCallBubbleOpen((o) => !o);
             };
-            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointermove", onMove, { passive: false });
             window.addEventListener("pointerup", onUp);
           }}
         >
@@ -2319,8 +2328,8 @@ function D4AiPage() {
             <div
               className="absolute top-1/2 z-[20] -translate-y-1/2"
               style={{
-                left: (bubblePos.x || 0) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? undefined : 72,
-                right: (bubblePos.x || 0) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? 72 : undefined,
+                left: (bubblePos?.x ?? 12) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? undefined : 72,
+                right: (bubblePos?.x ?? 12) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? 72 : undefined,
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}

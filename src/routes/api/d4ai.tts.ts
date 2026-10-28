@@ -10,19 +10,19 @@ const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
 /** Character / alias → Google TTS language code (accent variety) + Edge voice */
 const VOICE_CFG: Record<string, { tl: string; edge: string }> = {
-  // Distinct Edge Neural voices (primary) + varied Google accents (fallback)
+  // Google tl = audible accent difference; Edge = distinct neural voices when available
   rex: { tl: "en-US", edge: "en-US-ChristopherNeural" },
   atlas: { tl: "en-GB", edge: "en-GB-RyanNeural" },
-  nova: { tl: "en-US", edge: "en-US-JennyNeural" },
+  nova: { tl: "en", edge: "en-US-JennyNeural" },
   luna: { tl: "en-AU", edge: "en-AU-NatashaNeural" },
   cipher: { tl: "en-US", edge: "en-US-DavisNeural" },
   echo: { tl: "en-GB", edge: "en-GB-ThomasNeural" },
-  kai: { tl: "en-US", edge: "en-US-GuyNeural" },
+  kai: { tl: "en-IE", edge: "en-US-GuyNeural" },
   aria: { tl: "en-AU", edge: "en-US-AriaNeural" },
   bolt: { tl: "en-IN", edge: "en-US-TonyNeural" },
   sage: { tl: "en-GB", edge: "en-GB-SoniaNeural" },
-  pixel: { tl: "en-US", edge: "en-US-AnaNeural" },
-  volt: { tl: "en-US", edge: "en-US-SteffanNeural" },
+  pixel: { tl: "en-ZA", edge: "en-US-AnaNeural" },
+  volt: { tl: "en-NG", edge: "en-US-SteffanNeural" },
   Brian: { tl: "en-US", edge: "en-US-ChristopherNeural" },
   Amy: { tl: "en", edge: "en-US-JennyNeural" },
   Emma: { tl: "en-AU", edge: "en-US-AriaNeural" },
@@ -183,11 +183,12 @@ export const Route = createFileRoute("/api/d4ai/tts")({
           prosodyByChar[charKey] ||
           prosodyByEdge[cfg.edge] ||
           ["1.0", "default"];
-        const seName = SE_VOICES[voiceRaw.toLowerCase()] || null;
-        // StreamElements = truly different male/female voices (not just pitch)
-        let buf = seName ? await seSpeak(text, seName) : null;
+        // Google Translate TTS first (reliable, different accents per character).
+        // Edge Neural second. StreamElements last (often 401 from serverless).
+        let buf = await googleSpeak(text, cfg.tl);
         if (!buf) buf = await edgeSpeak(text, cfg.edge, rate, pitch);
-        if (!buf) buf = await googleSpeak(text, cfg.tl);
+        const seName = SE_VOICES[voiceRaw.toLowerCase()] || null;
+        if (!buf && seName) buf = await seSpeak(text, seName);
         if (!buf) return new Response("tts unavailable", { status: 502 });
 
         return new Response(buf, {
