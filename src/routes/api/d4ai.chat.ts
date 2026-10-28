@@ -252,15 +252,13 @@ export const Route = createFileRoute("/api/d4ai/chat")({
             return Response.json({ ok: true, answer, sources: [] });
           }
 
-          // IMPORTANT: Flask has a canned identity reply when it sees "D4AI" / "who are you" in the prompt.
-          // Send ONLY the plain user question (plus optional research facts). No wrapper, no "D4AI" keyword.
+          // Flask returns D4AI personality when left clean. Do not put "who are you" / long wrappers.
           let outbound = message;
 
-          // Ask backend for richer answers (no identity keywords)
           if (message.length > 2 && !/^(hi|hello|hey|thanks|ok|xup)\b/i.test(message)) {
             outbound =
               message +
-              "\n\n(Give a complete answer with useful detail. Finish every sentence. For math, write formulas in plain text like x = (-b ± sqrt(b^2-4ac))/(2a), not LaTeX. Never invent a different name for yourself.)";
+              "\n\n(Answer completely in plain text. For math use plain formulas not LaTeX. Be helpful and detailed.)";
           }
 
           // Short follow-up context only — no role labels that say D4AI
@@ -341,8 +339,27 @@ export const Route = createFileRoute("/api/d4ai/chat")({
               return Response.json({ ok: false, error: "Empty answer" }, { status: 502 });
             }
             answer = stripLinks(answer);
+            // Strip wrong model identities (CR / Chatbot Response) — this is D4AI
+            if (
+              /\b(my name is CR|I am CR\b|I'?m CR\b|Chatbot Response|Character Recognition)\b/i.test(
+                answer,
+              )
+            ) {
+              answer = answer
+                .replace(
+                  /\b(My name is CR|I am CR|I'?m CR)[^.!?]*[.!?]?/gi,
+                  "I'm D4AI, your assistant on D4EXAM by D4TECH.",
+                )
+                .replace(/\bChatbot Response\b/gi, "D4AI")
+                .replace(/\bCharacter Recognition\b/gi, "D4AI");
+            }
             // Never forward raw source URLs to the client
-            return Response.json({ ok: true, answer, sources: [] });
+            return Response.json({
+              ok: true,
+              answer,
+              sources: [],
+              backend: "d4ai-flask",
+            });
           } finally {
             clearTimeout(timer);
           }

@@ -1264,6 +1264,11 @@ function D4AiPage() {
       setStreaming(false);
       setStatus(null);
       setTab("chat");
+      // Chat send must not leave us on voice UI
+      if (!callModeRef.current) {
+        setVoiceOn(false);
+        voiceOnRef.current = false;
+      }
       // Unlock WebView audio so auto-talk can play after the network round-trip
       try {
         const silent = new Audio(
@@ -1395,6 +1400,9 @@ function D4AiPage() {
             .replace(/\n*Thought for [\d.]+s\s*$/i, "")
             .replace(/\n*---\s*\n*[\d.]+s.*$/i, "")
             .replace(/\n*⚡\s*[\d.]+s.*$/i, "")
+            .replace(/\b(My name is CR|I am CR|I'?m CR)[^.!?]*[.!?]?/gi, "I'm D4AI.")
+            .replace(/\bChatbot Response\b/gi, "D4AI")
+            .replace(/\bCharacter Recognition\b/gi, "D4AI")
             .trim();
           if (payload.sources?.length) {
             const extra = payload.sources.filter((s) => !full.includes(s));
@@ -1477,7 +1485,7 @@ function D4AiPage() {
                     onend: () => resolve(),
                   });
                   // Generous safety only — real onend should fire first
-                  window.setTimeout(() => resolve(), Math.max(12000, piece.length * 120));
+                  window.setTimeout(() => resolve(), Math.max(60000, piece.length * 200));
                 }),
             );
           };
@@ -1818,25 +1826,17 @@ function D4AiPage() {
   };
 
   const doSpeak = (text: string, msgId?: string) => {
+    // Toggle stop if this message is already speaking
     if (msgId && speakingMsgId === msgId) {
       stopSpeaking();
       setTtsSpeaking(false);
       ttsSpeakingRef.current = false;
+      isAiSpeakingRef.current = false;
       setSpeakingMsgId(null);
       return;
     }
-    // Pause mic so we never transcribe our own TTS
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
-    try {
-      window.speechSynthesis?.cancel();
-      window.speechSynthesis?.resume();
-    } catch {}
-    if (msgId) setSpeakingMsgId(msgId);
-    setTtsSpeaking(true);
-    ttsSpeakingRef.current = true;
-    isAiSpeakingRef.current = true;
+    // Reading a chat bubble must NEVER open voice-call / voice-note UI
+    stopSpeaking();
     try {
       recognitionRef.current?.stop();
     } catch {}
@@ -1844,37 +1844,23 @@ function D4AiPage() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    finalTranscriptRef.current = "";
-    setVoiceText("");
+    if (msgId) setSpeakingMsgId(msgId);
+    // Show stop only after audio actually starts (onstart)
+    setTtsSpeaking(false);
+    ttsSpeakingRef.current = false;
     speakText(text, {
-      preset: voicePreset,
+      preset: voicePresetRef.current || voicePreset,
       onstart: () => {
         setTtsSpeaking(true);
         ttsSpeakingRef.current = true;
-        isAiSpeakingRef.current = true;
-        try {
-          recognitionRef.current?.stop();
-        } catch {}
-        finalTranscriptRef.current = "";
-        setVoiceText("");
+        if (msgId) setSpeakingMsgId(msgId);
       },
       onend: () => {
         setTtsSpeaking(false);
         ttsSpeakingRef.current = false;
         isAiSpeakingRef.current = false;
         setSpeakingMsgId(null);
-        finalTranscriptRef.current = "";
-        setVoiceText("");
-        // ONLY resume mic in live-call full screen — never open voice-note page after chat TTS
-        if (callModeRef.current && !callMinimizedRef.current && voiceOnRef.current) {
-          window.setTimeout(() => {
-            if (callModeRef.current && !callMinimizedRef.current && !isAiSpeakingRef.current) {
-              finalTranscriptRef.current = "";
-              setVoiceText("");
-              startVoice();
-            }
-          }, 600);
-        }
+        // Intentionally do NOT call startVoice() — stay on chat page
       },
     });
   };
@@ -2205,7 +2191,7 @@ function D4AiPage() {
           className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-white hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")}
           aria-label="Voice message"
         >
-          <Volume2 className="h-5 w-5" />
+          <Mic className="h-5 w-5" />
         </button>
         <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.csv,application/pdf,text/plain" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
         <input ref={imageFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
