@@ -950,6 +950,9 @@ function D4AiPage() {
   const [voiceSecs, setVoiceSecs] = useState(0);
   const [voicePaused, setVoicePaused] = useState(false);
   const [callMode, setCallMode] = useState(false);
+  const [callMinimized, setCallMinimized] = useState(false);
+  const [callBubbleOpen, setCallBubbleOpen] = useState(false);
+  const [bubblePos, setBubblePos] = useState({ x: 0, y: 0 });
   const [nearBottom, setNearBottom] = useState(true);
   const [attachOpen, setAttachOpen] = useState(false);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
@@ -1356,100 +1359,97 @@ function D4AiPage() {
           scrollDown();
         };
 
-        let full = "";
-
-        // ONLY call same-origin proxy → Flask (never Ollama / :11434 / raw :5000 from browser)
         const userText = body || userMsg.content;
-        const chatRes = await fetch("/api/d4ai/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({
-            message: userText,
-            // Only last few turns — backend uses them solely for follow-ups
-            messages: history.slice(-4).map((m) => ({
-              role: m.role,
-              content: String(m.content || "").slice(0, 500),
-            })),
-          }),
-          cache: "no-store",
-        });
 
-        let payload: { ok?: boolean; answer?: string; error?: string; sources?: string[] } = {};
-        try {
-          payload = (await chatRes.json()) as typeof payload;
-        } catch {
-          throw new Error("Invalid response from D4AI server");
-        }
+        // Client-side identity (always works even if proxy is old)
+        const identityQ =
+          /\b(what('?s| is) (your|ur) name|who are you|your name|ur name|who made you|who created you)\b/i.test(
+            userText,
+          );
+        let full = "";
+        if (identityQ) {
+          full =
+            /who (made|created) you|who is your (ceo|creator|founder)/i.test(userText)
+              ? "I was created by **Amurun Destiny O**, founder and CEO of **D4TECH**. I'm **D4AI** — here to help you learn and solve problems."
+              : "I'm **D4AI** — your AI assistant on D4EXAM by D4TECH. I help with study, code, and questions. What do you need?";
+        } else {
+          const ac = new AbortController();
+          const to = window.setTimeout(() => ac.abort(), 45000);
+          let chatRes: Response;
+          try {
+            chatRes = await fetch("/api/d4ai/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              body: JSON.stringify({
+                message: userText,
+                messages: history.slice(-4).map((m) => ({
+                  role: m.role,
+                  content: String(m.content || "").slice(0, 500),
+                })),
+              }),
+              cache: "no-store",
+              signal: ac.signal,
+            });
+          } finally {
+            window.clearTimeout(to);
+          }
 
-        if (!chatRes.ok || payload.ok === false || !String(payload.answer || "").trim()) {
-          throw new Error(payload.error || `HTTP ${chatRes.status}`);
-        }
+          let payload: { ok?: boolean; answer?: string; error?: string; sources?: string[] } = {};
+          try {
+            payload = (await chatRes.json()) as typeof payload;
+          } catch {
+            throw new Error("Invalid response from D4AI server");
+          }
 
-        full = String(payload.answer)
-          .replace(/\n*Thought for [\d.]+s\s*$/i, "")
-          .replace(/\n*---\s*\n*[\d.]+s.*$/i, "")
-          .replace(/\n*⚡\s*[\d.]+s.*$/i, "")
-          .trim();
-        if (payload.sources?.length) {
-          const extra = payload.sources.filter((s) => !full.includes(s));
-          if (extra.length) full += "\n\n" + extra.map((s) => `🔗 ${s}`).join("\n");
+          if (!chatRes.ok || payload.ok === false || !String(payload.answer || "").trim()) {
+            throw new Error(payload.error || `HTTP ${chatRes.status}`);
+          }
+
+          full = String(payload.answer)
+            .replace(/\n*Thought for [\d.]+s\s*$/i, "")
+            .replace(/\n*---\s*\n*[\d.]+s.*$/i, "")
+            .replace(/\n*⚡\s*[\d.]+s.*$/i, "")
+            .trim();
+          if (payload.sources?.length) {
+            const extra = payload.sources.filter((s) => !full.includes(s));
+            if (extra.length) full += "\n\n" + extra.map((s) => `🔗 ${s}`).join("\n");
+          }
         }
 
         // Typewriter + TTS
         const inCall = callModeRef.current;
         if (inCall) {
-          // Call mode: mute mic, speak sentence-by-sentence immediately (no wait for full text UX)
-          setTtsSpeaking(true);
-          ttsSpeakingRef.current = true;
-          isAiSpeakingRef.current = true;
+          // Call mode: show no typing UI; speak without blocking chat flow
           try {
             recognitionRef.current?.stop();
           } catch {}
-          // Store full reply in history (hidden in call UI)
           ensureAssistant(full);
-
-          const chunks = chunkSpeech(stripForSpeech(full), 360);
-          let spoken = 0;
-          const speakNext = (): Promise<void> =>
-            new Promise((resolve) => {
-              if (speakingCancelled || spoken >= chunks.length) {
-                resolve();
-                return;
-              }
-              const piece = chunks[spoken++];
-              speakText(piece, {
-                preset: voicePresetRef.current,
-                onstart: () => {
-                  setTtsSpeaking(true);
-                  ttsSpeakingRef.current = true;
-                  isAiSpeakingRef.current = true;
-                },
-                onend: () => {
-                  void speakNext().then(resolve);
-                },
-              });
-              // safety: if speakText fails silently, continue after short delay
-              window.setTimeout(() => {
-                if (spoken <= chunks.length) {
-                  /* onend usually fires */
-                }
-              }, 50);
-            });
-
+          setTtsSpeaking(true);
+          ttsSpeakingRef.current = true;
+          isAiSpeakingRef.current = true;
           speakingCancelled = false;
-          await speakNext();
-          setTtsSpeaking(false);
-          ttsSpeakingRef.current = false;
-          isAiSpeakingRef.current = false;
-          if (callModeRef.current && !voicePausedRef.current) {
-            window.setTimeout(() => {
-              if (callModeRef.current && !isAiSpeakingRef.current) {
-                finalTranscriptRef.current = "";
-                setVoiceText("");
-                startVoice();
+          speakText(full, {
+            preset: voicePresetRef.current,
+            onstart: () => {
+              setTtsSpeaking(true);
+              ttsSpeakingRef.current = true;
+              isAiSpeakingRef.current = true;
+            },
+            onend: () => {
+              setTtsSpeaking(false);
+              ttsSpeakingRef.current = false;
+              isAiSpeakingRef.current = false;
+              if (callModeRef.current && !voicePausedRef.current) {
+                window.setTimeout(() => {
+                  if (callModeRef.current && !isAiSpeakingRef.current) {
+                    finalTranscriptRef.current = "";
+                    setVoiceText("");
+                    startVoice();
+                  }
+                }, 500);
               }
-            }, 500);
-          }
+            },
+          });
         } else {
           // Chat mode: typewriter; optional auto-speak after (or progressive if autoSpeak)
           let i = 0;
@@ -2248,38 +2248,73 @@ function D4AiPage() {
 
       {/* ---------- Minimized live-call floating bubble ---------- */}
       {callMode && callMinimized ? (
-        <div className="fixed bottom-24 right-4 z-[90] flex flex-col items-end gap-2">
+        <div
+          className="fixed z-[90] flex flex-col items-center gap-2"
+          style={{
+            left: bubblePos.x ? bubblePos.x : undefined,
+            top: bubblePos.y ? bubblePos.y : undefined,
+            right: bubblePos.x ? undefined : 16,
+            bottom: bubblePos.y ? undefined : 96,
+            touchAction: "none",
+          }}
+          onPointerDown={(e) => {
+            const t = e.currentTarget;
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const rect = t.getBoundingClientRect();
+            const origX = rect.left;
+            const origY = rect.top;
+            let moved = false;
+            const onMove = (ev: PointerEvent) => {
+              const dx = ev.clientX - startX;
+              const dy = ev.clientY - startY;
+              if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+              const nx = Math.max(8, Math.min(window.innerWidth - 72, origX + dx));
+              const ny = Math.max(8, Math.min(window.innerHeight - 120, origY + dy));
+              setBubblePos({ x: nx, y: ny });
+            };
+            const onUp = () => {
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              if (!moved) setCallBubbleOpen((o) => !o);
+            };
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+          }}
+        >
           {callBubbleOpen ? (
-            <div className="mb-1 flex flex-col items-center gap-2">
+            <div className="mb-1 flex flex-row items-center gap-2 rounded-full bg-[#0b1a3a]/95 px-2 py-1.5 ring-1 ring-cyan-400/40">
               <button
                 type="button"
-                onClick={() => {
-                  if (ttsSpeaking || voicePaused) {
-                    /* pause/resume */
-                  }
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (voicePaused) resumeVoice();
                   else pauseVoice();
                   setCallBubbleOpen(false);
                 }}
-                className="grid h-11 w-11 place-items-center rounded-full bg-slate-900/90 text-white shadow-lg ring-1 ring-cyan-400/40"
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
                 aria-label="Pause or resume"
               >
                 {voicePaused ? <Mic className="h-5 w-5" /> : <Square className="h-4 w-4 fill-current" />}
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   expandCallFromBubble();
                 }}
-                className="grid h-11 w-11 place-items-center rounded-full bg-slate-900/90 text-white shadow-lg ring-1 ring-cyan-400/40"
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
                 aria-label="Expand call"
               >
-                <Keyboard className="h-5 w-5" />
+                <Phone className="h-5 w-5" />
               </button>
               <button
                 type="button"
-                onClick={endCallSession}
-                className="grid h-11 w-11 place-items-center rounded-full bg-red-600/90 text-white shadow-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  endCallSession();
+                }}
+                className="grid h-10 w-10 place-items-center rounded-full bg-red-600/90 text-white"
                 aria-label="End call"
               >
                 <X className="h-5 w-5" />
@@ -2288,17 +2323,16 @@ function D4AiPage() {
           ) : null}
           <button
             type="button"
-            onClick={() => setCallBubbleOpen((o) => !o)}
             className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_24px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
             aria-label="Call options"
           >
-            <img src={LOGO} alt="D4AI call" className="h-12 w-12 rounded-full object-cover" />
+            <img src={LOGO} alt="D4AI call" className="h-12 w-12 rounded-full object-cover pointer-events-none" />
             {ttsSpeaking ? (
-              <span className="absolute inset-0 animate-pulse rounded-full ring-2 ring-cyan-300/60" />
+              <span className="absolute inset-0 animate-pulse rounded-full ring-2 ring-cyan-300/60 pointer-events-none" />
             ) : null}
           </button>
-          <p className="max-w-[9rem] text-center text-[10px] text-cyan-200/90">
-            {ttsSpeaking ? "Speaking…" : voicePaused ? "Paused" : "On call · tap for options"}
+          <p className="max-w-[9rem] text-center text-[10px] text-cyan-200/90 pointer-events-none">
+            {ttsSpeaking ? "Speaking…" : voicePaused ? "Paused" : "Drag · tap options"}
           </p>
         </div>
       ) : null}
