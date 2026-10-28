@@ -66,7 +66,7 @@ export const Route = createFileRoute("/student/d4ai")({
       { property: "og:title", content: "D4AI — D4TECH" },
       { property: "og:description", content: "Chat, speak, and learn with D4AI on D4EXAM." },
       { property: "og:type", content: "website" },
-      { name: "theme-color", content: "#050b18" },
+      { name: "theme-color", content: "#0b1a3a" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
   }),
@@ -989,49 +989,62 @@ function D4AiPage() {
     ttsSpeakingRef.current = ttsSpeaking;
   }, [ttsSpeaking]);
 
-  // Match phone status bar + system nav bar to D4AI background (not exam navy)
+  // Match phone status bar + system nav bar to D4AI chat (deep blue, not exam navy)
   useEffect(() => {
-    const color = theme === "dark" ? "#050b18" : "#f5f9ff";
-    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
-    if (!meta) {
-      meta = document.createElement("meta");
-      meta.name = "theme-color";
-      meta.setAttribute("data-d4ai", "theme-color-d4ai");
-      document.head.appendChild(meta);
-    }
-    meta.content = color;
-    try {
-      document.documentElement.style.backgroundColor = color;
-      document.body.style.backgroundColor = color;
-    } catch {}
-    // Capacitor native bars when available
+    // Matches the page gradient top: radial #0b1a3a → #050b18
+    const color = theme === "dark" ? "#0b1a3a" : "#e8f1ff";
+    const apply = () => {
+      try {
+        let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+        if (!meta) {
+          meta = document.createElement("meta");
+          meta.name = "theme-color";
+          document.head.appendChild(meta);
+        }
+        meta.content = color;
+        document.documentElement.style.backgroundColor = color;
+        document.body.style.backgroundColor = color;
+        const root = document.getElementById("root");
+        if (root) (root as HTMLElement).style.backgroundColor = color;
+      } catch {}
+    };
+    apply();
     void (async () => {
       try {
-        const w = window as unknown as {
-          Capacitor?: { Plugins?: Record<string, any>; isNativePlatform?: () => boolean };
-        };
-        const plugins = w.Capacitor?.Plugins;
-        if (!plugins) return;
+        const w = window as any;
+        const cap = w.Capacitor;
+        const plugins = cap?.Plugins || {};
+        // Capacitor 3+ register plugins
         if (plugins.StatusBar) {
+          await plugins.StatusBar.setOverlaysWebView?.({ overlay: false });
           await plugins.StatusBar.setBackgroundColor?.({ color });
           await plugins.StatusBar.setStyle?.({
             style: theme === "dark" ? "DARK" : "LIGHT",
           });
-          await plugins.StatusBar.show?.();
         }
         if (plugins.NavigationBar) {
           await plugins.NavigationBar.setColor?.({ color, darkButtons: theme !== "dark" });
+          await plugins.NavigationBar.setTransparency?.({ isTransparent: false });
         }
-        // Some builds expose NavigationBar under different names
-        if (plugins.App) {
-          // no-op; keeps WebView chrome aligned via theme-color
-        }
+        // Dynamic import fallbacks
+        try {
+          const sb = await import("@capacitor/status-bar");
+          await sb.StatusBar.setOverlaysWebView({ overlay: false });
+          await sb.StatusBar.setBackgroundColor({ color });
+          await sb.StatusBar.setStyle({
+            style: theme === "dark" ? sb.Style.Dark : sb.Style.Light,
+          });
+        } catch {}
+        try {
+          const nb = await import("@capgo/capacitor-navigation-bar");
+          await nb.NavigationBar.setNavigationBarColor({ color, darkButtons: theme !== "dark" });
+        } catch {}
       } catch {
-        /* web or plugin missing */
+        /* web */
       }
+      apply();
     })();
     return () => {
-      // restore a neutral color when leaving D4AI so other pages can set their own
       try {
         const restore = "#0a1628";
         const m = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
@@ -1456,11 +1469,15 @@ function D4AiPage() {
           };
           speakCallNext();
         } else {
-          // Chat mode: typewriter + speak chunks as text appears (no wait for full reply)
+          // Fast smooth typewriter (~0.8–1.5s full reply) + speech slightly behind text
           let i = 0;
-          const step = Math.max(2, Math.ceil(full.length / 100));
+          // Aim to finish text in ~25 ticks (smooth, not sluggish)
+          const step = Math.max(8, Math.ceil(full.length / 25));
+          const tickMs = 28;
           const doSpeak = Boolean(autoSpeakRef.current);
-          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 90) : [];
+          // Longer speech phrases = fewer network gaps, still continuous
+          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 160) : [];
+          // Cumulative end index in stripForSpeech space ≈ use full text length proportionally
           let speakIdx = 0;
           let speakQueue = Promise.resolve();
           let speakStarted = false;
@@ -1484,8 +1501,7 @@ function D4AiPage() {
                     },
                     onend: () => resolve(),
                   });
-                  // Generous safety only — real onend should fire first
-                  window.setTimeout(() => resolve(), Math.max(60000, piece.length * 200));
+                  window.setTimeout(() => resolve(), Math.max(45000, piece.length * 150));
                 }),
             );
           };
@@ -1494,22 +1510,23 @@ function D4AiPage() {
               i = Math.min(full.length, i + step);
               ensureAssistant(full.slice(0, i));
               if (doSpeak) {
-                // Speak next phrase once typewriter has revealed enough of it
+                // Only speak a phrase after that much text is already on screen
+                // (text stays a little ahead of audio)
                 while (speakIdx < speechChunks.length) {
-                  const revealed = speechChunks.slice(0, speakIdx + 1).join(" ");
-                  // Start speaking as soon as ~40% of the phrase is on screen
-                  if (speakIdx === 0) {
-                    if (i < 8) break; // first words visible
-                  } else if (i < Math.min(full.length, Math.floor(revealed.length * 0.5))) {
-                    break;
-                  }
+                  const spokenSoFar = speechChunks.slice(0, speakIdx + 1).join(" ");
+                  // Map speech length to roughly full answer length
+                  const need = Math.min(
+                    full.length,
+                    Math.ceil((spokenSoFar.length / Math.max(1, stripForSpeech(full).length)) * full.length * 1.05),
+                  );
+                  if (i < need) break;
                   enqueueSpeak(speechChunks[speakIdx++]);
                 }
               }
               if (i >= full.length) {
                 if (typewriterRef.current) clearInterval(typewriterRef.current);
                 typewriterRef.current = null;
-                // Flush remaining speech chunks
+                ensureAssistant(full);
                 while (speakIdx < speechChunks.length) {
                   enqueueSpeak(speechChunks[speakIdx++]);
                 }
@@ -1520,7 +1537,7 @@ function D4AiPage() {
                 });
                 resolve();
               }
-            }, 18);
+            }, tickMs);
           });
         }
 
