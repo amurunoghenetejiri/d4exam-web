@@ -1314,43 +1314,82 @@ function D4AiPage() {
           if (extra.length) full += "\n\n" + extra.map((s) => `🔗 ${s}`).join("\n");
         }
 
-        // Typewriter + optional live TTS (call mode: speak as text appears)
+        // Typewriter + TTS
         const inCall = callModeRef.current;
         if (inCall) {
-          // Call mode: no long text typing UX — mark speaking and stream-speak
+          // Call mode: mute mic, speak sentence-by-sentence immediately (no wait for full text UX)
           setTtsSpeaking(true);
           ttsSpeakingRef.current = true;
           isAiSpeakingRef.current = true;
           try {
             recognitionRef.current?.stop();
           } catch {}
-          // Show brief progress in call UI only via ensureAssistant optional short
-          ensureAssistant(full); // keep transcript available after call ends
-          speakText(full, {
-            preset: voicePresetRef.current,
-            onstart: () => {
-              setTtsSpeaking(true);
-              ttsSpeakingRef.current = true;
-              isAiSpeakingRef.current = true;
-            },
-            onend: () => {
-              setTtsSpeaking(false);
-              ttsSpeakingRef.current = false;
-              isAiSpeakingRef.current = false;
-              if (callModeRef.current && !voicePausedRef.current) {
-                window.setTimeout(() => {
-                  if (callModeRef.current && !isAiSpeakingRef.current) {
-                    finalTranscriptRef.current = "";
-                    setVoiceText("");
-                    startVoice();
-                  }
-                }, 700);
+          // Store full reply in history (hidden in call UI)
+          ensureAssistant(full);
+
+          const chunks = chunkSpeech(stripForSpeech(full), 140);
+          let spoken = 0;
+          const speakNext = (): Promise<void> =>
+            new Promise((resolve) => {
+              if (speakingCancelled || spoken >= chunks.length) {
+                resolve();
+                return;
               }
-            },
-          });
+              const piece = chunks[spoken++];
+              speakText(piece, {
+                preset: voicePresetRef.current,
+                onstart: () => {
+                  setTtsSpeaking(true);
+                  ttsSpeakingRef.current = true;
+                  isAiSpeakingRef.current = true;
+                },
+                onend: () => {
+                  void speakNext().then(resolve);
+                },
+              });
+              // safety: if speakText fails silently, continue after short delay
+              window.setTimeout(() => {
+                if (spoken <= chunks.length) {
+                  /* onend usually fires */
+                }
+              }, 50);
+            });
+
+          speakingCancelled = false;
+          await speakNext();
+          setTtsSpeaking(false);
+          ttsSpeakingRef.current = false;
+          isAiSpeakingRef.current = false;
+          if (callModeRef.current && !voicePausedRef.current) {
+            window.setTimeout(() => {
+              if (callModeRef.current && !isAiSpeakingRef.current) {
+                finalTranscriptRef.current = "";
+                setVoiceText("");
+                startVoice();
+              }
+            }, 500);
+          }
         } else {
+          // Chat mode: typewriter; optional auto-speak after (or progressive if autoSpeak)
           let i = 0;
           const step = Math.max(6, Math.ceil(full.length / 50));
+          const doSpeak = Boolean(autoSpeakRef.current);
+          if (doSpeak) {
+            setTtsSpeaking(true);
+            ttsSpeakingRef.current = true;
+            // Start speaking first sentences while text still types
+            speakText(full, {
+              preset: voicePresetRef.current,
+              onstart: () => {
+                setTtsSpeaking(true);
+                ttsSpeakingRef.current = true;
+              },
+              onend: () => {
+                setTtsSpeaking(false);
+                ttsSpeakingRef.current = false;
+              },
+            });
+          }
           await new Promise<void>((resolve) => {
             typewriterRef.current = setInterval(() => {
               i = Math.min(full.length, i + step);
@@ -1362,10 +1401,6 @@ function D4AiPage() {
               }
             }, 12);
           });
-          // Chat mode auto-speak after full text if enabled
-          if (full && autoSpeakRef.current) {
-            speakText(full, { preset: voicePresetRef.current });
-          }
         }
 
         window.clearInterval(thinkTimer);

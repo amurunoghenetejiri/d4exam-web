@@ -237,48 +237,46 @@ export const Route = createFileRoute("/api/d4ai/chat")({
             return Response.json({ ok: false, error: "No message" }, { status: 400 });
           }
 
-          // Only attach short prior context for clear follow-ups ("explain that", "more details")
-          // NEVER dump 10 turns — the small model repeats the last intro instead of answering.
-          let contextBlock = "";
+          // IMPORTANT: Flask has a canned identity reply when it sees "D4AI" / "who are you" in the prompt.
+          // Send ONLY the plain user question (plus optional research facts). No wrapper, no "D4AI" keyword.
+          let outbound = message;
+
+          // Short follow-up context only — no role labels that say D4AI
           const followUp =
             /^(explain|more details|continue|go on|tell me more|why|how so|and then|what about (him|her|them|it)|expand)\b/i.test(
               message,
             );
           if (followUp && prior.length > 1) {
-            const recent = prior.slice(-4);
+            const recent = prior.slice(-3);
             const lines: string[] = [];
             for (const m of recent) {
-              const role = m.role === "assistant" ? "D4AI" : "User";
+              const role = m.role === "assistant" ? "Assistant" : "User";
               const content = String(m.content || "")
                 .replace(/https?:\/\/\S+/g, "")
+                .replace(/\n*Thought for [\d.]+s\s*$/i, "")
                 .trim()
-                .slice(0, 280);
+                .slice(0, 220);
               if (content) lines.push(`${role}: ${content}`);
             }
             if (lines.length) {
-              contextBlock =
-                "\n\n(Short context for this follow-up only:)\n" + lines.join("\n") + "\n";
+              outbound =
+                "Earlier in this chat:\n" +
+                lines.join("\n") +
+                "\n\nNow answer this follow-up directly:\n" +
+                message;
             }
           }
 
-          // Multi-source research only for fact queries
-          let researchBlock = "";
+          // Multi-source research only for fact queries — plain facts, no identity text
           if (needsWeb(message)) {
             const notes = await gatherResearch(message);
             if (notes.length) {
-              researchBlock =
-                "\n\nFacts to use (answer the user question with these; do not introduce yourself):\n" +
-                notes
-                  .map((n, i) => `(${i + 1}) ${n.title}: ${n.text}`)
-                  .join("\n");
+              outbound =
+                message +
+                "\n\nUse these current facts to answer (do not mention sources):\n" +
+                notes.map((n, i) => `(${i + 1}) ${n.title}: ${n.text}`).join("\n");
             }
           }
-
-          // CRITICAL: current user question first and clear — model must answer THIS
-          const outbound =
-            `Answer this user question directly and helpfully. Do NOT introduce yourself as D4AI unless they ask who you are.\n\nUser question: ${message}` +
-            contextBlock +
-            researchBlock;
           const url = flaskChatUrl();
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 60_000);
