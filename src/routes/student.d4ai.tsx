@@ -309,6 +309,18 @@ function needsLiveSearch(text: string): boolean {
   if (/\b(when did|when was|released in)\b/i.test(t) && /\b(movie|film|album|game)\b/i.test(t)) return true;
   return false;
 }
+function punctuateSpeech(text: string): string {
+  let t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t) return t;
+  t = t.replace(/(^\s*\w|[.!?]\s+\w)/g, (m) => m.toUpperCase());
+  if (/^(who|what|when|where|why|how|is|are|can|do|does|did|will|would|should|could)\b/i.test(t) && !/[?]$/.test(t)) {
+    t = t.replace(/[.!]*$/, "") + "?";
+  } else if (!/[.!?]$/.test(t)) {
+    t += ".";
+  }
+  return t;
+}
+
 function stripForSpeech(text: string): string {
   return String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -1377,16 +1389,18 @@ function D4AiPage() {
           if (doSpeak) {
             setTtsSpeaking(true);
             ttsSpeakingRef.current = true;
-            // Start speaking first sentences while text still types
+            setSpeakingMsgId(aid);
             speakText(full, {
               preset: voicePresetRef.current,
               onstart: () => {
                 setTtsSpeaking(true);
                 ttsSpeakingRef.current = true;
+                setSpeakingMsgId(aid);
               },
               onend: () => {
                 setTtsSpeaking(false);
                 ttsSpeakingRef.current = false;
+                setSpeakingMsgId(null);
               },
             });
           }
@@ -1597,12 +1611,40 @@ function D4AiPage() {
   };
 
   const voiceToDraft = () => {
-    const text = (finalTranscriptRef.current || voiceText).trim();
+    // Live call: minimize to floating bubble, keep session alive
+    if (callModeRef.current || callMode) {
+      setCallMinimized(true);
+      setCallBubbleOpen(false);
+      setTab("chat");
+      return;
+    }
+    const text = punctuateSpeech((finalTranscriptRef.current || voiceText).trim());
     stopVoice(false);
     setVoiceText("");
     finalTranscriptRef.current = "";
     if (text) setInput(text);
   };
+
+  const expandCallFromBubble = () => {
+    setCallMinimized(false);
+    setCallBubbleOpen(false);
+    setCallMode(true);
+    callModeRef.current = true;
+    setTab("chat");
+  };
+
+  const endCallSession = () => {
+    setCallBubbleOpen(false);
+    setCallMinimized(false);
+    setCallMode(false);
+    callModeRef.current = false;
+    stopSpeaking();
+    setTtsSpeaking(false);
+    ttsSpeakingRef.current = false;
+    isAiSpeakingRef.current = false;
+    stopVoice(true);
+  };
+
 
   const finishVoiceAndSend = async () => {
     const text = dedupeTranscript((finalTranscriptRef.current || voiceText).trim());
@@ -1612,7 +1654,7 @@ function D4AiPage() {
   };
 
   const finishCallTurn = async (text: string) => {
-    const clean = dedupeTranscript(text.trim());
+    const clean = punctuateSpeech(dedupeTranscript(text.trim()));
     if (!clean || busy) return;
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
@@ -1637,6 +1679,8 @@ function D4AiPage() {
   const startCallMode = () => {
     setCallMode(true);
     callModeRef.current = true;
+    setCallMinimized(false);
+    setCallBubbleOpen(false);
     setAutoSpeak(true);
     autoSpeakRef.current = true;
     try {
@@ -2052,6 +2096,64 @@ function D4AiPage() {
     >
       <style>{GLOBAL_CSS}</style>
 
+
+      {/* ---------- Minimized live-call floating bubble ---------- */}
+      {callMode && callMinimized ? (
+        <div className="fixed bottom-24 right-4 z-[90] flex flex-col items-end gap-2">
+          {callBubbleOpen ? (
+            <div className="mb-1 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (ttsSpeaking || voicePaused) {
+                    /* pause/resume */
+                  }
+                  if (voicePaused) resumeVoice();
+                  else pauseVoice();
+                  setCallBubbleOpen(false);
+                }}
+                className="grid h-11 w-11 place-items-center rounded-full bg-slate-900/90 text-white shadow-lg ring-1 ring-cyan-400/40"
+                aria-label="Pause or resume"
+              >
+                {voicePaused ? <Mic className="h-5 w-5" /> : <Square className="h-4 w-4 fill-current" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  expandCallFromBubble();
+                }}
+                className="grid h-11 w-11 place-items-center rounded-full bg-slate-900/90 text-white shadow-lg ring-1 ring-cyan-400/40"
+                aria-label="Expand call"
+              >
+                <Keyboard className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={endCallSession}
+                className="grid h-11 w-11 place-items-center rounded-full bg-red-600/90 text-white shadow-lg"
+                aria-label="End call"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setCallBubbleOpen((o) => !o)}
+            className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_24px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
+            aria-label="Call options"
+          >
+            <img src={LOGO} alt="D4AI call" className="h-12 w-12 rounded-full object-cover" />
+            {ttsSpeaking ? (
+              <span className="absolute inset-0 animate-pulse rounded-full ring-2 ring-cyan-300/60" />
+            ) : null}
+          </button>
+          <p className="max-w-[9rem] text-center text-[10px] text-cyan-200/90">
+            {ttsSpeaking ? "Speaking…" : voicePaused ? "Paused" : "On call · tap for options"}
+          </p>
+        </div>
+      ) : null}
+
       {/* ---------- Chat history full screen ---------- */}
       {historyOpen ? (
         <div className="absolute inset-0 z-[70] flex flex-col" style={{ background: dark ? "radial-gradient(ellipse at top, #0b1a3a 0%, #050b18 45%, #020617 100%)" : "radial-gradient(ellipse at top, #e8f1ff 0%, #f5f9ff 45%, #ffffff 100%)" }}>
@@ -2248,8 +2350,8 @@ function D4AiPage() {
         </div>
       ) : null}
 
-      {/* ---------- Voice full screen ---------- */}
-      {voiceOn ? (
+      {/* ---------- Voice full screen (hidden when call minimized to bubble) ---------- */}
+      {voiceOn && !callMinimized ? (
         <div
           className="absolute inset-0 z-[80] flex flex-col"
           style={{

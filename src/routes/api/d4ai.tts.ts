@@ -34,6 +34,43 @@ const VOICE_CFG: Record<string, { tl: string; edge: string }> = {
   Ivy: { tl: "en", edge: "en-US-AnaNeural" },
 };
 
+
+/** StreamElements free TTS — many distinct named voices */
+const SE_VOICES: Record<string, string> = {
+  rex: "Brian",
+  atlas: "Matthew",
+  nova: "Amy",
+  luna: "Emma",
+  cipher: "Justin", // robotic-ish young male
+  echo: "Brian",
+  kai: "Joey",
+  aria: "Joanna",
+  bolt: "Joey",
+  sage: "Matthew",
+  pixel: "Ivy",
+  volt: "Matthew",
+};
+
+async function seSpeak(text: string, voice: string): Promise<ArrayBuffer | null> {
+  const q = encodeURIComponent(text.slice(0, 280));
+  const v = encodeURIComponent(voice);
+  const url = `https://api.streamelements.com/kappa/v2/speech?voice=${v}&text=${q}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 D4AI/1.0",
+        Accept: "audio/mpeg,audio/*,*/*",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    return buf.byteLength > 200 ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolve(raw: string) {
   const v = (raw || "").trim();
   if (VOICE_CFG[v]) return VOICE_CFG[v];
@@ -146,7 +183,10 @@ export const Route = createFileRoute("/api/d4ai/tts")({
           prosodyByChar[charKey] ||
           prosodyByEdge[cfg.edge] ||
           ["1.0", "default"];
-        let buf = await edgeSpeak(text, cfg.edge, rate, pitch);
+        const seName = SE_VOICES[voiceRaw.toLowerCase()] || null;
+        // StreamElements = truly different male/female voices (not just pitch)
+        let buf = seName ? await seSpeak(text, seName) : null;
+        if (!buf) buf = await edgeSpeak(text, cfg.edge, rate, pitch);
         if (!buf) buf = await googleSpeak(text, cfg.tl);
         if (!buf) return new Response("tts unavailable", { status: 502 });
 

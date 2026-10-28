@@ -241,10 +241,18 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           // Send ONLY the plain user question (plus optional research facts). No wrapper, no "D4AI" keyword.
           let outbound = message;
 
+          // Ask backend for richer answers (no identity keywords)
+          if (message.length > 2 && !/^(hi|hello|hey|thanks|ok|xup)\b/i.test(message)) {
+            outbound =
+              message +
+              "\n\n(Reply with clear detail: short intro, then explanation, and examples when useful. Stay on this question only.)";
+          }
+
           // Short follow-up context only — no role labels that say D4AI
+          // Only true follow-ups — NOT "why are you talking like this" etc.
           const followUp =
-            /^(explain|more details|continue|go on|tell me more|why|how so|and then|what about (him|her|them|it)|expand)\b/i.test(
-              message,
+            /^(explain (them|it|this|that|more)|more details|continue|go on|tell me more|how so|and then|what about (him|her|them|it)|expand( on)?|give me \d+ examples)\b/i.test(
+              message.trim(),
             );
           if (followUp && prior.length > 1) {
             const recent = prior.slice(-3);
