@@ -17,7 +17,13 @@ function flaskChatUrl(): string {
 function needsWeb(text: string): boolean {
   const t = text.toLowerCase().trim();
   if (!t || t.length < 4) return false;
-  if (/^(hi|hello|hey|how far|thanks|ok|okay|xup|yo|sup)[\s!?.]*$/i.test(t)) return false;
+  if (/^(hi|hello|hey|how far|thanks|ok|okay|xup|yo|sup|whats? up|what is up)[\s!?.]*$/i.test(t)) return false;
+  // Simple definitions / math — answer from model, no slow web research
+  if (/^(what('?s| is| are)|whats|define|explain|calculate|solve)/i.test(t) && t.length < 80) {
+    if (!/(current|today|latest|2024|2025|2026|president|governor|price of|iphone|news)/i.test(t)) {
+      return false;
+    }
+  }
   if (/https?:\/\//i.test(text)) return true;
   if (/\b(current|today|latest|live|right now|this year|2024|2025|2026|who is the|president|governor|minister|price|how much|news|released|iphone|ceo of)\b/i.test(t)) {
     return true;
@@ -300,7 +306,7 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           }
           const url = flaskChatUrl();
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 60_000);
+          const timer = setTimeout(() => controller.abort(), 90_000);
 
           try {
             const res = await fetch(url, {

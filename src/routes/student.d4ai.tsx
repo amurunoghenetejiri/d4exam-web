@@ -196,62 +196,65 @@ const VOICE_KEY = "d4ai_voice_v1";
 const SILENCE_MS = 1200;
 
 type VoicePreset =
-  | "auto"
-  | "rex"
-  | "atlas"
+  | "ceo"
+  | "lovelle"
+  | "chippy"
+  | "whisper"
   | "nova"
-  | "luna"
-  | "cipher"
-  | "echo"
-  | "kai"
-  | "aria"
-  | "bolt"
-  | "sage"
-  | "pixel"
-  | "volt";
+  | "robo"
+  | "bella"
+  | "bubbly"
+  | "cosmo"
+  | "titan"
+  | "orion"
+  | "astro"
+  | "baritone";
 
 type VoiceChar = {
   id: VoicePreset;
   name: string;
-  tag: string;
+  title: string;
+  vibe: string;
   emoji: string;
-  /** StreamElements / similar TTS voice id */
-  seVoice: string;
+  file: string;
+  sample: string;
   rate: number;
   pitch: number;
-  sample: string;
+  seVoice: string;
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  { id: "rex", name: "Rex", tag: "Deep male · calm", emoji: "🧑", seVoice: "Brian", rate: 0.95, pitch: 0.85, sample: "Hey, I'm Rex. Clear, calm, and ready when you are." },
-  { id: "atlas", name: "Atlas", tag: "Deep bass · wise", emoji: "🧔", seVoice: "Matthew", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
-  { id: "nova", name: "Nova", tag: "Female · warm", emoji: "👩", seVoice: "Amy", rate: 1.0, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
-  { id: "luna", name: "Luna", tag: "Female · soft", emoji: "✨", seVoice: "Emma", rate: 0.92, pitch: 1.15, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
-  { id: "cipher", name: "Cipher", tag: "Robotic · AI", emoji: "🤖", seVoice: "Justin", rate: 1.1, pitch: 0.45, sample: "System online. I am Cipher, your robotic assistant." },
-  { id: "echo", name: "Echo", tag: "British male", emoji: "🔮", seVoice: "Brian", rate: 1.0, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
-  { id: "kai", name: "Kai", tag: "Young · energetic", emoji: "⚡", seVoice: "Joey", rate: 1.15, pitch: 1.1, sample: "Kai online! Fast, sharp, and full of energy." },
-  { id: "aria", name: "Aria", tag: "Female · bright", emoji: "💫", seVoice: "Joanna", rate: 0.95, pitch: 1.2, sample: "I'm Aria. Soft, smooth, and a little romantic." },
-  { id: "bolt", name: "Bolt", tag: "Sharp · active", emoji: "🔥", seVoice: "Joey", rate: 1.2, pitch: 1.15, sample: "Bolt here — bright, energetic, let's go!" },
-  { id: "sage", name: "Sage", tag: "Old wise · slow", emoji: "📚", seVoice: "Matthew", rate: 0.78, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
-  { id: "pixel", name: "Pixel", tag: "Playful · high", emoji: "🎮", seVoice: "Ivy", rate: 1.22, pitch: 1.4, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
-  { id: "volt", name: "Volt", tag: "Narrator · strong", emoji: "⚡", seVoice: "Russell", rate: 1.05, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
+  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Real Voice", vibe: "Nigerian Visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech.", rate: 1, pitch: 1, seVoice: "Brian" },
+  { id: "lovelle", name: "Lovelle", title: "💖 Romantic Female", vibe: "Warm romantic whisper", emoji: "💖", file: "lovelle_romantic_ref.wav", sample: "Welcome to D4AI, I'm Lovelle.", rate: 1, pitch: 1.1, seVoice: "Amy" },
+  { id: "chippy", name: "Chippy", title: "🐿️ Chipmunk Voice", vibe: "High-pitched cute", emoji: "🐿️", file: "chippy_chipmunk_ref.wav", sample: "Hey hey! I'm Chippy the chipmunk!", rate: 1.2, pitch: 1.4, seVoice: "Ivy" },
+  { id: "whisper", name: "Whisper", title: "🤫 Soft Whisper", vibe: "Gentle ASMR", emoji: "🤫", file: "whisper_soft_ref.wav", sample: "Shhh... Hi, I'm Whisper.", rate: 0.9, pitch: 1, seVoice: "Emma" },
+  { id: "nova", name: "Nova", title: "👽 Alien Sweet", vibe: "Sweet alien", emoji: "👽", file: "nova_alien_ref.wav", sample: "Greetings. I am Nova.", rate: 1, pitch: 1.15, seVoice: "Joanna" },
+  { id: "robo", name: "Robo", title: "🤖 Robot AI", vibe: "Metallic robot", emoji: "🤖", file: "robo_metal_ref.wav", sample: "System online. I am Robo.", rate: 1.05, pitch: 0.7, seVoice: "Justin" },
+  { id: "bella", name: "Bella", title: "💋 Romance Warm", vibe: "Warm romance", emoji: "💋", file: "bella_romance_ref.wav", sample: "Hi, I'm Bella. Let's learn together.", rate: 1, pitch: 1.1, seVoice: "Amy" },
+  { id: "bubbly", name: "Bubbly", title: "🌈 Cartoon Vibrant", vibe: "Cartoon energy", emoji: "🌈", file: "bubbly_cartoon_ref.wav", sample: "Hi hi! Bubbly here!", rate: 1.15, pitch: 1.3, seVoice: "Ivy" },
+  { id: "cosmo", name: "Cosmo", title: "🛸 Alien Cool", vibe: "Cool alien male", emoji: "🛸", file: "cosmo_alien_ref.wav", sample: "Cosmo reporting. Ready when you are.", rate: 1, pitch: 0.9, seVoice: "Matthew" },
+  { id: "titan", name: "Titan", title: "🔊 Bass Beast", vibe: "Super deep bass", emoji: "🔊", file: "titan_bass_ref.wav", sample: "I am Titan. Deep power.", rate: 0.85, pitch: 0.55, seVoice: "Matthew" },
+  { id: "orion", name: "Orion", title: "🧠 Deep Wise Robot", vibe: "Wise robot echo", emoji: "🧠", file: "orion_wise_ref.wav", sample: "I am Orion. Think carefully.", rate: 0.9, pitch: 0.7, seVoice: "Brian" },
+  { id: "astro", name: "Astro", title: "👾 Chill Alien", vibe: "Chill buddy", emoji: "👾", file: "astro_chill_ref.wav", sample: "Yo, Astro here. Let's chill and learn.", rate: 1, pitch: 1, seVoice: "Joey" },
+  { id: "baritone", name: "Baritone", title: "🎙️ Deep Bass", vibe: "Steady deep bass", emoji: "🎙️", file: "baritone_deep_ref.wav", sample: "Baritone speaking. Steady and clear.", rate: 0.88, pitch: 0.65, seVoice: "Matthew" },
 ];
 
 function loadVoicePreset(): VoicePreset {
   try {
     const v = localStorage.getItem(VOICE_KEY);
     if (v && VOICE_CHARS.some((c) => c.id === v)) return v as VoicePreset;
-    if (v === "male") return "rex";
-    if (v === "female") return "nova";
-    if (v === "deep") return "atlas";
+    // legacy ids → closest new character
+    if (v === "male" || v === "rex" || v === "atlas") return "ceo";
+    if (v === "female" || v === "luna" || v === "aria") return "lovelle";
+    if (v === "deep") return "titan";
     if (v === "soft") return "luna";
-    if (v === "auto") return "rex";
+    if (v === "auto") return "ceo";
   } catch {}
-  return "rex";
+  return "ceo";
 }
 
 function getVoiceChar(id: VoicePreset): VoiceChar {
-  return VOICE_CHARS.find((c) => c.id === id) || VOICE_CHARS[0];
+  return VOICE_CHARS.find((c) => c.id === id) || VOICE_CHARS.find((c) => c.id === "ceo") || VOICE_CHARS[0];
 }
 
 function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
@@ -455,7 +458,7 @@ function speakText(
   text: string,
   opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void; append?: boolean },
 ) {
-  const clean = stripForSpeech(text);
+  const clean = stripForSpeech(text).slice(0, 400);
   if (!clean) {
     try { opts?.onend?.(); } catch {}
     return;
@@ -463,7 +466,7 @@ function speakText(
 
   const append = Boolean(opts?.append);
   if (!append) {
-    speakingCancelled = true; // cancel prior queue
+    speakingCancelled = true;
     speakSession++;
     try {
       if (activeAudio) {
@@ -489,37 +492,29 @@ function speakText(
     try { opts?.onstart?.(); } catch {}
   };
 
-  // One continuous chain — no gap between chunks of the same message
   speakQueueTail = speakQueueTail.then(async () => {
     if (speakingCancelled || session !== speakSession) {
       try { opts?.onend?.(); } catch {}
       return;
     }
-    const chunks = clean.length <= 280 ? [clean] : chunkSpeech(clean, 200);
-    let anyAudio = false;
-    for (const piece of chunks) {
-      if (speakingCancelled || session !== speakSession) break;
-      try {
-        const res = await fetch(ttsUrl(piece, char.id), {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        if (blob.size < 120) continue;
-        if (speakingCancelled || session !== speakSession) break;
-        anyAudio = true;
-        const obj = URL.createObjectURL(blob);
+    // 1) D4AI Voice Clone API (distinct character voices)
+    try {
+      const res = await fetch("/api/d4ai/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ text: clean, voice: char.file }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { success?: boolean; play_url?: string; audio_url?: string; error?: string };
+      if (res.ok && data.success && data.play_url) {
         await new Promise<void>((resolve) => {
-          const audio = new Audio();
+          const audio = new Audio(data.play_url!);
           audio.volume = 1;
-          audio.src = obj;
           activeAudio = audio;
           let done = false;
           const fin = () => {
             if (done) return;
             done = true;
-            try { URL.revokeObjectURL(obj); } catch {}
             resolve();
           };
           audio.onplay = () => startOnce();
@@ -527,33 +522,59 @@ function speakText(
           audio.onerror = fin;
           const p = audio.play();
           if (p && typeof p.catch === "function") p.catch(() => fin());
-          window.setTimeout(fin, 40000);
+          window.setTimeout(fin, 90000);
         });
-      } catch {
-        /* next */
+        try { opts?.onend?.(); } catch {}
+        return;
       }
+    } catch {
+      /* fall through */
     }
-    if (!anyAudio && !speakingCancelled && session === speakSession) {
-      try {
-        await new Promise<void>((resolve) => {
-          const u = new SpeechSynthesisUtterance(clean.slice(0, 1800));
-          u.lang = "en-US";
-          u.volume = 1;
-          u.rate = char.rate;
-          u.pitch = Math.max(0.1, Math.min(2, char.pitch));
-          try {
-            const v = pickVoice(preset);
-            if (v) u.voice = v;
-          } catch {}
-          u.onstart = () => startOnce();
-          u.onend = () => resolve();
-          u.onerror = () => resolve();
-          window.speechSynthesis.resume();
-          window.speechSynthesis.speak(u);
-          window.setTimeout(() => resolve(), 20000);
-        });
-      } catch {}
+
+    if (speakingCancelled || session !== speakSession) {
+      try { opts?.onend?.(); } catch {}
+      return;
     }
+
+    // 2) Legacy Google/Edge proxy fallback
+    try {
+      const res = await fetch(ttsUrl(clean, char.id), { credentials: "same-origin", cache: "no-store" });
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 200) {
+          const obj = URL.createObjectURL(blob);
+          await new Promise<void>((resolve) => {
+            const audio = new Audio(obj);
+            activeAudio = audio;
+            audio.onplay = () => startOnce();
+            audio.onended = () => {
+              try { URL.revokeObjectURL(obj); } catch {}
+              resolve();
+            };
+            audio.onerror = () => resolve();
+            void audio.play().catch(() => resolve());
+            window.setTimeout(() => resolve(), 60000);
+          });
+          try { opts?.onend?.(); } catch {}
+          return;
+        }
+      }
+    } catch {}
+
+    // 3) Browser speechSynthesis last resort
+    try {
+      await new Promise<void>((resolve) => {
+        const u = new SpeechSynthesisUtterance(clean);
+        u.rate = char.rate;
+        u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+        u.onstart = () => startOnce();
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        window.speechSynthesis.resume();
+        window.speechSynthesis.speak(u);
+        window.setTimeout(() => resolve(), 30000);
+      });
+    } catch {}
     try { opts?.onend?.(); } catch {}
   });
 }
@@ -1378,7 +1399,7 @@ function D4AiPage() {
               : "I'm **D4AI** — your AI assistant on D4EXAM by D4TECH. I help with study, code, and questions. What do you need?";
         } else {
           const ac = new AbortController();
-          const to = window.setTimeout(() => ac.abort(), 45000);
+          const to = window.setTimeout(() => ac.abort(), 90000);
           let chatRes: Response;
           try {
             chatRes = await fetch("/api/d4ai/chat", {
@@ -2628,7 +2649,7 @@ function D4AiPage() {
               )}
             >
               <span className="text-sm">{getVoiceChar(voicePreset).emoji}</span>
-              <span>{getVoiceChar(voicePreset).name}</span>
+              <span className="max-w-[7rem] truncate">{getVoiceChar(voicePreset).name}</span>
               <span className="opacity-60">▾</span>
             </button>
           </div>
@@ -2794,7 +2815,7 @@ function D4AiPage() {
             <div className="flex items-center justify-between px-4 py-3">
               <div>
                 <p className={cn("text-base font-bold", dark ? "text-white" : "text-slate-900")}>Choose a voice</p>
-                <p className="text-[11px] text-slate-400">12 D4AI characters · tap to preview</p>
+                <p className="text-[11px] text-slate-400">13 personality voices · CEO default · tap to preview</p>
               </div>
               <button type="button" onClick={() => {
                   setVoicePickerOpen(false);
@@ -2809,6 +2830,7 @@ function D4AiPage() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {VOICE_CHARS.map((c) => {
                 const active = voicePreset === c.id;
+                const isCeo = c.id === "ceo";
                 return (
                   <button
                     key={c.id}
@@ -2817,22 +2839,25 @@ function D4AiPage() {
                       setVoicePreset(c.id);
                       try {
                         localStorage.setItem(VOICE_KEY, c.id);
+                        localStorage.setItem("d4ai-voice-file", c.file);
                       } catch {}
+                      setToast(`${c.emoji} ${c.name}`);
                       stopSpeaking();
-                      speakText(c.sample, {
-                        preset: c.id,
-                        onend: () => {},
-                      });
+                      speakText(c.sample, { preset: c.id, onend: () => {} });
                     }}
                     className={cn(
                       "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center transition active:scale-[0.98]",
-                      active
-                        ? dark
-                          ? "border-cyan-400/60 bg-cyan-500/15 ring-1 ring-cyan-400/40"
-                          : "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
-                        : dark
-                          ? "border-white/10 bg-white/5 hover:bg-white/10"
-                          : "border-slate-200 bg-slate-50 hover:bg-slate-100",
+                      active && isCeo
+                        ? "border-amber-400 bg-amber-500/20 ring-2 ring-amber-400/60"
+                        : active
+                          ? dark
+                            ? "border-cyan-400/60 bg-cyan-500/15 ring-1 ring-cyan-400/40"
+                            : "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
+                          : isCeo
+                            ? "border-amber-400/50 bg-amber-500/10"
+                            : dark
+                              ? "border-white/10 bg-white/5 hover:bg-white/10"
+                              : "border-slate-200 bg-slate-50 hover:bg-slate-100",
                     )}
                   >
                     <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-cyan-500/30 via-blue-600/40 to-fuchsia-500/30 text-2xl ring-2 ring-cyan-300/30">
@@ -2840,7 +2865,7 @@ function D4AiPage() {
                       <img src={LOGO} alt="" className="absolute inset-0 h-full w-full rounded-full object-cover opacity-25" />
                     </span>
                     <span className={cn("text-sm font-bold", dark ? "text-white" : "text-slate-900")}>{c.name}</span>
-                    <span className="text-[10px] text-slate-400">{c.tag}</span>
+                    <span className="text-[10px] text-slate-400">{c.title}</span>
                     {active ? <span className="text-[10px] font-semibold text-cyan-300">Selected</span> : null}
                   </button>
                 );
