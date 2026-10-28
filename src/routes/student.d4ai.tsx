@@ -964,6 +964,16 @@ function D4AiPage() {
   const [editText, setEditText] = useState("");
   const [thumbs, setThumbs] = useState<Record<string, "up" | "down">>({});
   const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bottomRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setNearBottom(Boolean(entry?.isIntersecting)),
+      { root: null, threshold: 0.05 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [tab, activeId, streaming, busy]);
   const fileRef = useRef<HTMLInputElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<{ stop: () => void; start?: () => void } | null>(null);
