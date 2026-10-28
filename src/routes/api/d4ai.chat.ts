@@ -239,12 +239,12 @@ export const Route = createFileRoute("/api/d4ai/chat")({
 
           // Hard identity — never let the small model invent "CR" or other names
           const identityQ =
-            /\b(what('?s| is) your name|who are you|your name|who made you|who created you|who is your (ceo|creator|founder))\b/i.test(
+            /\b(what('?s| is) (your|ur) name|who are you|your name|ur name|who made you|who created you|who is your (ceo|creator|founder))\b/i.test(
               message,
             );
           if (identityQ) {
             let answer =
-              "I'm **D4AI**, your AI assistant on D4EXAM. I was built by **Amurun Destiny O**, founder and CEO of **D4TECH**. Motto: Creating Solutions, Innovating Lives. Ask me anything — study, code, ideas, or life questions.";
+              "I'm **D4AI** — your AI assistant on D4EXAM by D4TECH. I help with study, code, and questions. What do you need?";
             if (/who (made|created) you|who is your (ceo|creator|founder)/i.test(message)) {
               answer =
                 "I was created by **Amurun Destiny O**, founder and CEO of **D4TECH**. I'm **D4AI** — here to help you learn and solve problems.";
@@ -260,7 +260,7 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           if (message.length > 2 && !/^(hi|hello|hey|thanks|ok|xup)\b/i.test(message)) {
             outbound =
               message +
-              "\n\n(Reply with clear detail: short intro, then explanation, and examples when useful. Stay on this question only.)";
+              "\n\n(Give a complete answer with useful detail. Finish every sentence. For math, write formulas in plain text like x = (-b ± sqrt(b^2-4ac))/(2a), not LaTeX. Never invent a different name for yourself.)";
           }
 
           // Short follow-up context only — no role labels that say D4AI

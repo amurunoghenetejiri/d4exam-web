@@ -636,6 +636,53 @@ function dedupeTranscript(text: string): string {
 }
 
 
+function prettyMath(raw: string): string {
+  let s = String(raw || "");
+  // Remove LaTeX delimiters
+  s = s.replace(/\$\$/g, "\n").replace(/\$/g, "");
+  s = s.replace(/\\\[/g, "\n").replace(/\\\]/g, "\n");
+  s = s.replace(/\\\(/g, "").replace(/\\\)/g, "");
+  // Nested-ish fractions (repeat)
+  for (let i = 0; i < 8; i++) {
+    s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+  }
+  s = s
+    .replace(/\\pm\b/g, "±")
+    .replace(/\\mp\b/g, "∓")
+    .replace(/\\times\b/g, "×")
+    .replace(/\\div\b/g, "÷")
+    .replace(/\\cdot\b/g, "·")
+    .replace(/\\sqrt\{([^{}]+)\}/g, "√($1)")
+    .replace(/\\sqrt\s*([0-9a-zA-Z]+)/g, "√$1")
+    .replace(/\\leq\b/g, "≤")
+    .replace(/\\geq\b/g, "≥")
+    .replace(/\\neq\b/g, "≠")
+    .replace(/\\approx\b/g, "≈")
+    .replace(/\\infty\b/g, "∞")
+    .replace(/\\pi\b/g, "π")
+    .replace(/\\theta\b/g, "θ")
+    .replace(/\\alpha\b/g, "α")
+    .replace(/\\beta\b/g, "β")
+    .replace(/\\gamma\b/g, "γ")
+    .replace(/\\Delta\b/g, "Δ")
+    .replace(/\\sum\b/g, "Σ")
+    .replace(/\\int\b/g, "∫")
+    .replace(/\^2\b/g, "²")
+    .replace(/\^3\b/g, "³")
+    .replace(/\^\{2\}/g, "²")
+    .replace(/\^\{3\}/g, "³")
+    .replace(/\\left\(/g, "(")
+    .replace(/\\right\)/g, ")")
+    .replace(/\\left\[/g, "[")
+    .replace(/\\right\]/g, "]")
+    .replace(/\\,/g, " ")
+    .replace(/\\;/g, " ")
+    .replace(/\\\\/g, "\n")
+    .replace(/[{}]/g, "");
+  s = s.replace(/\\[a-zA-Z]+/g, "");
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/  +/g, " ").trim();
+}
+
 function formatInline(text: string, dark: boolean): ReactNode[] {
   // Math-ish plain replacements
   let s = text
@@ -1708,16 +1755,22 @@ function D4AiPage() {
   };
 
   const startCallMode = () => {
-    setCallMode(true);
-    callModeRef.current = true;
-    setCallMinimized(false);
-    setCallBubbleOpen(false);
-    setAutoSpeak(true);
-    autoSpeakRef.current = true;
     try {
-      localStorage.setItem(SPEAK_KEY, "1");
-    } catch {}
-    startVoice();
+      setCallMode(true);
+      callModeRef.current = true;
+      setCallMinimized(false);
+      setCallBubbleOpen(false);
+      setAutoSpeak(true);
+      autoSpeakRef.current = true;
+      try {
+        localStorage.setItem(SPEAK_KEY, "1");
+      } catch {}
+      startVoice();
+    } catch (e) {
+      console.error("startCallMode", e);
+      setToast("Could not start voice call");
+      setError("Voice call could not start. Allow microphone and try again.");
+    }
   };
 
   const doSpeak = (text: string, msgId?: string) => {
@@ -1971,7 +2024,7 @@ function D4AiPage() {
                     <FileText className="h-3.5 w-3.5" /> {m.docName}
                   </p>
                 ) : null}
-                <MarkdownText text={m.content} dark={dark} />
+                <MarkdownText text={prettyMath(m.content)} dark={dark} />
               </div>
               {m.role === "user" ? (
                 <div className="mt-1 flex items-center gap-1 pr-1 text-[10px] text-slate-400">
@@ -2105,7 +2158,7 @@ function D4AiPage() {
               setToast("Voice note failed to start");
             }
           }}
-          className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-cyan-300 hover:bg-white/10" : "text-blue-600 hover:bg-slate-100")}
+          className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-white hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")}
           aria-label="Voice note"
         >
           <Mic className="h-5 w-5" />
@@ -2167,7 +2220,7 @@ function D4AiPage() {
 
 
       {/* Scroll to latest message */}
-      {tab === "chat" && !voiceOn ? (
+      {tab === "chat" && !voiceOn && !nearBottom ? (
         <button
           type="button"
           onClick={() => {
@@ -2175,7 +2228,7 @@ function D4AiPage() {
               bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
             } catch {}
           }}
-          className="fixed bottom-28 right-3 z-[70] grid h-10 w-10 place-items-center rounded-full bg-cyan-600/90 text-white shadow-lg ring-2 ring-cyan-300/40"
+          className="fixed bottom-28 right-3 z-[70] grid h-10 w-10 place-items-center rounded-full bg-gradient-to-b from-[#0e2038] to-[#050b18] text-cyan-300 shadow-lg ring-2 ring-cyan-400/35"
           aria-label="Scroll to latest"
         >
           <ChevronRight className="h-5 w-5 rotate-90" />
