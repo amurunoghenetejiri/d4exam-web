@@ -304,70 +304,93 @@ export const Route = createFileRoute("/api/d4ai/chat")({
                 notes.map((n, i) => `(${i + 1}) ${n.title}: ${n.text}`).join("\n");
             }
           }
-          const url = flaskChatUrl();
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 90_000);
+          // Flask POST /api/chat often hangs; GET ?message= works reliably.
+          const base = flaskChatUrl().replace(/\/api\/chat\/?$/, "");
+          const q = encodeURIComponent(outbound.slice(0, 1800));
+          const getUrl = `${base}/api/chat?message=${q}`;
 
-          try {
-            const res = await fetch(url, {
+          async function callFlask(): Promise<string> {
+            // 1) GET (fast path)
+            try {
+              const res = await fetch(getUrl, {
+                method: "GET",
+                headers: { Accept: "application/json" },
+                cache: "no-store",
+                signal: AbortSignal.timeout(45000),
+              });
+              const text = await res.text();
+              if (res.ok && text) {
+                try {
+                  const json = JSON.parse(text) as { answer?: string; response?: string };
+                  const a = String(json.answer || json.response || "").trim();
+                  if (a) return a;
+                } catch {
+                  /* not json */
+                }
+              }
+            } catch {
+              /* try POST */
+            }
+            // 2) POST fallback
+            const res = await fetch(`${base}/api/chat`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",
               },
-              body: JSON.stringify({ message: outbound }),
-              signal: controller.signal,
+              body: JSON.stringify({ message: outbound.slice(0, 4000) }),
               cache: "no-store",
+              signal: AbortSignal.timeout(45000),
             });
             const text = await res.text();
-            let json: {
+            if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
+            const json = JSON.parse(text || "{}") as {
               answer?: string;
               response?: string;
-              sources?: string[];
               error?: string;
-            } = {};
-            try {
-              json = text ? JSON.parse(text) : {};
-            } catch {
-              return Response.json(
-                { ok: false, error: `Backend non-JSON (${res.status})` },
-                { status: 502 },
-              );
+            };
+            const a = String(json.answer || json.response || "").trim();
+            if (!a) throw new Error(json.error || "Empty answer");
+            return a;
+          }
+
+          try {
+            let answer = await callFlask();
+            // Stub replies from overloaded model — one retry with plain message
+            if (/ask again|took too long|try again/i.test(answer) && outbound !== message) {
+              try {
+                const plainUrl = `${base}/api/chat?message=${encodeURIComponent(message.slice(0, 500))}`;
+                const res = await fetch(plainUrl, {
+                  headers: { Accept: "application/json" },
+                  cache: "no-store",
+                  signal: AbortSignal.timeout(30000),
+                });
+                const json = (await res.json()) as { answer?: string };
+                const a2 = String(json.answer || "").trim();
+                if (a2 && !/ask again/i.test(a2)) answer = a2;
+              } catch {
+                /* keep first */
+              }
             }
-            if (!res.ok) {
-              return Response.json(
-                { ok: false, error: json.error || `Backend HTTP ${res.status}` },
-                { status: 502 },
-              );
+            answer = stripLinks(answer);
+            if (
+              /\b(my name is CR|I am CR\b|I'?m CR\b|Chatbot Response)\b/i.test(answer)
+            ) {
+              answer = answer
+                .replace(/\b(My name is CR|I am CR|I'?m CR)[^.!?]*[.!?]?/gi, "I'm D4AI.")
+                .replace(/\bChatbot Response\b/gi, "D4AI");
             }
-            let answer = String(json.answer || json.response || "").trim();
             if (!answer) {
               return Response.json({ ok: false, error: "Empty answer" }, { status: 502 });
             }
-            answer = stripLinks(answer);
-            // Strip wrong model identities (CR / Chatbot Response) — this is D4AI
-            if (
-              /\b(my name is CR|I am CR\b|I'?m CR\b|Chatbot Response|Character Recognition)\b/i.test(
-                answer,
-              )
-            ) {
-              answer = answer
-                .replace(
-                  /\b(My name is CR|I am CR|I'?m CR)[^.!?]*[.!?]?/gi,
-                  "I'm D4AI, your assistant on D4EXAM by D4TECH.",
-                )
-                .replace(/\bChatbot Response\b/gi, "D4AI")
-                .replace(/\bCharacter Recognition\b/gi, "D4AI");
-            }
-            // Never forward raw source URLs to the client
             return Response.json({
               ok: true,
               answer,
               sources: [],
               backend: "d4ai-flask",
             });
-          } finally {
-            clearTimeout(timer);
+          } catch (err) {
+            throw err;
           }
         } catch (e) {
           const msg =

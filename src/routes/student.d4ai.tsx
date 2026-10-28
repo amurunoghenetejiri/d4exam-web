@@ -497,35 +497,61 @@ function speakText(
       try { opts?.onend?.(); } catch {}
       return;
     }
-    // 1) D4AI Voice Clone API (distinct character voices)
+    // 1) D4AI Piper / clone TTS via proxy (returns audio/wav bytes)
     try {
       const res = await fetch("/api/d4ai/voice", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ text: clean, voice: char.file }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "audio/wav, application/json",
+        },
+        body: JSON.stringify({ text: clean, voice: char.id }),
         cache: "no-store",
       });
-      const data = (await res.json()) as { success?: boolean; play_url?: string; audio_url?: string; error?: string };
-      if (res.ok && data.success && data.play_url) {
-        await new Promise<void>((resolve) => {
-          const audio = new Audio(data.play_url!);
-          audio.volume = 1;
-          activeAudio = audio;
-          let done = false;
-          const fin = () => {
-            if (done) return;
-            done = true;
-            resolve();
-          };
-          audio.onplay = () => startOnce();
-          audio.onended = fin;
-          audio.onerror = fin;
-          const p = audio.play();
-          if (p && typeof p.catch === "function") p.catch(() => fin());
-          window.setTimeout(fin, 90000);
-        });
-        try { opts?.onend?.(); } catch {}
-        return;
+      if (res.ok) {
+        const ct = res.headers.get("Content-Type") || "";
+        if (ct.includes("audio") || ct.includes("octet-stream") || ct.includes("wav")) {
+          const blob = await res.blob();
+          if (blob.size > 200) {
+            const obj = URL.createObjectURL(blob);
+            await new Promise<void>((resolve) => {
+              const audio = new Audio(obj);
+              audio.volume = 1;
+              activeAudio = audio;
+              let done = false;
+              const fin = () => {
+                if (done) return;
+                done = true;
+                try { URL.revokeObjectURL(obj); } catch {}
+                resolve();
+              };
+              audio.onplay = () => startOnce();
+              audio.onended = fin;
+              audio.onerror = fin;
+              const p = audio.play();
+              if (p && typeof p.catch === "function") p.catch(() => fin());
+              window.setTimeout(fin, 90000);
+            });
+            try { opts?.onend?.(); } catch {}
+            return;
+          }
+        } else {
+          // JSON play_url fallback
+          const data = (await res.json()) as { success?: boolean; play_url?: string };
+          if (data.success && data.play_url) {
+            await new Promise<void>((resolve) => {
+              const audio = new Audio(data.play_url!);
+              activeAudio = audio;
+              audio.onplay = () => startOnce();
+              audio.onended = () => resolve();
+              audio.onerror = () => resolve();
+              void audio.play().catch(() => resolve());
+              window.setTimeout(() => resolve(), 90000);
+            });
+            try { opts?.onend?.(); } catch {}
+            return;
+          }
+        }
       }
     } catch {
       /* fall through */
