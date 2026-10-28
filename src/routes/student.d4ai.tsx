@@ -950,6 +950,7 @@ function D4AiPage() {
   const [voiceSecs, setVoiceSecs] = useState(0);
   const [voicePaused, setVoicePaused] = useState(false);
   const [callMode, setCallMode] = useState(false);
+  const [nearBottom, setNearBottom] = useState(true);
   const [attachOpen, setAttachOpen] = useState(false);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [voicePreset, setVoicePreset] = useState<VoicePreset>(() => loadVoicePreset());
