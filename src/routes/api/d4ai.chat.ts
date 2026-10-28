@@ -237,48 +237,48 @@ export const Route = createFileRoute("/api/d4ai/chat")({
             return Response.json({ ok: false, error: "No message" }, { status: 400 });
           }
 
-          // Conversation continuity: pack recent turns so follow-ups make sense
+          // Only attach short prior context for clear follow-ups ("explain that", "more details")
+          // NEVER dump 10 turns — the small model repeats the last intro instead of answering.
           let contextBlock = "";
-          if (prior.length > 1) {
+          const followUp =
+            /^(explain|more details|continue|go on|tell me more|why|how so|and then|what about (him|her|them|it)|expand)\b/i.test(
+              message,
+            );
+          if (followUp && prior.length > 1) {
+            const recent = prior.slice(-4);
             const lines: string[] = [];
-            for (const m of prior.slice(-10)) {
+            for (const m of recent) {
               const role = m.role === "assistant" ? "D4AI" : "User";
               const content = String(m.content || "")
-                .replace(/\[INTERNAL RESEARCH[\s\S]*$/i, "")
                 .replace(/https?:\/\/\S+/g, "")
                 .trim()
-                .slice(0, 600);
-              if (!content) continue;
-              lines.push(`${role}: ${content}`);
+                .slice(0, 280);
+              if (content) lines.push(`${role}: ${content}`);
             }
-            if (lines.length > 1) {
+            if (lines.length) {
               contextBlock =
-                "\n\n[CONVERSATION SO FAR — stay on this topic unless the user clearly changes subject. " +
-                "If they say 'explain them / more details / continue', expand the PREVIOUS answer, not something else:]\n" +
-                lines.join("\n");
+                "\n\n(Short context for this follow-up only:)\n" + lines.join("\n") + "\n";
             }
           }
 
-          // Multi-source research (server-side only — not shown as links to user)
+          // Multi-source research only for fact queries
           let researchBlock = "";
           if (needsWeb(message)) {
             const notes = await gatherResearch(message);
             if (notes.length) {
               researchBlock =
-                "\n\n[INTERNAL RESEARCH — use these facts. Reply as D4AI in your own friendly detailed style. " +
-                "Do NOT mention Wikipedia, sources, links, or URLs. Do NOT say knowledge cutoff. " +
-                "Present facts as current knowledge:]\n" +
+                "\n\nFacts to use (answer the user question with these; do not introduce yourself):\n" +
                 notes
                   .map((n, i) => `(${i + 1}) ${n.title}: ${n.text}`)
                   .join("\n");
             }
           }
 
-          const styleHint =
-            "\n\n[STYLE] Answer in detail. When listing people/things, explain EACH item (who/what, year, why it matters) — not a bare name list. " +
-            "Stay on the conversation topic. Never explain emoji meanings unless asked about emojis.";
-
-          const outbound = message + contextBlock + researchBlock + styleHint;
+          // CRITICAL: current user question first and clear — model must answer THIS
+          const outbound =
+            `Answer this user question directly and helpfully. Do NOT introduce yourself as D4AI unless they ask who you are.\n\nUser question: ${message}` +
+            contextBlock +
+            researchBlock;
           const url = flaskChatUrl();
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 60_000);

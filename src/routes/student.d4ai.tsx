@@ -1284,10 +1284,10 @@ function D4AiPage() {
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({
             message: userText,
-            // Full recent thread so follow-ups ("explain them") keep context
-            messages: history.slice(-12).map((m) => ({
+            // Only last few turns — backend uses them solely for follow-ups
+            messages: history.slice(-4).map((m) => ({
               role: m.role,
-              content: String(m.content || "").slice(0, 2000),
+              content: String(m.content || "").slice(0, 500),
             })),
           }),
           cache: "no-store",
@@ -1304,39 +1304,28 @@ function D4AiPage() {
           throw new Error(payload.error || `HTTP ${chatRes.status}`);
         }
 
-        full = String(payload.answer).trim();
+        full = String(payload.answer)
+          .replace(/\n*Thought for [\d.]+s\s*$/i, "")
+          .replace(/\n*---\s*\n*[\d.]+s.*$/i, "")
+          .replace(/\n*⚡\s*[\d.]+s.*$/i, "")
+          .trim();
         if (payload.sources?.length) {
-          // sources optional; only append if not already in answer
           const extra = payload.sources.filter((s) => !full.includes(s));
           if (extra.length) full += "\n\n" + extra.map((s) => `🔗 ${s}`).join("\n");
         }
 
-        // Smooth typewriter for fast backend answers
-        let i = 0;
-        const step = Math.max(8, Math.ceil(full.length / 40));
-        await new Promise<void>((resolve) => {
-          typewriterRef.current = setInterval(() => {
-            i = Math.min(full.length, i + step);
-            ensureAssistant(full.slice(0, i));
-            if (i >= full.length) {
-              if (typewriterRef.current) clearInterval(typewriterRef.current);
-              typewriterRef.current = null;
-              resolve();
-            }
-          }, 10);
-        });
-
-        window.clearInterval(thinkTimer);
-        setThoughtSeconds(Math.max(1, Math.round((Date.now() - thinkStartRef.current) / 1000)));
-        setStreaming(false);
-
-        if (full && autoSpeakRef.current && callModeRef.current) {
+        // Typewriter + optional live TTS (call mode: speak as text appears)
+        const inCall = callModeRef.current;
+        if (inCall) {
+          // Call mode: no long text typing UX — mark speaking and stream-speak
           setTtsSpeaking(true);
           ttsSpeakingRef.current = true;
           isAiSpeakingRef.current = true;
           try {
             recognitionRef.current?.stop();
           } catch {}
+          // Show brief progress in call UI only via ensureAssistant optional short
+          ensureAssistant(full); // keep transcript available after call ends
           speakText(full, {
             preset: voicePresetRef.current,
             onstart: () => {
@@ -1348,14 +1337,40 @@ function D4AiPage() {
               setTtsSpeaking(false);
               ttsSpeakingRef.current = false;
               isAiSpeakingRef.current = false;
-              if (callModeRef.current && voiceOn) {
+              if (callModeRef.current && !voicePausedRef.current) {
                 window.setTimeout(() => {
-                  if (callModeRef.current && !isAiSpeakingRef.current) startVoice();
-                }, 900);
+                  if (callModeRef.current && !isAiSpeakingRef.current) {
+                    finalTranscriptRef.current = "";
+                    setVoiceText("");
+                    startVoice();
+                  }
+                }, 700);
               }
             },
           });
+        } else {
+          let i = 0;
+          const step = Math.max(6, Math.ceil(full.length / 50));
+          await new Promise<void>((resolve) => {
+            typewriterRef.current = setInterval(() => {
+              i = Math.min(full.length, i + step);
+              ensureAssistant(full.slice(0, i));
+              if (i >= full.length) {
+                if (typewriterRef.current) clearInterval(typewriterRef.current);
+                typewriterRef.current = null;
+                resolve();
+              }
+            }, 12);
+          });
+          // Chat mode auto-speak after full text if enabled
+          if (full && autoSpeakRef.current) {
+            speakText(full, { preset: voicePresetRef.current });
+          }
         }
+
+        window.clearInterval(thinkTimer);
+        setThoughtSeconds(Math.max(1, Math.round((Date.now() - thinkStartRef.current) / 1000)));
+        setStreaming(false);
             } catch (e) {
         const msg = friendlyError(e instanceof Error ? e.message : "Failed to reach D4AI");
         setError(msg);
@@ -2246,6 +2261,21 @@ function D4AiPage() {
               <button
                 type="button"
                 onClick={() => {
+                  // Barge-in: stop AI speech and listen to user
+                  if (ttsSpeakingRef.current || isAiSpeakingRef.current) {
+                    try {
+                      stopSpeaking();
+                    } catch {}
+                    setTtsSpeaking(false);
+                    ttsSpeakingRef.current = false;
+                    isAiSpeakingRef.current = false;
+                    finalTranscriptRef.current = "";
+                    setVoiceText("");
+                    voicePausedRef.current = false;
+                    setVoicePaused(false);
+                    startVoice();
+                    return;
+                  }
                   if (voicePaused) resumeVoice();
                   else pauseVoice();
                 }}

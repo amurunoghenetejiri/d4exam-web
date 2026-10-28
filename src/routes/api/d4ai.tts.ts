@@ -10,17 +10,18 @@ const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
 /** Character / alias → Google TTS language code (accent variety) + Edge voice */
 const VOICE_CFG: Record<string, { tl: string; edge: string }> = {
+  // Distinct Edge Neural voices (primary) + varied Google accents (fallback)
   rex: { tl: "en-US", edge: "en-US-ChristopherNeural" },
-  atlas: { tl: "en-GB", edge: "en-US-EricNeural" },
-  nova: { tl: "en", edge: "en-US-JennyNeural" },
-  luna: { tl: "en-AU", edge: "en-US-AriaNeural" },
-  cipher: { tl: "en-US", edge: "en-US-JasonNeural" },
-  echo: { tl: "en-GB", edge: "en-GB-RyanNeural" },
-  kai: { tl: "en", edge: "en-US-GuyNeural" },
-  aria: { tl: "en-AU", edge: "en-US-MichelleNeural" },
-  bolt: { tl: "en-US", edge: "en-US-GuyNeural" },
-  sage: { tl: "en-GB", edge: "en-US-EricNeural" },
-  pixel: { tl: "en", edge: "en-US-AnaNeural" },
+  atlas: { tl: "en-GB", edge: "en-GB-RyanNeural" },
+  nova: { tl: "en-US", edge: "en-US-JennyNeural" },
+  luna: { tl: "en-AU", edge: "en-AU-NatashaNeural" },
+  cipher: { tl: "en-US", edge: "en-US-DavisNeural" },
+  echo: { tl: "en-GB", edge: "en-GB-ThomasNeural" },
+  kai: { tl: "en-US", edge: "en-US-GuyNeural" },
+  aria: { tl: "en-AU", edge: "en-US-AriaNeural" },
+  bolt: { tl: "en-IN", edge: "en-US-TonyNeural" },
+  sage: { tl: "en-GB", edge: "en-GB-SoniaNeural" },
+  pixel: { tl: "en-US", edge: "en-US-AnaNeural" },
   volt: { tl: "en-US", edge: "en-US-SteffanNeural" },
   Brian: { tl: "en-US", edge: "en-US-ChristopherNeural" },
   Amy: { tl: "en", edge: "en-US-JennyNeural" },
