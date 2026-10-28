@@ -237,6 +237,21 @@ export const Route = createFileRoute("/api/d4ai/chat")({
             return Response.json({ ok: false, error: "No message" }, { status: 400 });
           }
 
+          // Hard identity — never let the small model invent "CR" or other names
+          const identityQ =
+            /\b(what('?s| is) your name|who are you|your name|who made you|who created you|who is your (ceo|creator|founder))\b/i.test(
+              message,
+            );
+          if (identityQ) {
+            let answer =
+              "I'm **D4AI**, your AI assistant on D4EXAM. I was built by **Amurun Destiny O**, founder and CEO of **D4TECH**. Motto: Creating Solutions, Innovating Lives. Ask me anything — study, code, ideas, or life questions.";
+            if (/who (made|created) you|who is your (ceo|creator|founder)/i.test(message)) {
+              answer =
+                "I was created by **Amurun Destiny O**, founder and CEO of **D4TECH**. I'm **D4AI** — here to help you learn and solve problems.";
+            }
+            return Response.json({ ok: true, answer, sources: [] });
+          }
+
           // IMPORTANT: Flask has a canned identity reply when it sees "D4AI" / "who are you" in the prompt.
           // Send ONLY the plain user question (plus optional research facts). No wrapper, no "D4AI" keyword.
           let outbound = message;

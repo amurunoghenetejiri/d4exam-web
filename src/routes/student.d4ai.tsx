@@ -330,7 +330,7 @@ function stripForSpeech(text: string): string {
     .slice(0, 2500);
 }
 
-function chunkSpeech(text: string, maxLen = 180): string[] {
+function chunkSpeech(text: string, maxLen = 320): string[] {
   const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
   const out: string[] = [];
   let buf = "";
@@ -1090,6 +1090,17 @@ function D4AiPage() {
     const activeConv = list.find((c) => c.id === id);
     if (activeConv && activeConv.messages.filter((m) => m.id !== "welcome").length > 0) {
       setTab("chat");
+      // Jump to latest messages
+      window.setTimeout(() => {
+        try {
+          bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+        } catch {}
+      }, 120);
+      window.setTimeout(() => {
+        try {
+          bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        } catch {}
+      }, 400);
     }
   }, []);
 
@@ -1339,7 +1350,7 @@ function D4AiPage() {
           // Store full reply in history (hidden in call UI)
           ensureAssistant(full);
 
-          const chunks = chunkSpeech(stripForSpeech(full), 140);
+          const chunks = chunkSpeech(stripForSpeech(full), 360);
           let spoken = 0;
           const speakNext = (): Promise<void> =>
             new Promise((resolve) => {
@@ -1457,6 +1468,7 @@ function D4AiPage() {
   }, [input, imageB64, docText, docName, sendWithText]);
 
   const stopVoice = (clearText = true) => {
+    // Stop mic only — never clear callMode here (that broke live call)
     try {
       recognitionRef.current?.stop();
     } catch {}
@@ -1470,8 +1482,6 @@ function D4AiPage() {
     setVoiceOn(false);
     setVoicePaused(false);
     voicePausedRef.current = false;
-    setCallMode(false);
-    callModeRef.current = false;
     if (clearText) {
       setVoiceText("");
       finalTranscriptRef.current = "";
@@ -1479,6 +1489,7 @@ function D4AiPage() {
   };
 
   const startVoice = () => {
+    try {
     const w = window as unknown as {
       SpeechRecognition?: new () => any;
       webkitSpeechRecognition?: new () => any;
@@ -1486,10 +1497,20 @@ function D4AiPage() {
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) {
       setError("Voice needs Chrome or a supported browser. Allow microphone access.");
+      setToast("Microphone / speech not available on this device");
       return;
     }
-    stopVoice(true);
+    // Stop previous recognition without wiping call mode or throwing
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    recognitionRef.current = null;
+    if (voiceTimer.current) {
+      clearInterval(voiceTimer.current);
+      voiceTimer.current = null;
+    }
     setVoiceSecs(0);
+    setVoiceOn(true);
     const rec = new SR();
     recognitionRef.current = rec;
     rec.continuous = true;
@@ -1574,8 +1595,18 @@ function D4AiPage() {
       setVoiceOn(true);
       voiceTimer.current = setInterval(() => setVoiceSecs((x) => x + 1), 1000);
     } catch {
-      setError("Could not start microphone.");
-      stopVoice(true);
+      setError("Could not start microphone. Check permission.");
+      setToast("Could not start microphone");
+      try {
+        recognitionRef.current = null;
+        setVoiceOn(false);
+      } catch {}
+    }
+    } catch (e) {
+      console.error("startVoice", e);
+      setError("Voice could not start. Try again.");
+      setToast("Voice error — try again");
+      setVoiceOn(false);
     }
   };
 
@@ -1863,6 +1894,29 @@ function D4AiPage() {
           {"Online · v5-Ultimate"}
         </p>
       </div>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !autoSpeak;
+          setAutoSpeak(next);
+          autoSpeakRef.current = next;
+          try {
+            localStorage.setItem(SPEAK_KEY, next ? "1" : "0");
+          } catch {}
+          setToast(next ? "Auto-talk on — AI will speak replies" : "Auto-talk off");
+        }}
+        className={cn(
+          "mr-1 rounded-full px-2.5 py-1 text-[10px] font-bold",
+          autoSpeak
+            ? "bg-cyan-500/25 text-cyan-100 ring-1 ring-cyan-400/50"
+            : dark
+              ? "bg-white/5 text-slate-400 ring-1 ring-white/10"
+              : "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+        )}
+        aria-label="Toggle auto-talk"
+      >
+        {autoSpeak ? "Auto-talk On" : "Auto-talk"}
+      </button>
       <button type="button" onClick={() => setDrawer(true)} className={cn("rounded-xl p-2", dark ? "text-white/90 hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")} aria-label="Menu">
         <Menu className="h-5 w-5" />
       </button>
@@ -2041,6 +2095,21 @@ function D4AiPage() {
         >
           <Link2 className="h-5 w-5" />
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              startVoiceNote();
+            } catch (e) {
+              console.error(e);
+              setToast("Voice note failed to start");
+            }
+          }}
+          className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-cyan-300 hover:bg-white/10" : "text-blue-600 hover:bg-slate-100")}
+          aria-label="Voice note"
+        >
+          <Mic className="h-5 w-5" />
+        </button>
         <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.csv,application/pdf,text/plain" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
         <input ref={imageFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
         <input ref={cameraFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
@@ -2096,6 +2165,22 @@ function D4AiPage() {
     >
       <style>{GLOBAL_CSS}</style>
 
+
+      {/* Scroll to latest message */}
+      {tab === "chat" && !voiceOn ? (
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            } catch {}
+          }}
+          className="fixed bottom-28 right-3 z-[70] grid h-10 w-10 place-items-center rounded-full bg-cyan-600/90 text-white shadow-lg ring-2 ring-cyan-300/40"
+          aria-label="Scroll to latest"
+        >
+          <ChevronRight className="h-5 w-5 rotate-90" />
+        </button>
+      ) : null}
 
       {/* ---------- Minimized live-call floating bubble ---------- */}
       {callMode && callMinimized ? (
