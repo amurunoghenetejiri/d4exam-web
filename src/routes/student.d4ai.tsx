@@ -275,6 +275,9 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
 
 let activeAudio: HTMLAudioElement | null = null;
 let speakingCancelled = false;
+let speakQueueTail: Promise<void> = Promise.resolve();
+let speakSession = 0;
+
 
 
 function friendlyError(raw: string): string {
@@ -450,7 +453,7 @@ function playAudioQueue(
 
 function speakText(
   text: string,
-  opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void },
+  opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void; append?: boolean },
 ) {
   const clean = stripForSpeech(text);
   if (!clean) {
@@ -458,141 +461,108 @@ function speakText(
     return;
   }
 
-  // Stop previous speech only
-  speakingCancelled = false;
-  try {
-    if (activeAudio) {
-      activeAudio.pause();
-      activeAudio.src = "";
-      activeAudio = null;
-    }
-  } catch {}
-  try {
-    window.speechSynthesis?.cancel();
-  } catch {}
+  const append = Boolean(opts?.append);
+  if (!append) {
+    speakingCancelled = true; // cancel prior queue
+    speakSession++;
+    try {
+      if (activeAudio) {
+        activeAudio.pause();
+        activeAudio.src = "";
+        activeAudio = null;
+      }
+    } catch {}
+    try {
+      window.speechSynthesis?.cancel();
+    } catch {}
+    speakingCancelled = false;
+    speakQueueTail = Promise.resolve();
+  }
 
+  const session = speakSession;
   const preset = opts?.preset || loadVoicePreset();
   const char = getVoiceChar(preset);
-
-  const finish = () => {
-    try { opts?.onend?.(); } catch {}
-  };
-  const start = () => {
+  let started = false;
+  const startOnce = () => {
+    if (started) return;
+    started = true;
     try { opts?.onstart?.(); } catch {}
   };
 
-  // Prefer server audio (Google TTS via proxy) — more reliable volume in WebView
-  const chunks = chunkSpeech(clean, 160);
-  const urls = chunks.map((c) => ttsUrl(c, char.id));
-
-  // Run speechSynthesis in parallel as backup if audio fails; started on same tick as gesture
-  let audioStarted = false;
-  let synthStarted = false;
-  let finished = false;
-  const onceEnd = () => {
-    if (finished) return;
-    finished = true;
-    finish();
-  };
-
-  // Kick audio queue
-  void (async () => {
-    for (const url of urls) {
-      if (speakingCancelled || finished) break;
+  // One continuous chain — no gap between chunks of the same message
+  speakQueueTail = speakQueueTail.then(async () => {
+    if (speakingCancelled || session !== speakSession) {
+      try { opts?.onend?.(); } catch {}
+      return;
+    }
+    const chunks = chunkSpeech(clean, 240);
+    let anyAudio = false;
+    for (const piece of chunks) {
+      if (speakingCancelled || session !== speakSession) break;
       try {
-        const res = await fetch(url, { credentials: "same-origin" });
+        const res = await fetch(ttsUrl(piece, char.id), {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
         if (!res.ok) continue;
         const blob = await res.blob();
-        if (blob.size < 200) continue;
-        if (speakingCancelled) break;
-        // Cancel synth if audio works
-        try { window.speechSynthesis?.cancel(); } catch {}
+        if (blob.size < 120) continue;
+        if (speakingCancelled || session !== speakSession) break;
+        anyAudio = true;
         const obj = URL.createObjectURL(blob);
         await new Promise<void>((resolve) => {
           const audio = new Audio();
           audio.volume = 1;
           audio.src = obj;
           activeAudio = audio;
-          audio.onplay = () => {
-            audioStarted = true;
-            if (!synthStarted) start();
-          };
-          audio.onended = () => {
+          let done = false;
+          const fin = () => {
+            if (done) return;
+            done = true;
             try { URL.revokeObjectURL(obj); } catch {}
             resolve();
           };
-          audio.onerror = () => {
-            try { URL.revokeObjectURL(obj); } catch {}
-            resolve();
-          };
+          audio.onplay = () => startOnce();
+          audio.onended = fin;
+          audio.onerror = fin;
           const p = audio.play();
-          if (p && typeof p.catch === "function") p.catch(() => resolve());
+          if (p && typeof p.catch === "function") p.catch(() => fin());
+          window.setTimeout(fin, 40000);
         });
       } catch {
         /* next */
       }
     }
-    if (audioStarted) {
-      onceEnd();
-      return;
-    }
-    // Audio failed — use speechSynthesis
-    if (speakingCancelled || finished) {
-      onceEnd();
-      return;
-    }
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      onceEnd();
-      return;
-    }
-    try {
-      const ensureVoices = () =>
-        new Promise<void>((resolve) => {
-          const vs = window.speechSynthesis.getVoices();
-          if (vs.length) {
-            resolve();
-            return;
-          }
-          const t = window.setTimeout(() => resolve(), 600);
-          window.speechSynthesis.onvoiceschanged = () => {
-            window.clearTimeout(t);
-            resolve();
-          };
-        });
-      await ensureVoices();
-      if (speakingCancelled) {
-        onceEnd();
-        return;
-      }
-      const u = new SpeechSynthesisUtterance(clean.slice(0, 1500));
-      u.lang = "en-US";
-      u.volume = 1;
-      u.rate = char.rate;
-      u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+    if (!anyAudio && !speakingCancelled && session === speakSession) {
       try {
-        const v = pickVoice(preset);
-        if (v) u.voice = v;
+        await new Promise<void>((resolve) => {
+          const u = new SpeechSynthesisUtterance(clean.slice(0, 1800));
+          u.lang = "en-US";
+          u.volume = 1;
+          u.rate = char.rate;
+          u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+          try {
+            const v = pickVoice(preset);
+            if (v) u.voice = v;
+          } catch {}
+          u.onstart = () => startOnce();
+          u.onend = () => resolve();
+          u.onerror = () => resolve();
+          window.speechSynthesis.resume();
+          window.speechSynthesis.speak(u);
+          window.setTimeout(() => resolve(), 20000);
+        });
       } catch {}
-      u.onstart = () => {
-        synthStarted = true;
-        start();
-      };
-      u.onend = () => onceEnd();
-      u.onerror = () => onceEnd();
-      window.speechSynthesis.resume();
-      window.speechSynthesis.speak(u);
-      // Safety: if onstart never fires within 2s, end
-      window.setTimeout(() => {
-        if (!synthStarted && !audioStarted) onceEnd();
-      }, 2500);
-    } catch {
-      onceEnd();
     }
-  })();
+    try { opts?.onend?.(); } catch {}
+  });
 }
+
 
 function stopSpeaking() {
   speakingCancelled = true;
+  speakSession++;
+  speakQueueTail = Promise.resolve();
   try {
     window.speechSynthesis?.cancel();
   } catch {}
@@ -949,6 +919,7 @@ function D4AiPage() {
   const [docText, setDocText] = useState<string | null>(null);
   const [docName, setDocName] = useState<string | null>(null);
   const [voiceOn, setVoiceOn] = useState(false);
+  const voiceOnRef = useRef(false);
   const [voiceText, setVoiceText] = useState("");
   const [voiceSecs, setVoiceSecs] = useState(0);
   const [voicePaused, setVoicePaused] = useState(false);
@@ -1289,6 +1260,14 @@ function D4AiPage() {
       setStreaming(false);
       setStatus(null);
       setTab("chat");
+      // Unlock WebView audio so auto-talk can play after the network round-trip
+      try {
+        const silent = new Audio(
+          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=",
+        );
+        silent.volume = 0.01;
+        void silent.play().catch(() => {});
+      } catch {}
       const userMsg: Msg = {
         id: `u-${Date.now()}`,
         role: "user",
@@ -1431,14 +1410,11 @@ function D4AiPage() {
           ttsSpeakingRef.current = true;
           isAiSpeakingRef.current = true;
           speakingCancelled = false;
-          speakText(full, {
-            preset: voicePresetRef.current,
-            onstart: () => {
-              setTtsSpeaking(true);
-              ttsSpeakingRef.current = true;
-              isAiSpeakingRef.current = true;
-            },
-            onend: () => {
+          // Speak in short continuous chunks (no long pauses at periods)
+          const callChunks = chunkSpeech(stripForSpeech(full), 180);
+          let ci = 0;
+          const speakCallNext = () => {
+            if (speakingCancelled || ci >= callChunks.length) {
               setTtsSpeaking(false);
               ttsSpeakingRef.current = false;
               isAiSpeakingRef.current = false;
@@ -1449,14 +1425,27 @@ function D4AiPage() {
                     setVoiceText("");
                     startVoice();
                   }
-                }, 500);
+                }, 400);
               }
-            },
-          });
+              return;
+            }
+            const piece = callChunks[ci++];
+            speakText(piece, {
+              preset: voicePresetRef.current,
+              append: ci > 1,
+              onstart: () => {
+                setTtsSpeaking(true);
+                ttsSpeakingRef.current = true;
+                isAiSpeakingRef.current = true;
+              },
+              onend: () => speakCallNext(),
+            });
+          };
+          speakCallNext();
         } else {
           // Chat mode: typewriter + speak chunks as text appears (no wait for full reply)
           let i = 0;
-          const step = Math.max(8, Math.ceil(full.length / 40));
+          const step = Math.max(3, Math.ceil(full.length / 80));
           const doSpeak = Boolean(autoSpeakRef.current);
           const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 90) : [];
           let speakIdx = 0;
@@ -1466,6 +1455,7 @@ function D4AiPage() {
             ttsSpeakingRef.current = true;
             setSpeakingMsgId(aid);
           }
+          let speakStarted = false;
           const enqueueSpeak = (piece: string) => {
             speakQueue = speakQueue.then(
               () =>
@@ -1474,8 +1464,11 @@ function D4AiPage() {
                     resolve();
                     return;
                   }
+                  const isFirst = !speakStarted;
+                  speakStarted = true;
                   speakText(piece, {
                     preset: voicePresetRef.current,
+                    append: !isFirst,
                     onstart: () => {
                       setTtsSpeaking(true);
                       ttsSpeakingRef.current = true;
@@ -1483,8 +1476,8 @@ function D4AiPage() {
                     },
                     onend: () => resolve(),
                   });
-                  // safety if onend never fires
-                  window.setTimeout(() => resolve(), Math.max(4000, piece.length * 80));
+                  // Generous safety only — real onend should fire first
+                  window.setTimeout(() => resolve(), Math.max(12000, piece.length * 120));
                 }),
             );
           };
@@ -1514,7 +1507,7 @@ function D4AiPage() {
                 });
                 resolve();
               }
-            }, 14);
+            }, 18);
           });
         }
 
@@ -1576,6 +1569,7 @@ function D4AiPage() {
       silenceTimerRef.current = null;
     }
     setVoiceOn(false);
+    voiceOnRef.current = false;
     setVoicePaused(false);
     voicePausedRef.current = false;
     if (clearText) {
@@ -1607,6 +1601,7 @@ function D4AiPage() {
     }
     setVoiceSecs(0);
     setVoiceOn(true);
+    voiceOnRef.current = true;
     const rec = new SR();
     recognitionRef.current = rec;
     rec.continuous = true;
@@ -1657,28 +1652,30 @@ function D4AiPage() {
       }
     };
     rec.onend = () => {
-      // Do NOT restart mic while D4AI is speaking (prevents self-interrupt loop)
+      // Voice note: always keep mic on until Send. Call: restart unless AI is speaking.
       if (ttsSpeakingRef.current || isAiSpeakingRef.current) return;
-      if (!voicePausedRef.current && recognitionRef.current === rec && voiceOn) {
+      if (voicePausedRef.current) return;
+      if (!voiceOnRef.current) return;
+      if (recognitionRef.current !== rec) return;
+      // Voice message mode: never drop the mic — restart immediately
+      window.setTimeout(() => {
         try {
-          setTimeout(() => {
-            try {
-              if (
-                !voicePausedRef.current &&
-                !ttsSpeakingRef.current &&
-                !isAiSpeakingRef.current &&
-                recognitionRef.current === rec
-              ) {
-                rec.start();
-              }
-            } catch {}
-          }, 200);
+          if (
+            voiceOnRef.current &&
+            !voicePausedRef.current &&
+            !ttsSpeakingRef.current &&
+            !isAiSpeakingRef.current &&
+            recognitionRef.current === rec
+          ) {
+            rec.start();
+          }
         } catch {}
-      }
+      }, callModeRef.current ? 250 : 80);
     };
     try {
       rec.start();
       setVoiceOn(true);
+    voiceOnRef.current = true;
       voiceTimer.current = setInterval(() => setVoiceSecs((x) => x + 1), 1000);
     } catch {
       setError("Could not start microphone. Check permission.");
@@ -1686,6 +1683,7 @@ function D4AiPage() {
       try {
         recognitionRef.current = null;
         setVoiceOn(false);
+        voiceOnRef.current = false;
       } catch {}
     }
     } catch (e) {
@@ -1693,6 +1691,7 @@ function D4AiPage() {
       setError("Voice could not start. Try again.");
       setToast("Voice error — try again");
       setVoiceOn(false);
+      voiceOnRef.current = false;
     }
   };
 
@@ -2318,45 +2317,53 @@ function D4AiPage() {
           {/* Circular options on the inner side of the edge */}
           {callBubbleOpen ? (
             <div
-              className="absolute top-1/2 z-10 -translate-y-1/2"
+              className="absolute top-1/2 z-[20] -translate-y-1/2"
               style={{
-                // If bubble is on the right edge, options open to the left; else to the right
-                left: (bubblePos.x || 0) > window.innerWidth / 2 ? undefined : 72,
-                right: (bubblePos.x || 0) > window.innerWidth / 2 ? 72 : undefined,
+                left: (bubblePos.x || 0) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? undefined : 72,
+                right: (bubblePos.x || 0) > (typeof window !== "undefined" ? window.innerWidth / 2 : 200) ? 72 : undefined,
               }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="relative h-28 w-28">
+              <div className="relative h-28 w-28 pointer-events-auto">
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     if (voicePaused) resumeVoice();
                     else pauseVoice();
+                    setCallBubbleOpen(false);
                   }}
-                  className="absolute left-1/2 top-0 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
+                  className="absolute left-1/2 top-0 grid h-11 w-11 -translate-x-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
                   aria-label="Pause"
                 >
                   {voicePaused ? <Play className="h-4 w-4" /> : <Square className="h-3.5 w-3.5 fill-current" />}
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     endCallSession();
                   }}
-                  className="absolute bottom-0 left-1/2 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full bg-red-600 text-white shadow-lg"
+                  className="absolute bottom-0 left-1/2 grid h-11 w-11 -translate-x-1/2 place-items-center rounded-full bg-red-600 text-white shadow-lg"
                   aria-label="Cancel"
                 >
                   <X className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     expandCallFromBubble();
                   }}
-                  className="absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
-                  aria-label="Back to call"
+                  className="absolute left-1/2 top-1/2 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
+                  aria-label="Keyboard / expand"
                 >
                   <Keyboard className="h-4 w-4" />
                 </button>
