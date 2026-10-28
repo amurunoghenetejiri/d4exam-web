@@ -192,7 +192,7 @@ async function ocrImageDataUrl(dataUrl: string): Promise<string> {
   }
 }
 
-const VOICE_KEY = "d4ai_voice_v1";
+const VOICE_KEY = "d4ai_voice_v2";
 const SILENCE_MS = 1200;
 
 type VoicePreset =
@@ -1298,8 +1298,12 @@ function D4AiPage() {
       setStreaming(false);
       setStatus(null);
       setTab("chat");
-      // Chat send must not leave us on voice UI
-      if (!callModeRef.current) {
+      // Chat send: never open or keep voice UI from auto-talk
+      if (!voiceOnRef.current) {
+        setCallMode(false);
+        callModeRef.current = false;
+        setCallMinimized(false);
+        callMinimizedRef.current = false;
         setVoiceOn(false);
         voiceOnRef.current = false;
       }
@@ -1445,7 +1449,7 @@ function D4AiPage() {
         }
 
         // Typewriter + TTS
-        const inCall = callModeRef.current;
+        const inCall = callModeRef.current && voiceOnRef.current && !callMinimizedRef.current;
         if (inCall) {
           // Call mode: show no typing UI; speak without blocking chat flow
           try {
@@ -1465,9 +1469,20 @@ function D4AiPage() {
               ttsSpeakingRef.current = false;
               isAiSpeakingRef.current = false;
               // Stay on chat if minimized; only resume full call screen mic
-              if (callModeRef.current && !callMinimizedRef.current && !voicePausedRef.current) {
+              // Only resume mic on the full live-call screen — never jump from chat to voice page
+              if (
+                callModeRef.current &&
+                voiceOnRef.current &&
+                !callMinimizedRef.current &&
+                !voicePausedRef.current
+              ) {
                 window.setTimeout(() => {
-                  if (callModeRef.current && !callMinimizedRef.current && !isAiSpeakingRef.current) {
+                  if (
+                    callModeRef.current &&
+                    voiceOnRef.current &&
+                    !callMinimizedRef.current &&
+                    !isAiSpeakingRef.current
+                  ) {
                     finalTranscriptRef.current = "";
                     setVoiceText("");
                     startVoice();
