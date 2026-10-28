@@ -223,18 +223,18 @@ type VoiceChar = {
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  { id: "rex", name: "Rex", tag: "Deep male · calm", emoji: "🧑", seVoice: "en-US-ChristopherNeural", rate: 0.95, pitch: 0.85, sample: "Hey, I'm Rex. Clear, calm, and ready when you are." },
-  { id: "atlas", name: "Atlas", tag: "Deep bass · wise", emoji: "🧔", seVoice: "en-US-EricNeural", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
-  { id: "nova", name: "Nova", tag: "Female · warm", emoji: "👩", seVoice: "en-US-JennyNeural", rate: 1.0, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
-  { id: "luna", name: "Luna", tag: "Female · soft", emoji: "✨", seVoice: "en-US-AriaNeural", rate: 0.92, pitch: 1.15, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
-  { id: "cipher", name: "Cipher", tag: "Robotic · AI", emoji: "🤖", seVoice: "en-US-JasonNeural", rate: 1.1, pitch: 0.45, sample: "System online. I am Cipher, your robotic assistant." },
-  { id: "echo", name: "Echo", tag: "British male", emoji: "🔮", seVoice: "en-GB-RyanNeural", rate: 1.0, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
-  { id: "kai", name: "Kai", tag: "Young · energetic", emoji: "⚡", seVoice: "en-US-GuyNeural", rate: 1.15, pitch: 1.1, sample: "Kai online! Fast, sharp, and full of energy." },
-  { id: "aria", name: "Aria", tag: "Female · bright", emoji: "💫", seVoice: "en-US-MichelleNeural", rate: 0.95, pitch: 1.2, sample: "I'm Aria. Soft, smooth, and a little romantic." },
-  { id: "bolt", name: "Bolt", tag: "Sharp · active", emoji: "🔥", seVoice: "en-US-GuyNeural", rate: 1.2, pitch: 1.15, sample: "Bolt here — bright, energetic, let's go!" },
-  { id: "sage", name: "Sage", tag: "Old wise · slow", emoji: "📚", seVoice: "en-US-EricNeural", rate: 0.78, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
-  { id: "pixel", name: "Pixel", tag: "Playful · high", emoji: "🎮", seVoice: "en-US-AnaNeural", rate: 1.22, pitch: 1.4, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
-  { id: "volt", name: "Volt", tag: "Narrator · strong", emoji: "⚡", seVoice: "en-US-SteffanNeural", rate: 1.05, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
+  { id: "rex", name: "Rex", tag: "Deep male · calm", emoji: "🧑", seVoice: "Brian", rate: 0.95, pitch: 0.85, sample: "Hey, I'm Rex. Clear, calm, and ready when you are." },
+  { id: "atlas", name: "Atlas", tag: "Deep bass · wise", emoji: "🧔", seVoice: "Matthew", rate: 0.82, pitch: 0.55, sample: "I am Atlas. Deep, calm, and grounded." },
+  { id: "nova", name: "Nova", tag: "Female · warm", emoji: "👩", seVoice: "Amy", rate: 1.0, pitch: 1.05, sample: "Hi, I'm Nova. Warm, clear, and easy to listen to." },
+  { id: "luna", name: "Luna", tag: "Female · soft", emoji: "✨", seVoice: "Emma", rate: 0.92, pitch: 1.15, sample: "Hello, I'm Luna. Soft, gentle, and relaxed." },
+  { id: "cipher", name: "Cipher", tag: "Robotic · AI", emoji: "🤖", seVoice: "Justin", rate: 1.1, pitch: 0.45, sample: "System online. I am Cipher, your robotic assistant." },
+  { id: "echo", name: "Echo", tag: "British male", emoji: "🔮", seVoice: "Brian", rate: 1.0, pitch: 0.95, sample: "Echo here. Modern AI voice, sharp and precise." },
+  { id: "kai", name: "Kai", tag: "Young · energetic", emoji: "⚡", seVoice: "Joey", rate: 1.15, pitch: 1.1, sample: "Kai online! Fast, sharp, and full of energy." },
+  { id: "aria", name: "Aria", tag: "Female · bright", emoji: "💫", seVoice: "Joanna", rate: 0.95, pitch: 1.2, sample: "I'm Aria. Soft, smooth, and a little romantic." },
+  { id: "bolt", name: "Bolt", tag: "Sharp · active", emoji: "🔥", seVoice: "Joey", rate: 1.2, pitch: 1.15, sample: "Bolt here — bright, energetic, let's go!" },
+  { id: "sage", name: "Sage", tag: "Old wise · slow", emoji: "📚", seVoice: "Matthew", rate: 0.78, pitch: 0.6, sample: "I am Sage. Deep, thoughtful, and measured." },
+  { id: "pixel", name: "Pixel", tag: "Playful · high", emoji: "🎮", seVoice: "Ivy", rate: 1.22, pitch: 1.4, sample: "Hi hi! Pixel here — fun, bouncy, cartoon energy!" },
+  { id: "volt", name: "Volt", tag: "Narrator · strong", emoji: "⚡", seVoice: "Russell", rate: 1.05, pitch: 0.9, sample: "Volt charged. Unlimited power. Let's build." },
 ];
 
 function loadVoicePreset(): VoicePreset {
@@ -608,23 +608,23 @@ function stopSpeaking() {
 function dedupeTranscript(text: string): string {
   let s = text.replace(/\s+/g, " ").trim();
   if (!s) return "";
-  // strip common STT artifacts
   s = s.replace(/[.]{2,}/g, " ");
-  // collapse immediate word repeats: "okay okay okay" -> "okay"
-  for (let n = 0; n < 4; n++) s = s.replace(/\b(\w+)(?:\s+\1\b)+/gi, "$1");
-  // collapse repeated 2-word phrases
-  for (let n = 0; n < 3; n++) s = s.replace(/\b((?:\w+\s+)\w+)(?:\s+\1)+\b/gi, "$1");
-  // collapse longer repeated runs of 3-6 words
-  for (let n = 0; n < 3; n++) s = s.replace(/\b((?:\w+\s+){2,5}\w+)(?:\s+\1)+\b/gi, "$1");
-  // sliding window: drop if last 3-5 words equal previous 3-5
+  // Collapse runs of the same word (who who who → who)
+  for (let n = 0; n < 6; n++) s = s.replace(/\b(\w{1,24})(?:\s+\1\b)+/gi, "$1");
+  // Collapse 2–4 word phrase repeats
+  for (let n = 0; n < 4; n++) {
+    s = s.replace(/\b((?:\w+\s+){1}\w+)(?:\s+\1)+\b/gi, "$1");
+    s = s.replace(/\b((?:\w+\s+){2}\w+)(?:\s+\1)+\b/gi, "$1");
+    s = s.replace(/\b((?:\w+\s+){3}\w+)(?:\s+\1)+\b/gi, "$1");
+  }
   const words = s.split(" ").filter(Boolean);
   const out: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    const prev = out[out.length - 1];
-    if (prev && prev.toLowerCase() === w.toLowerCase()) continue;
+    if (out.length && out[out.length - 1].toLowerCase() === w.toLowerCase()) continue;
     let skip = false;
-    for (let k = 2; k <= 5 && out.length >= k && i + k - 1 < words.length; k++) {
+    for (let k = 2; k <= 6 && out.length >= k; k++) {
+      if (i + k > words.length) break;
       const a = out.slice(-k).map((x) => x.toLowerCase()).join(" ");
       const b = words.slice(i, i + k).map((x) => x.toLowerCase()).join(" ");
       if (a === b) { skip = true; break; }
@@ -911,6 +911,9 @@ const GLOBAL_CSS = `
 @keyframes d4ai-mouth{from{transform:translateX(-50%) scaleY(.3)}to{transform:translateX(-50%) scaleY(1.2)}}
 .d4ai-write-cursor{display:inline-block;width:2px;height:1em;margin-left:3px;vertical-align:-2px;background:linear-gradient(180deg,#67e8f9,#3b82f6);animation:d4ai-blink .9s step-end infinite}
 @keyframes d4ai-blink{0%,100%{opacity:1}50%{opacity:0}}
+.d4ai-orb-talk{animation:d4ai-orb-bounce .9s ease-in-out infinite}
+@keyframes d4ai-orb-bounce{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+
 @keyframes d4ai-grad{0%{background-position:0% 50%}100%{background-position:200% 50%}}
 .d4ai-title-grad{background:linear-gradient(90deg,#67e8f9 0%,#3b82f6 45%,#c084fc 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 `;
@@ -1451,38 +1454,67 @@ function D4AiPage() {
             },
           });
         } else {
-          // Chat mode: typewriter; optional auto-speak after (or progressive if autoSpeak)
+          // Chat mode: typewriter + speak chunks as text appears (no wait for full reply)
           let i = 0;
-          const step = Math.max(6, Math.ceil(full.length / 50));
+          const step = Math.max(8, Math.ceil(full.length / 40));
           const doSpeak = Boolean(autoSpeakRef.current);
+          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 90) : [];
+          let speakIdx = 0;
+          let speakQueue = Promise.resolve();
           if (doSpeak) {
             setTtsSpeaking(true);
             ttsSpeakingRef.current = true;
             setSpeakingMsgId(aid);
-            speakText(full, {
-              preset: voicePresetRef.current,
-              onstart: () => {
-                setTtsSpeaking(true);
-                ttsSpeakingRef.current = true;
-                setSpeakingMsgId(aid);
-              },
-              onend: () => {
-                setTtsSpeaking(false);
-                ttsSpeakingRef.current = false;
-                setSpeakingMsgId(null);
-              },
-            });
           }
+          const enqueueSpeak = (piece: string) => {
+            speakQueue = speakQueue.then(
+              () =>
+                new Promise<void>((resolve) => {
+                  if (speakingCancelled) {
+                    resolve();
+                    return;
+                  }
+                  speakText(piece, {
+                    preset: voicePresetRef.current,
+                    onstart: () => {
+                      setTtsSpeaking(true);
+                      ttsSpeakingRef.current = true;
+                      setSpeakingMsgId(aid);
+                    },
+                    onend: () => resolve(),
+                  });
+                  // safety if onend never fires
+                  window.setTimeout(() => resolve(), Math.max(4000, piece.length * 80));
+                }),
+            );
+          };
           await new Promise<void>((resolve) => {
             typewriterRef.current = setInterval(() => {
               i = Math.min(full.length, i + step);
               ensureAssistant(full.slice(0, i));
+              if (doSpeak) {
+                // Speak next phrase once typewriter has revealed enough of it
+                while (speakIdx < speechChunks.length) {
+                  const revealed = speechChunks.slice(0, speakIdx + 1).join(" ");
+                  if (i < Math.min(full.length, Math.floor(revealed.length * 0.85))) break;
+                  enqueueSpeak(speechChunks[speakIdx++]);
+                }
+              }
               if (i >= full.length) {
                 if (typewriterRef.current) clearInterval(typewriterRef.current);
                 typewriterRef.current = null;
+                // Flush remaining speech chunks
+                while (speakIdx < speechChunks.length) {
+                  enqueueSpeak(speechChunks[speakIdx++]);
+                }
+                void speakQueue.then(() => {
+                  setTtsSpeaking(false);
+                  ttsSpeakingRef.current = false;
+                  setSpeakingMsgId(null);
+                });
                 resolve();
               }
-            }, 12);
+            }, 14);
           });
         }
 
@@ -1506,6 +1538,12 @@ function D4AiPage() {
         setBusy(false);
         setStreaming(false);
         setStatus(null);
+        // Never auto-open voice note after chat TTS
+        if (!callModeRef.current) {
+          try {
+            // leave voiceOn alone if user is already in call
+          } catch {}
+        }
         scrollDown();
       }
     },
@@ -1583,27 +1621,17 @@ function D4AiPage() {
         } catch {}
         return;
       }
+      // Rebuild from full results list (avoids cumulative "who who who" repeats)
+      const finals: string[] = [];
       let interim = "";
-      let addedFinal = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      for (let i = 0; i < ev.results.length; i++) {
         const r = ev.results[i];
         const piece = String(r[0]?.transcript || "").replace(/\s+/g, " ").trim();
         if (!piece) continue;
-        if (r.isFinal) {
-          const prev = finalTranscriptRef.current;
-          const low = piece.toLowerCase();
-          if (!prev.toLowerCase().endsWith(low) && !prev.toLowerCase().includes(low + " ")) {
-            addedFinal = (addedFinal + " " + piece).trim();
-          }
-        } else {
-          interim = piece;
-        }
+        if (r.isFinal) finals.push(piece);
+        else interim = piece;
       }
-      if (addedFinal) {
-        finalTranscriptRef.current = dedupeTranscript(
-          (finalTranscriptRef.current + " " + addedFinal).trim(),
-        );
-      }
+      finalTranscriptRef.current = dedupeTranscript(finals.join(" "));
       const display = dedupeTranscript(
         [finalTranscriptRef.current, interim].filter(Boolean).join(" ").trim(),
       );
@@ -2170,9 +2198,9 @@ function D4AiPage() {
             }
           }}
           className={cn("mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full", dark ? "text-white hover:bg-white/10" : "text-slate-700 hover:bg-slate-100")}
-          aria-label="Voice note"
+          aria-label="Voice message"
         >
-          <Mic className="h-5 w-5" />
+          <Volume2 className="h-5 w-5" />
         </button>
         <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.csv,application/pdf,text/plain" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
         <input ref={imageFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void onPickFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
@@ -2249,91 +2277,108 @@ function D4AiPage() {
       {/* ---------- Minimized live-call floating bubble ---------- */}
       {callMode && callMinimized ? (
         <div
-          className="fixed z-[90] flex flex-col items-center gap-2"
+          className="fixed z-[90]"
           style={{
-            left: bubblePos.x ? bubblePos.x : undefined,
-            top: bubblePos.y ? bubblePos.y : undefined,
-            right: bubblePos.x ? undefined : 16,
+            left: bubblePos.x || 12,
+            top: bubblePos.y || undefined,
             bottom: bubblePos.y ? undefined : 96,
             touchAction: "none",
           }}
           onPointerDown={(e) => {
-            const t = e.currentTarget;
             const startX = e.clientX;
             const startY = e.clientY;
-            const rect = t.getBoundingClientRect();
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const origX = rect.left;
             const origY = rect.top;
             let moved = false;
             const onMove = (ev: PointerEvent) => {
               const dx = ev.clientX - startX;
               const dy = ev.clientY - startY;
-              if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
-              const nx = Math.max(8, Math.min(window.innerWidth - 72, origX + dx));
-              const ny = Math.max(8, Math.min(window.innerHeight - 120, origY + dy));
+              if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
+              const nx = Math.max(4, Math.min(window.innerWidth - 76, origX + dx));
+              const ny = Math.max(48, Math.min(window.innerHeight - 140, origY + dy));
               setBubblePos({ x: nx, y: ny });
             };
             const onUp = () => {
               window.removeEventListener("pointermove", onMove);
               window.removeEventListener("pointerup", onUp);
+              // Snap to left or right edge
+              setBubblePos((p) => {
+                const mid = window.innerWidth / 2;
+                const cx = (p.x || 12) + 32;
+                const snapX = cx < mid ? 10 : window.innerWidth - 78;
+                return { x: snapX, y: p.y || 120 };
+              });
               if (!moved) setCallBubbleOpen((o) => !o);
             };
             window.addEventListener("pointermove", onMove);
             window.addEventListener("pointerup", onUp);
           }}
         >
+          {/* Circular options on the inner side of the edge */}
           {callBubbleOpen ? (
-            <div className="mb-1 flex flex-row items-center gap-2 rounded-full bg-[#0b1a3a]/95 px-2 py-1.5 ring-1 ring-cyan-400/40">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (voicePaused) resumeVoice();
-                  else pauseVoice();
-                  setCallBubbleOpen(false);
-                }}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
-                aria-label="Pause or resume"
-              >
-                {voicePaused ? <Mic className="h-5 w-5" /> : <Square className="h-4 w-4 fill-current" />}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  expandCallFromBubble();
-                }}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
-                aria-label="Expand call"
-              >
-                <Phone className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  endCallSession();
-                }}
-                className="grid h-10 w-10 place-items-center rounded-full bg-red-600/90 text-white"
-                aria-label="End call"
-              >
-                <X className="h-5 w-5" />
-              </button>
+            <div
+              className="absolute top-1/2 z-10 -translate-y-1/2"
+              style={{
+                // If bubble is on the right edge, options open to the left; else to the right
+                left: (bubblePos.x || 0) > window.innerWidth / 2 ? undefined : 72,
+                right: (bubblePos.x || 0) > window.innerWidth / 2 ? 72 : undefined,
+              }}
+            >
+              <div className="relative h-28 w-28">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (voicePaused) resumeVoice();
+                    else pauseVoice();
+                  }}
+                  className="absolute left-1/2 top-0 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
+                  aria-label="Pause"
+                >
+                  {voicePaused ? <Play className="h-4 w-4" /> : <Square className="h-3.5 w-3.5 fill-current" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    endCallSession();
+                  }}
+                  className="absolute bottom-0 left-1/2 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full bg-red-600 text-white shadow-lg"
+                  aria-label="Cancel"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    expandCallFromBubble();
+                  }}
+                  className="absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[#0b1a3a] text-white shadow-lg ring-1 ring-cyan-400/50"
+                  aria-label="Back to call"
+                >
+                  <Keyboard className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           ) : null}
-          <button
-            type="button"
-            className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_24px_rgba(59,130,246,0.55)] ring-4 ring-cyan-300/30"
-            aria-label="Call options"
-          >
-            <img src={LOGO} alt="D4AI call" className="h-12 w-12 rounded-full object-cover pointer-events-none" />
-            {ttsSpeaking ? (
-              <span className="absolute inset-0 animate-pulse rounded-full ring-2 ring-cyan-300/60 pointer-events-none" />
-            ) : null}
-          </button>
-          <p className="max-w-[9rem] text-center text-[10px] text-cyan-200/90 pointer-events-none">
-            {ttsSpeaking ? "Speaking…" : voicePaused ? "Paused" : "Drag · tap options"}
-          </p>
+          {/* Orb */}
+          <div className="relative grid h-16 w-16 place-items-center">
+            <span className="d4ai-ring absolute inset-[-6px] rounded-full border border-cyan-400/40" />
+            <span className="d4ai-ring absolute inset-[-12px] rounded-full border border-blue-400/25" style={{ animationDelay: "0.5s" }} />
+            <button
+              type="button"
+              className={cn(
+                "relative z-[1] grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] shadow-[0_0_28px_rgba(59,130,246,0.55)]",
+                ttsSpeaking && "d4ai-orb-talk",
+              )}
+              aria-label="Call options"
+            >
+              <img src={LOGO} alt="D4AI" className="h-10 w-10 rounded-full object-cover pointer-events-none" />
+              <span className={cn("d4ai-talk-mouth", ttsSpeaking && "on")} aria-hidden />
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -2627,7 +2672,9 @@ function D4AiPage() {
                 dark ? "bg-[#0e2038] text-slate-200" : "bg-white text-slate-800 shadow",
               )}
             >
-              {voiceText || (ttsSpeaking ? "…" : "Speak clearly…")}
+              {callMode
+                ? (ttsSpeaking ? "Listening after I finish…" : "Listening…")
+                : (voiceText || (ttsSpeaking ? "…" : "Speak clearly…"))}
             </div>
           </div>
 
@@ -2687,40 +2734,17 @@ function D4AiPage() {
             >
               <Keyboard className="h-5 w-5" />
             </button>
-            {/* Toggle: robot = live call (AI talks back), speaker = voice note (Send to reply) */}
-            <button
-              type="button"
-              onClick={() => {
-                if (callMode) {
-                  // switch to voice-note mode
-                  setCallMode(false);
-                  callModeRef.current = false;
-                  stopSpeaking();
-                  setTtsSpeaking(false);
-                  if (silenceTimerRef.current) {
-                    clearTimeout(silenceTimerRef.current);
-                    silenceTimerRef.current = null;
-                  }
-                  if (!recognitionRef.current) startVoice();
-                } else {
-                  // switch to live call mode
-                  setCallMode(true);
-                  callModeRef.current = true;
-                  setAutoSpeak(true);
-                  autoSpeakRef.current = true;
-                  try { localStorage.setItem(SPEAK_KEY, "1"); } catch {}
-                  if (!recognitionRef.current) startVoice();
-                }
-              }}
+            {/* Mode indicator only — not clickable (separate pages for call vs note) */}
+            <div
               className="grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#60a5fa] to-[#1d4ed8] text-white shadow-xl ring-4 ring-cyan-400/30"
-              aria-label={callMode ? "Switch to voice note" : "Switch to live call"}
+              aria-hidden
             >
               {callMode ? (
-                <img src={LOGO} alt="Call" className="h-10 w-10 rounded-full object-cover" />
+                <img src={LOGO} alt="" className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <Volume2 className="h-7 w-7 text-white" />
               )}
-            </button>
+            </div>
             <button
               type="button"
               onClick={() => {
