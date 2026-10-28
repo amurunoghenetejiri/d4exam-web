@@ -10,7 +10,19 @@ const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
 /** Character / alias → Google TTS language code (accent variety) + Edge voice */
 const VOICE_CFG: Record<string, { tl: string; edge: string }> = {
-  // Google tl = audible accent difference; Edge = distinct neural voices when available
+  // Clone character ids + legacy
+  ceo: { tl: "en-US", edge: "en-US-ChristopherNeural" },
+  lovelle: { tl: "en", edge: "en-US-JennyNeural" },
+  chippy: { tl: "en-US", edge: "en-US-AnaNeural" },
+  whisper: { tl: "en-AU", edge: "en-US-AriaNeural" },
+  robo: { tl: "en-US", edge: "en-US-DavisNeural" },
+  bella: { tl: "en", edge: "en-US-JennyNeural" },
+  bubbly: { tl: "en-US", edge: "en-US-AnaNeural" },
+  cosmo: { tl: "en-GB", edge: "en-GB-RyanNeural" },
+  titan: { tl: "en-GB", edge: "en-US-EricNeural" },
+  orion: { tl: "en-US", edge: "en-US-ChristopherNeural" },
+  astro: { tl: "en-US", edge: "en-US-GuyNeural" },
+  baritone: { tl: "en-GB", edge: "en-US-EricNeural" },
   rex: { tl: "en-US", edge: "en-US-ChristopherNeural" },
   atlas: { tl: "en-GB", edge: "en-GB-RyanNeural" },
   nova: { tl: "en", edge: "en-US-JennyNeural" },

@@ -247,7 +247,7 @@ function loadVoicePreset(): VoicePreset {
     if (v === "male" || v === "rex" || v === "atlas") return "ceo";
     if (v === "female" || v === "luna" || v === "aria") return "lovelle";
     if (v === "deep") return "titan";
-    if (v === "soft") return "luna";
+    if (v === "soft") return "whisper";
     if (v === "auto") return "ceo";
   } catch {}
   return "ceo";
@@ -1056,10 +1056,7 @@ function D4AiPage() {
             style: theme === "dark" ? sb.Style.Dark : sb.Style.Light,
           });
         } catch {}
-        try {
-          const nb = await import("@capgo/capacitor-navigation-bar");
-          await nb.NavigationBar.setNavigationBarColor({ color, darkButtons: theme !== "dark" });
-        } catch {}
+        // NavigationBar plugin optional — not always installed; theme-color covers WebView
       } catch {
         /* web */
       }
