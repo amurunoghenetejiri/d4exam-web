@@ -277,6 +277,8 @@ function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
 }
 
 let activeAudio: HTMLAudioElement | null = null;
+let recognitionRefGlobal: { stop?: () => void } | null = null;
+let isAiSpeakingRefGlobal = false;
 let speakingCancelled = false;
 let speakQueueTail: Promise<void> = Promise.resolve();
 let speakSession = 0;
@@ -456,11 +458,19 @@ function playAudioQueue(
 
 function speakText(
   text: string,
-  opts?: { preset?: VoicePreset; onend?: () => void; onstart?: () => void; append?: boolean },
+  opts?: {
+    preset?: VoicePreset;
+    onend?: () => void;
+    onstart?: () => void;
+    append?: boolean;
+    preview?: boolean;
+  },
 ) {
-  const clean = stripForSpeech(text).slice(0, 400);
+  const clean = stripForSpeech(text).slice(0, 1200);
   if (!clean) {
-    try { opts?.onend?.(); } catch {}
+    try {
+      opts?.onend?.();
+    } catch {}
     return;
   }
 
@@ -478,6 +488,10 @@ function speakText(
     try {
       window.speechSynthesis?.cancel();
     } catch {}
+    try {
+      recognitionRefGlobal?.stop?.();
+    } catch {}
+    isAiSpeakingRefGlobal = true;
     speakingCancelled = false;
     speakQueueTail = Promise.resolve();
   }
@@ -489,28 +503,38 @@ function speakText(
   const startOnce = () => {
     if (started) return;
     started = true;
-    try { opts?.onstart?.(); } catch {}
+    isAiSpeakingRefGlobal = true;
+    try {
+      opts?.onstart?.();
+    } catch {}
+  };
+  const finishAll = () => {
+    isAiSpeakingRefGlobal = false;
+    try {
+      opts?.onend?.();
+    } catch {}
   };
 
   speakQueueTail = speakQueueTail.then(async () => {
     if (speakingCancelled || session !== speakSession) {
-      try { opts?.onend?.(); } catch {}
+      finishAll();
       return;
     }
-    // 1) D4AI Piper / clone TTS via proxy (returns audio/wav bytes)
-    try {
-      const res = await fetch("/api/d4ai/voice", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "audio/wav, application/json",
-        },
-        body: JSON.stringify({ text: clean, voice: char.id }),
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const ct = res.headers.get("Content-Type") || "";
-        if (ct.includes("audio") || ct.includes("octet-stream") || ct.includes("wav")) {
+
+    const pieces = clean.length <= 180 ? [clean] : chunkSpeech(clean, 160);
+
+    for (let pi = 0; pi < pieces.length; pi++) {
+      if (speakingCancelled || session !== speakSession) break;
+      const piece = pieces[pi];
+      let played = false;
+
+      // Primary: Google/Edge via /api/d4ai/tts — distinct accents per character
+      try {
+        const res = await fetch(ttsUrl(piece, char.id), {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (res.ok) {
           const blob = await res.blob();
           if (blob.size > 200) {
             const obj = URL.createObjectURL(blob);
@@ -522,86 +546,97 @@ function speakText(
               const fin = () => {
                 if (done) return;
                 done = true;
-                try { URL.revokeObjectURL(obj); } catch {}
+                try {
+                  URL.revokeObjectURL(obj);
+                } catch {}
                 resolve();
               };
               audio.onplay = () => startOnce();
               audio.onended = fin;
               audio.onerror = fin;
-              const p = audio.play();
-              if (p && typeof p.catch === "function") p.catch(() => fin());
-              window.setTimeout(fin, 90000);
+              void audio.play().catch(() => fin());
+              window.setTimeout(fin, 60000);
             });
-            try { opts?.onend?.(); } catch {}
-            return;
-          }
-        } else {
-          // JSON play_url fallback
-          const data = (await res.json()) as { success?: boolean; play_url?: string };
-          if (data.success && data.play_url) {
-            await new Promise<void>((resolve) => {
-              const audio = new Audio(data.play_url!);
-              activeAudio = audio;
-              audio.onplay = () => startOnce();
-              audio.onended = () => resolve();
-              audio.onerror = () => resolve();
-              void audio.play().catch(() => resolve());
-              window.setTimeout(() => resolve(), 90000);
-            });
-            try { opts?.onend?.(); } catch {}
-            return;
+            played = true;
           }
         }
-      }
-    } catch {
-      /* fall through */
-    }
+      } catch {}
 
-    if (speakingCancelled || session !== speakSession) {
-      try { opts?.onend?.(); } catch {}
-      return;
-    }
-
-    // 2) Legacy Google/Edge proxy fallback
-    try {
-      const res = await fetch(ttsUrl(clean, char.id), { credentials: "same-origin", cache: "no-store" });
-      if (res.ok) {
-        const blob = await res.blob();
-        if (blob.size > 200) {
-          const obj = URL.createObjectURL(blob);
-          await new Promise<void>((resolve) => {
-            const audio = new Audio(obj);
-            activeAudio = audio;
-            audio.onplay = () => startOnce();
-            audio.onended = () => {
-              try { URL.revokeObjectURL(obj); } catch {}
-              resolve();
-            };
-            audio.onerror = () => resolve();
-            void audio.play().catch(() => resolve());
-            window.setTimeout(() => resolve(), 60000);
+      if (!played) {
+        try {
+          const res = await fetch("/api/d4ai/voice", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "audio/wav, application/json",
+            },
+            body: JSON.stringify({ text: piece, voice: char.id }),
+            cache: "no-store",
           });
-          try { opts?.onend?.(); } catch {}
-          return;
-        }
+          if (res.ok) {
+            const ct = res.headers.get("Content-Type") || "";
+            if (ct.includes("json")) {
+              const data = (await res.json()) as { play_url?: string };
+              if (data.play_url) {
+                await new Promise<void>((resolve) => {
+                  const audio = new Audio(data.play_url!);
+                  activeAudio = audio;
+                  audio.onplay = () => startOnce();
+                  audio.onended = () => resolve();
+                  audio.onerror = () => resolve();
+                  void audio.play().catch(() => resolve());
+                  window.setTimeout(() => resolve(), 60000);
+                });
+                played = true;
+              }
+            } else {
+              const blob = await res.blob();
+              if (blob.size > 200) {
+                const obj = URL.createObjectURL(blob);
+                await new Promise<void>((resolve) => {
+                  const audio = new Audio(obj);
+                  activeAudio = audio;
+                  audio.onplay = () => startOnce();
+                  audio.onended = () => {
+                    try {
+                      URL.revokeObjectURL(obj);
+                    } catch {}
+                    resolve();
+                  };
+                  audio.onerror = () => resolve();
+                  void audio.play().catch(() => resolve());
+                  window.setTimeout(() => resolve(), 60000);
+                });
+                played = true;
+              }
+            }
+          }
+        } catch {}
       }
-    } catch {}
 
-    // 3) Browser speechSynthesis last resort
-    try {
-      await new Promise<void>((resolve) => {
-        const u = new SpeechSynthesisUtterance(clean);
-        u.rate = char.rate;
-        u.pitch = Math.max(0.1, Math.min(2, char.pitch));
-        u.onstart = () => startOnce();
-        u.onend = () => resolve();
-        u.onerror = () => resolve();
-        window.speechSynthesis.resume();
-        window.speechSynthesis.speak(u);
-        window.setTimeout(() => resolve(), 30000);
-      });
-    } catch {}
-    try { opts?.onend?.(); } catch {}
+      if (!played && typeof window !== "undefined" && window.speechSynthesis) {
+        try {
+          await new Promise<void>((resolve) => {
+            const u = new SpeechSynthesisUtterance(piece);
+            u.rate = char.rate;
+            u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+            u.volume = 1;
+            try {
+              const v = pickVoice(preset);
+              if (v) u.voice = v;
+            } catch {}
+            u.onstart = () => startOnce();
+            u.onend = () => resolve();
+            u.onerror = () => resolve();
+            window.speechSynthesis.resume();
+            window.speechSynthesis.speak(u);
+            window.setTimeout(() => resolve(), 30000);
+          });
+        } catch {}
+      }
+    }
+
+    finishAll();
   });
 }
 
@@ -622,34 +657,30 @@ function stopSpeaking() {
   } catch {}
 }
 
-function dedupeTranscript(text: string): string {
-  let s = text.replace(/\s+/g, " ").trim();
-  if (!s) return "";
-  s = s.replace(/[.]{2,}/g, " ");
-  // Collapse runs of the same word (who who who → who)
-  for (let n = 0; n < 6; n++) s = s.replace(/\b(\w{1,24})(?:\s+\1\b)+/gi, "$1");
-  // Collapse 2–4 word phrase repeats
-  for (let n = 0; n < 4; n++) {
-    s = s.replace(/\b((?:\w+\s+){1}\w+)(?:\s+\1)+\b/gi, "$1");
-    s = s.replace(/\b((?:\w+\s+){2}\w+)(?:\s+\1)+\b/gi, "$1");
-    s = s.replace(/\b((?:\w+\s+){3}\w+)(?:\s+\1)+\b/gi, "$1");
-  }
-  const words = s.split(" ").filter(Boolean);
-  const out: string[] = [];
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    if (out.length && out[out.length - 1].toLowerCase() === w.toLowerCase()) continue;
-    let skip = false;
-    for (let k = 2; k <= 6 && out.length >= k; k++) {
-      if (i + k > words.length) break;
-      const a = out.slice(-k).map((x) => x.toLowerCase()).join(" ");
-      const b = words.slice(i, i + k).map((x) => x.toLowerCase()).join(" ");
-      if (a === b) { skip = true; break; }
+function dedupeTranscript(s: string): string {
+  let t = s.replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  // Collapse phrase loops: (word+){2,} repeated
+  for (let n = 1; n <= 10; n++) {
+    const parts: string[] = [];
+    const words = t.split(" ");
+    let i = 0;
+    while (i < words.length) {
+      if (i + 2 * n <= words.length) {
+        const a = words.slice(i, i + n).join(" ").toLowerCase();
+        const b = words.slice(i + n, i + 2 * n).join(" ").toLowerCase();
+        if (a === b) {
+          // skip one repeat block
+          i += n;
+          continue;
+        }
+      }
+      parts.push(words[i]);
+      i += 1;
     }
-    if (skip) continue;
-    out.push(w);
+    t = parts.join(" ");
   }
-  return out.join(" ").trim();
+  return t;
 }
 
 
@@ -1531,8 +1562,8 @@ function D4AiPage() {
           // Fast smooth typewriter (~0.8–1.5s full reply) + speech slightly behind text
           let i = 0;
           // Aim to finish text in ~25 ticks (smooth, not sluggish)
-          const step = Math.max(8, Math.ceil(full.length / 25));
-          const tickMs = 28;
+          const step = Math.max(12, Math.ceil(full.length / 18));
+          const tickMs = 16;
           const doSpeak = Boolean(autoSpeakRef.current);
           // Longer speech phrases = fewer network gaps, still continuous
           const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 160) : [];
@@ -1569,14 +1600,17 @@ function D4AiPage() {
               i = Math.min(full.length, i + step);
               ensureAssistant(full.slice(0, i));
               if (doSpeak) {
-                // Only speak a phrase after that much text is already on screen
-                // (text stays a little ahead of audio)
                 while (speakIdx < speechChunks.length) {
+                  // First speech after ~one line / first few tokens on screen
+                  if (speakIdx === 0 && i < 40) break;
                   const spokenSoFar = speechChunks.slice(0, speakIdx + 1).join(" ");
-                  // Map speech length to roughly full answer length
                   const need = Math.min(
                     full.length,
-                    Math.ceil((spokenSoFar.length / Math.max(1, stripForSpeech(full).length)) * full.length * 1.05),
+                    Math.ceil(
+                      (spokenSoFar.length / Math.max(1, stripForSpeech(full).length)) *
+                        full.length *
+                        1.12,
+                    ),
                   );
                   if (i < need) break;
                   enqueueSpeak(speechChunks[speakIdx++]);
@@ -1693,38 +1727,35 @@ function D4AiPage() {
     voiceOnRef.current = true;
     const rec = new SR();
     recognitionRef.current = rec;
+    recognitionRefGlobal = rec;
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.lang = "en-US";
     rec.onresult = (ev: any) => {
-      // Hard mute: ignore everything while D4AI is talking
-      if (ttsSpeakingRef.current || isAiSpeakingRef.current) {
-        try {
-          recognitionRef.current?.stop();
-        } catch {}
+      if (ttsSpeakingRef.current || isAiSpeakingRef.current || isAiSpeakingRefGlobal) {
         return;
       }
-      // Rebuild from full results list (avoids cumulative "who who who" repeats)
-      const finals: string[] = [];
       let interim = "";
-      for (let i = 0; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        const piece = String(r[0]?.transcript || "").replace(/\s+/g, " ").trim();
+      let added = "";
+      for (let ri = ev.resultIndex; ri < ev.results.length; ri++) {
+        const piece = String(ev.results[ri][0]?.transcript || "");
         if (!piece) continue;
-        if (r.isFinal) finals.push(piece);
+        if (ev.results[ri].isFinal) added += piece + " ";
         else interim = piece;
       }
-      finalTranscriptRef.current = dedupeTranscript(finals.join(" "));
-      const display = dedupeTranscript(
+      if (added.trim()) {
+        finalTranscriptRef.current = dedupeTranscript(
+          (finalTranscriptRef.current + " " + added).trim(),
+        );
+      }
+      setVoiceText(
         [finalTranscriptRef.current, interim].filter(Boolean).join(" ").trim(),
       );
-      setVoiceText(display);
-
-      // Call mode only: after silence, auto-send to AI
       if (callModeRef.current && !voicePausedRef.current) {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
+          if (ttsSpeakingRef.current || isAiSpeakingRef.current) return;
           const text = (finalTranscriptRef.current || "").trim();
           if (text && callModeRef.current) {
             void finishCallTurn(text);
@@ -2879,9 +2910,20 @@ function D4AiPage() {
                         localStorage.setItem(VOICE_KEY, c.id);
                         localStorage.setItem("d4ai-voice-file", c.file);
                       } catch {}
-                      setToast(`${c.emoji} ${c.name}`);
+                      setToast(`${c.emoji} ${c.name} — preview`);
                       stopSpeaking();
-                      speakText(c.sample, { preset: c.id, onend: () => {} });
+                      try {
+                        recognitionRef.current?.stop();
+                      } catch {}
+                      isAiSpeakingRef.current = true;
+                      speakText(c.sample, {
+                        preset: c.id,
+                        preview: true,
+                        onend: () => {
+                          isAiSpeakingRef.current = false;
+                          isAiSpeakingRefGlobal = false;
+                        },
+                      });
                     }}
                     className={cn(
                       "flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center transition active:scale-[0.98]",
