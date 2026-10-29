@@ -264,7 +264,9 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           if (message.length > 2 && !/^(hi|hello|hey|thanks|ok|xup)\b/i.test(message)) {
             outbound =
               message +
-              "\n\n(Answer completely in plain text. For math use plain formulas not LaTeX. Be helpful and detailed.)";
+              "\n\n(Give a full, detailed answer in plain text. Always finish every sentence — never stop mid-thought. " +
+              "When listing items, complete the whole list. Prefer clear explanations with enough detail for a student. " +
+              "For math use plain formulas like x = (-b +/- sqrt(b^2-4ac))/(2a), not LaTeX.)";
           }
 
           // Short follow-up context only — no role labels that say D4AI
@@ -310,37 +312,36 @@ export const Route = createFileRoute("/api/d4ai/chat")({
           const getUrl = `${base}/api/chat?message=${q}`;
 
           async function callFlask(): Promise<string> {
-            // 1) GET (fast path)
+            // POST first (full prompt → longer complete answers), GET fallback
             try {
-              const res = await fetch(getUrl, {
-                method: "GET",
-                headers: { Accept: "application/json" },
+              const res = await fetch(`${base}/api/chat`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify({ message: outbound.slice(0, 4000) }),
                 cache: "no-store",
-                signal: AbortSignal.timeout(45000),
+                signal: AbortSignal.timeout(35000),
               });
               const text = await res.text();
               if (res.ok && text) {
                 try {
                   const json = JSON.parse(text) as { answer?: string; response?: string };
                   const a = String(json.answer || json.response || "").trim();
-                  if (a) return a;
+                  if (a && a.length > 3) return a;
                 } catch {
                   /* not json */
                 }
               }
             } catch {
-              /* try POST */
+              /* GET fallback */
             }
-            // 2) POST fallback
-            const res = await fetch(`${base}/api/chat`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-              },
-              body: JSON.stringify({ message: outbound.slice(0, 4000) }),
+            const res = await fetch(getUrl, {
+              method: "GET",
+              headers: { Accept: "application/json" },
               cache: "no-store",
-              signal: AbortSignal.timeout(45000),
+              signal: AbortSignal.timeout(40000),
             });
             const text = await res.text();
             if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);

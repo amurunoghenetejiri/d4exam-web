@@ -224,19 +224,20 @@ type VoiceChar = {
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Real Voice", vibe: "Nigerian Visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech.", rate: 1, pitch: 1, seVoice: "Brian" },
-  { id: "lovelle", name: "Lovelle", title: "💖 Romantic Female", vibe: "Warm romantic whisper", emoji: "💖", file: "lovelle_romantic_ref.wav", sample: "Welcome to D4AI, I'm Lovelle.", rate: 1, pitch: 1.1, seVoice: "Amy" },
-  { id: "chippy", name: "Chippy", title: "🐿️ Chipmunk Voice", vibe: "High-pitched cute", emoji: "🐿️", file: "chippy_chipmunk_ref.wav", sample: "Hey hey! I'm Chippy the chipmunk!", rate: 1.2, pitch: 1.4, seVoice: "Ivy" },
-  { id: "whisper", name: "Whisper", title: "🤫 Soft Whisper", vibe: "Gentle ASMR", emoji: "🤫", file: "whisper_soft_ref.wav", sample: "Shhh... Hi, I'm Whisper.", rate: 0.9, pitch: 1, seVoice: "Emma" },
-  { id: "nova", name: "Nova", title: "👽 Alien Sweet", vibe: "Sweet alien", emoji: "👽", file: "nova_alien_ref.wav", sample: "Greetings. I am Nova.", rate: 1, pitch: 1.15, seVoice: "Joanna" },
-  { id: "robo", name: "Robo", title: "🤖 Robot AI", vibe: "Metallic robot", emoji: "🤖", file: "robo_metal_ref.wav", sample: "System online. I am Robo.", rate: 1.05, pitch: 0.7, seVoice: "Justin" },
-  { id: "bella", name: "Bella", title: "💋 Romance Warm", vibe: "Warm romance", emoji: "💋", file: "bella_romance_ref.wav", sample: "Hi, I'm Bella. Let's learn together.", rate: 1, pitch: 1.1, seVoice: "Amy" },
-  { id: "bubbly", name: "Bubbly", title: "🌈 Cartoon Vibrant", vibe: "Cartoon energy", emoji: "🌈", file: "bubbly_cartoon_ref.wav", sample: "Hi hi! Bubbly here!", rate: 1.15, pitch: 1.3, seVoice: "Ivy" },
-  { id: "cosmo", name: "Cosmo", title: "🛸 Alien Cool", vibe: "Cool alien male", emoji: "🛸", file: "cosmo_alien_ref.wav", sample: "Cosmo reporting. Ready when you are.", rate: 1, pitch: 0.9, seVoice: "Matthew" },
-  { id: "titan", name: "Titan", title: "🔊 Bass Beast", vibe: "Super deep bass", emoji: "🔊", file: "titan_bass_ref.wav", sample: "I am Titan. Deep power.", rate: 0.85, pitch: 0.55, seVoice: "Matthew" },
-  { id: "orion", name: "Orion", title: "🧠 Deep Wise Robot", vibe: "Wise robot echo", emoji: "🧠", file: "orion_wise_ref.wav", sample: "I am Orion. Think carefully.", rate: 0.9, pitch: 0.7, seVoice: "Brian" },
-  { id: "astro", name: "Astro", title: "👾 Chill Alien", vibe: "Chill buddy", emoji: "👾", file: "astro_chill_ref.wav", sample: "Yo, Astro here. Let's chill and learn.", rate: 1, pitch: 1, seVoice: "Joey" },
-  { id: "baritone", name: "Baritone", title: "🎙️ Deep Bass", vibe: "Steady deep bass", emoji: "🎙️", file: "baritone_deep_ref.wav", sample: "Baritone speaking. Steady and clear.", rate: 0.88, pitch: 0.65, seVoice: "Matthew" },
+  // rate = HTMLAudio playbackRate (Google base). Male < 1, chipmunk > 1.2, robot slightly fast+flat
+  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Male Nigerian", vibe: "Deep male visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech. Creating solutions, innovating lives.", rate: 0.88, pitch: 0.75, seVoice: "Brian" },
+  { id: "lovelle", name: "Lovelle", title: "💖 Romantic Female", vibe: "Warm romantic", emoji: "💖", file: "lovelle_romantic_ref.wav", sample: "Welcome to D4AI, I'm Lovelle, your romantic guide.", rate: 1.05, pitch: 1.2, seVoice: "Amy" },
+  { id: "chippy", name: "Chippy", title: "🐿️ Chipmunk Voice", vibe: "High cute chipmunk", emoji: "🐿️", file: "chippy_chipmunk_ref.wav", sample: "Hey hey! I'm Chippy the chipmunk! Let's learn fast and fun!", rate: 1.45, pitch: 1.6, seVoice: "Ivy" },
+  { id: "whisper", name: "Whisper", title: "🤫 Soft Whisper", vibe: "Slow soft ASMR", emoji: "🤫", file: "whisper_soft_ref.wav", sample: "Shhh... Hi, I'm Whisper. Let me guide you gently.", rate: 0.82, pitch: 1.05, seVoice: "Emma" },
+  { id: "nova", name: "Nova", title: "👽 Alien Sweet", vibe: "Sweet higher alien", emoji: "👽", file: "nova_alien_ref.wav", sample: "Greetings. I am Nova from the stars.", rate: 1.12, pitch: 1.25, seVoice: "Joanna" },
+  { id: "robo", name: "Robo", title: "🤖 Robot AI", vibe: "Fast metallic robot", emoji: "🤖", file: "robo_metal_ref.wav", sample: "System online. I am Robo. Processing your request.", rate: 1.18, pitch: 0.55, seVoice: "Justin" },
+  { id: "bella", name: "Bella", title: "💋 Romance Warm", vibe: "Warm female", emoji: "💋", file: "bella_romance_ref.wav", sample: "Hi, I'm Bella. Let's learn together with warmth.", rate: 1.02, pitch: 1.15, seVoice: "Amy" },
+  { id: "bubbly", name: "Bubbly", title: "🌈 Cartoon Vibrant", vibe: "Fast cartoon", emoji: "🌈", file: "bubbly_cartoon_ref.wav", sample: "Hi hi! Bubbly here! Ready for fun learning!", rate: 1.28, pitch: 1.4, seVoice: "Ivy" },
+  { id: "cosmo", name: "Cosmo", title: "🛸 Alien Cool Male", vibe: "Cool male alien", emoji: "🛸", file: "cosmo_alien_ref.wav", sample: "Cosmo reporting. Ready when you are, captain.", rate: 0.92, pitch: 0.85, seVoice: "Matthew" },
+  { id: "titan", name: "Titan", title: "🔊 Bass Beast Male", vibe: "Super deep male bass", emoji: "🔊", file: "titan_bass_ref.wav", sample: "I am Titan. Deep power. I speak with strength.", rate: 0.72, pitch: 0.5, seVoice: "Matthew" },
+  { id: "orion", name: "Orion", title: "🧠 Wise Robot Male", vibe: "Slow wise male robot", emoji: "🧠", file: "orion_wise_ref.wav", sample: "I am Orion. Think carefully. Wisdom takes time.", rate: 0.8, pitch: 0.65, seVoice: "Brian" },
+  { id: "astro", name: "Astro", title: "👾 Chill Alien Male", vibe: "Chill male buddy", emoji: "👾", file: "astro_chill_ref.wav", sample: "Yo, Astro here. Let's chill and learn together.", rate: 0.95, pitch: 0.9, seVoice: "Joey" },
+  { id: "baritone", name: "Baritone", title: "🎙️ Deep Bass Male", vibe: "Steady deep male", emoji: "🎙️", file: "baritone_deep_ref.wav", sample: "Baritone speaking. Steady, clear, and deep.", rate: 0.78, pitch: 0.6, seVoice: "Matthew" },
 ];
 
 function loadVoicePreset(): VoicePreset {
@@ -466,7 +467,7 @@ function speakText(
     preview?: boolean;
   },
 ) {
-  const clean = stripForSpeech(text).slice(0, 1200);
+  const clean = stripForSpeech(text).slice(0, 1500);
   if (!clean) {
     try {
       opts?.onend?.();
@@ -499,6 +500,8 @@ function speakText(
   const session = speakSession;
   const preset = opts?.preset || loadVoicePreset();
   const char = getVoiceChar(preset);
+  // playbackRate shapes Google TTS into male/deep/chipmunk/robot (speed+pitch)
+  const playbackRate = Math.max(0.6, Math.min(1.6, char.rate));
   let started = false;
   const startOnce = () => {
     if (started) return;
@@ -515,129 +518,144 @@ function speakText(
     } catch {}
   };
 
+  const fetchPiece = async (piece: string): Promise<string | null> => {
+    try {
+      const res = await fetch(ttsUrl(piece, char.id), {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      if (blob.size < 200) return null;
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  };
+
+  const playUrl = (obj: string) =>
+    new Promise<void>((resolve) => {
+      const audio = new Audio(obj);
+      audio.volume = 1;
+      try {
+        audio.playbackRate = playbackRate;
+      } catch {}
+      activeAudio = audio;
+      let done = false;
+      const fin = () => {
+        if (done) return;
+        done = true;
+        try {
+          URL.revokeObjectURL(obj);
+        } catch {}
+        resolve();
+      };
+      audio.onplay = () => startOnce();
+      audio.onended = fin;
+      audio.onerror = fin;
+      void audio.play().catch(() => fin());
+      // safety based on length and rate
+      window.setTimeout(fin, Math.max(8000, (pieceLenMs(obj) || 20000) / playbackRate + 2000));
+    });
+
+  // Preview: one short chunk, no queue lag
+  if (opts?.preview) {
+    void (async () => {
+      const piece = clean.slice(0, 160);
+      const obj = await fetchPiece(piece);
+      if (obj && !speakingCancelled && session === speakSession) {
+        await playUrl(obj);
+      } else if (!speakingCancelled && session === speakSession && window.speechSynthesis) {
+        await new Promise<void>((resolve) => {
+          const u = new SpeechSynthesisUtterance(piece);
+          u.rate = char.rate;
+          u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+          u.onstart = () => startOnce();
+          u.onend = () => resolve();
+          u.onerror = () => resolve();
+          window.speechSynthesis.speak(u);
+          window.setTimeout(() => resolve(), 15000);
+        });
+      }
+      finishAll();
+    })();
+    return;
+  }
+
   speakQueueTail = speakQueueTail.then(async () => {
     if (speakingCancelled || session !== speakSession) {
       finishAll();
       return;
     }
 
-    const pieces = clean.length <= 180 ? [clean] : chunkSpeech(clean, 160);
+    // Longer chunks = fewer network gaps (the ~7s pauses)
+    const pieces = clean.length <= 220 ? [clean] : chunkSpeech(clean, 200);
 
+    // Prefetch pipeline: fetch next while current plays
+    let nextFetch: Promise<string | null> | null = null;
     for (let pi = 0; pi < pieces.length; pi++) {
       if (speakingCancelled || session !== speakSession) break;
       const piece = pieces[pi];
-      let played = false;
-
-      // Primary: Google/Edge via /api/d4ai/tts — distinct accents per character
-      try {
-        const res = await fetch(ttsUrl(piece, char.id), {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (res.ok) {
-          const blob = await res.blob();
-          if (blob.size > 200) {
-            const obj = URL.createObjectURL(blob);
-            await new Promise<void>((resolve) => {
-              const audio = new Audio(obj);
-              audio.volume = 1;
-              activeAudio = audio;
-              let done = false;
-              const fin = () => {
-                if (done) return;
-                done = true;
-                try {
-                  URL.revokeObjectURL(obj);
-                } catch {}
-                resolve();
-              };
-              audio.onplay = () => startOnce();
-              audio.onended = fin;
-              audio.onerror = fin;
-              void audio.play().catch(() => fin());
-              window.setTimeout(fin, 60000);
-            });
-            played = true;
-          }
-        }
-      } catch {}
-
-      if (!played) {
-        try {
-          const res = await fetch("/api/d4ai/voice", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "audio/wav, application/json",
-            },
-            body: JSON.stringify({ text: piece, voice: char.id }),
-            cache: "no-store",
-          });
-          if (res.ok) {
-            const ct = res.headers.get("Content-Type") || "";
-            if (ct.includes("json")) {
-              const data = (await res.json()) as { play_url?: string };
-              if (data.play_url) {
-                await new Promise<void>((resolve) => {
-                  const audio = new Audio(data.play_url!);
-                  activeAudio = audio;
-                  audio.onplay = () => startOnce();
-                  audio.onended = () => resolve();
-                  audio.onerror = () => resolve();
-                  void audio.play().catch(() => resolve());
-                  window.setTimeout(() => resolve(), 60000);
-                });
-                played = true;
-              }
-            } else {
-              const blob = await res.blob();
-              if (blob.size > 200) {
-                const obj = URL.createObjectURL(blob);
-                await new Promise<void>((resolve) => {
-                  const audio = new Audio(obj);
-                  activeAudio = audio;
-                  audio.onplay = () => startOnce();
-                  audio.onended = () => {
-                    try {
-                      URL.revokeObjectURL(obj);
-                    } catch {}
-                    resolve();
-                  };
-                  audio.onerror = () => resolve();
-                  void audio.play().catch(() => resolve());
-                  window.setTimeout(() => resolve(), 60000);
-                });
-                played = true;
-              }
-            }
-          }
-        } catch {}
+      const obj =
+        (await (nextFetch || fetchPiece(piece))) || null;
+      // start fetching the following piece immediately
+      if (pi + 1 < pieces.length) {
+        nextFetch = fetchPiece(pieces[pi + 1]);
+      } else {
+        nextFetch = null;
       }
-
-      if (!played && typeof window !== "undefined" && window.speechSynthesis) {
-        try {
-          await new Promise<void>((resolve) => {
-            const u = new SpeechSynthesisUtterance(piece);
-            u.rate = char.rate;
-            u.pitch = Math.max(0.1, Math.min(2, char.pitch));
-            u.volume = 1;
+      if (obj) {
+        // playUrl closes over wrong timeout helper — inline
+        await new Promise<void>((resolve) => {
+          const audio = new Audio(obj);
+          audio.volume = 1;
+          try {
+            audio.playbackRate = playbackRate;
+          } catch {}
+          activeAudio = audio;
+          let done = false;
+          const fin = () => {
+            if (done) return;
+            done = true;
             try {
-              const v = pickVoice(preset);
-              if (v) u.voice = v;
+              URL.revokeObjectURL(obj);
             } catch {}
-            u.onstart = () => startOnce();
-            u.onend = () => resolve();
-            u.onerror = () => resolve();
-            window.speechSynthesis.resume();
-            window.speechSynthesis.speak(u);
-            window.setTimeout(() => resolve(), 30000);
-          });
-        } catch {}
+            resolve();
+          };
+          audio.onplay = () => startOnce();
+          audio.onended = fin;
+          audio.onerror = fin;
+          void audio.play().catch(() => fin());
+          window.setTimeout(fin, Math.max(12000, piece.length * 80));
+        });
+        continue;
+      }
+      // speechSynthesis fallback with character pitch
+      if (window.speechSynthesis) {
+        await new Promise<void>((resolve) => {
+          const u = new SpeechSynthesisUtterance(piece);
+          u.rate = char.rate;
+          u.pitch = Math.max(0.1, Math.min(2, char.pitch));
+          try {
+            const v = pickVoice(preset);
+            if (v) u.voice = v;
+          } catch {}
+          u.onstart = () => startOnce();
+          u.onend = () => resolve();
+          u.onerror = () => resolve();
+          window.speechSynthesis.resume();
+          window.speechSynthesis.speak(u);
+          window.setTimeout(() => resolve(), 25000);
+        });
       }
     }
 
     finishAll();
   });
+}
+
+function pieceLenMs(_obj: string): number {
+  return 20000;
 }
 
 
