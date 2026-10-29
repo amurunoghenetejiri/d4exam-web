@@ -1582,19 +1582,24 @@ function D4AiPage() {
           };
           speakCallNext();
         } else {
-          // Fast smooth typewriter (~0.8–1.5s full reply) + speech slightly behind text
+          // Typewriter + auto-talk: start speaking within ~1–2s of first words on screen
           let i = 0;
-          // Aim to finish text in ~25 ticks (smooth, not sluggish)
-          const step = Math.max(12, Math.ceil(full.length / 18));
-          const tickMs = 16;
-          const doSpeak = Boolean(autoSpeakRef.current);
-          // Longer speech phrases = fewer network gaps, still continuous
-          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 220) : [];
-          // Cumulative end index in stripForSpeech space ≈ use full text length proportionally
+          const step = Math.max(16, Math.ceil(full.length / 14));
+          const tickMs = 14;
+          // Prefer live ref + localStorage so UI "On" always matches behavior
+          let doSpeak = Boolean(autoSpeakRef.current);
+          try {
+            if (!doSpeak && localStorage.getItem(SPEAK_KEY) === "1") {
+              doSpeak = true;
+              autoSpeakRef.current = true;
+            }
+          } catch {}
+          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 200) : [];
           let speakIdx = 0;
           let speakQueue = Promise.resolve();
           let speakStarted = false;
           const enqueueSpeak = (piece: string) => {
+            if (!piece.trim()) return;
             speakQueue = speakQueue.then(
               () =>
                 new Promise<void>((resolve) => {
@@ -1618,24 +1623,33 @@ function D4AiPage() {
                 }),
             );
           };
+
+          // CRITICAL: kick off first audio IMMEDIATELY (don't wait for typewriter / full answer)
+          if (doSpeak && speechChunks.length > 0) {
+            unlockAudio();
+            enqueueSpeak(speechChunks[0]);
+            speakIdx = 1;
+          }
+
           await new Promise<void>((resolve) => {
             typewriterRef.current = setInterval(() => {
               i = Math.min(full.length, i + step);
               ensureAssistant(full.slice(0, i));
               if (doSpeak) {
+                // Further chunks: only after that text is mostly visible (stay behind stream)
                 while (speakIdx < speechChunks.length) {
-                  // First speech after ~one line / first few tokens on screen
-                  if (speakIdx === 0 && i < 12) break;
                   const spokenSoFar = speechChunks.slice(0, speakIdx + 1).join(" ");
                   const need = Math.min(
                     full.length,
                     Math.ceil(
                       (spokenSoFar.length / Math.max(1, stripForSpeech(full).length)) *
                         full.length *
-                        1.12,
+                        0.95,
                     ),
                   );
-                  if (i < need) break;
+                  // Never block first remaining chunk longer than ~80 chars on screen
+                  const gate = speakIdx === 1 ? Math.min(need, 80) : need;
+                  if (i < gate) break;
                   enqueueSpeak(speechChunks[speakIdx++]);
                 }
               }
