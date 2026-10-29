@@ -225,7 +225,7 @@ type VoiceChar = {
 
 const VOICE_CHARS: VoiceChar[] = [
   // rate = HTMLAudio playbackRate (Google base). Male < 1, chipmunk > 1.2, robot slightly fast+flat
-  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Male Nigerian", vibe: "Deep male visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech. Creating solutions, innovating lives.", rate: 0.88, pitch: 0.75, seVoice: "Brian" },
+  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Male Nigerian", vibe: "Deep male visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech. Creating solutions, innovating lives.", rate: 0.97, pitch: 0.8, seVoice: "Brian" },
   { id: "lovelle", name: "Lovelle", title: "💖 Romantic Female", vibe: "Warm romantic", emoji: "💖", file: "lovelle_romantic_ref.wav", sample: "Welcome to D4AI, I'm Lovelle, your romantic guide.", rate: 1.05, pitch: 1.2, seVoice: "Amy" },
   { id: "chippy", name: "Chippy", title: "🐿️ Chipmunk Voice", vibe: "High cute chipmunk", emoji: "🐿️", file: "chippy_chipmunk_ref.wav", sample: "Hey hey! I'm Chippy the chipmunk! Let's learn fast and fun!", rate: 1.45, pitch: 1.6, seVoice: "Ivy" },
   { id: "whisper", name: "Whisper", title: "🤫 Soft Whisper", vibe: "Slow soft ASMR", emoji: "🤫", file: "whisper_soft_ref.wav", sample: "Shhh... Hi, I'm Whisper. Let me guide you gently.", rate: 0.82, pitch: 1.05, seVoice: "Emma" },
@@ -457,6 +457,30 @@ function playAudioQueue(
   })();
 }
 
+function unlockAudio() {
+  try {
+    const a = new Audio(
+      "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA",
+    );
+    a.volume = 0.01;
+    void a.play().catch(() => {});
+  } catch {}
+  try {
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    if (AC) {
+      const ctx = new AC();
+      void ctx.resume();
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      g.gain.value = 0.0001;
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+    }
+  } catch {}
+}
+
 function speakText(
   text: string,
   opts?: {
@@ -467,7 +491,7 @@ function speakText(
     preview?: boolean;
   },
 ) {
-  const clean = stripForSpeech(text).slice(0, 1500);
+  const clean = stripForSpeech(text).slice(0, 4000);
   if (!clean) {
     try {
       opts?.onend?.();
@@ -495,13 +519,13 @@ function speakText(
     isAiSpeakingRefGlobal = true;
     speakingCancelled = false;
     speakQueueTail = Promise.resolve();
+    unlockAudio();
   }
 
   const session = speakSession;
   const preset = opts?.preset || loadVoicePreset();
   const char = getVoiceChar(preset);
-  // playbackRate shapes Google TTS into male/deep/chipmunk/robot (speed+pitch)
-  const playbackRate = Math.max(0.6, Math.min(1.6, char.rate));
+  const playbackRate = Math.max(0.7, Math.min(1.5, char.rate));
   let started = false;
   const startOnce = () => {
     if (started) return;
@@ -533,7 +557,7 @@ function speakText(
     }
   };
 
-  const playUrl = (obj: string) =>
+  const playObj = (obj: string, piece: string) =>
     new Promise<void>((resolve) => {
       const audio = new Audio(obj);
       audio.volume = 1;
@@ -553,85 +577,40 @@ function speakText(
       audio.onplay = () => startOnce();
       audio.onended = fin;
       audio.onerror = fin;
-      void audio.play().catch(() => fin());
-      // safety based on length and rate
-      window.setTimeout(fin, Math.max(8000, (pieceLenMs(obj) || 20000) / playbackRate + 2000));
-    });
-
-  // Preview: one short chunk, no queue lag
-  if (opts?.preview) {
-    void (async () => {
-      const piece = clean.slice(0, 160);
-      const obj = await fetchPiece(piece);
-      if (obj && !speakingCancelled && session === speakSession) {
-        await playUrl(obj);
-      } else if (!speakingCancelled && session === speakSession && window.speechSynthesis) {
-        await new Promise<void>((resolve) => {
+      // Must wait for FULL audio — scale timeout by playbackRate so slow voices finish
+      const ms = Math.max(20000, Math.ceil((piece.length * 140) / playbackRate) + 4000);
+      window.setTimeout(fin, ms);
+      void audio.play().catch(() => {
+        // Autoplay blocked — try speechSynthesis for this piece
+        try {
+          URL.revokeObjectURL(obj);
+        } catch {}
+        if (window.speechSynthesis) {
           const u = new SpeechSynthesisUtterance(piece);
           u.rate = char.rate;
           u.pitch = Math.max(0.1, Math.min(2, char.pitch));
           u.onstart = () => startOnce();
-          u.onend = () => resolve();
-          u.onerror = () => resolve();
+          u.onend = fin;
+          u.onerror = fin;
           window.speechSynthesis.speak(u);
-          window.setTimeout(() => resolve(), 15000);
-        });
-      }
-      finishAll();
-    })();
-    return;
-  }
+          window.setTimeout(fin, ms);
+        } else {
+          fin();
+        }
+      });
+    });
 
-  speakQueueTail = speakQueueTail.then(async () => {
-    if (speakingCancelled || session !== speakSession) {
-      finishAll();
-      return;
-    }
-
-    // Longer chunks = fewer network gaps (the ~7s pauses)
-    const pieces = clean.length <= 220 ? [clean] : chunkSpeech(clean, 200);
-
-    // Prefetch pipeline: fetch next while current plays
+  const runPieces = async (pieces: string[]) => {
     let nextFetch: Promise<string | null> | null = null;
     for (let pi = 0; pi < pieces.length; pi++) {
       if (speakingCancelled || session !== speakSession) break;
       const piece = pieces[pi];
-      const obj =
-        (await (nextFetch || fetchPiece(piece))) || null;
-      // start fetching the following piece immediately
-      if (pi + 1 < pieces.length) {
-        nextFetch = fetchPiece(pieces[pi + 1]);
-      } else {
-        nextFetch = null;
-      }
+      const obj = (await (nextFetch || fetchPiece(piece))) || null;
+      if (pi + 1 < pieces.length) nextFetch = fetchPiece(pieces[pi + 1]);
+      else nextFetch = null;
       if (obj) {
-        // playUrl closes over wrong timeout helper — inline
-        await new Promise<void>((resolve) => {
-          const audio = new Audio(obj);
-          audio.volume = 1;
-          try {
-            audio.playbackRate = playbackRate;
-          } catch {}
-          activeAudio = audio;
-          let done = false;
-          const fin = () => {
-            if (done) return;
-            done = true;
-            try {
-              URL.revokeObjectURL(obj);
-            } catch {}
-            resolve();
-          };
-          audio.onplay = () => startOnce();
-          audio.onended = fin;
-          audio.onerror = fin;
-          void audio.play().catch(() => fin());
-          window.setTimeout(fin, Math.max(12000, piece.length * 80));
-        });
-        continue;
-      }
-      // speechSynthesis fallback with character pitch
-      if (window.speechSynthesis) {
+        await playObj(obj, piece);
+      } else if (window.speechSynthesis) {
         await new Promise<void>((resolve) => {
           const u = new SpeechSynthesisUtterance(piece);
           u.rate = char.rate;
@@ -645,17 +624,36 @@ function speakText(
           u.onerror = () => resolve();
           window.speechSynthesis.resume();
           window.speechSynthesis.speak(u);
-          window.setTimeout(() => resolve(), 25000);
+          window.setTimeout(
+            () => resolve(),
+            Math.max(20000, Math.ceil((piece.length * 140) / playbackRate) + 4000),
+          );
         });
       }
     }
+  };
 
+  // Preview: immediate, no queue
+  if (opts?.preview) {
+    void (async () => {
+      unlockAudio();
+      const pieces = [clean.slice(0, 200)];
+      await runPieces(pieces);
+      finishAll();
+    })();
+    return;
+  }
+
+  speakQueueTail = speakQueueTail.then(async () => {
+    if (speakingCancelled || session !== speakSession) {
+      finishAll();
+      return;
+    }
+    // Longer chunks = fewer gaps; full text must be covered
+    const pieces = clean.length <= 240 ? [clean] : chunkSpeech(clean, 220);
+    await runPieces(pieces);
     finishAll();
   });
-}
-
-function pieceLenMs(_obj: string): number {
-  return 20000;
 }
 
 
@@ -996,7 +994,13 @@ function D4AiPage() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(() => {
+    try {
+      return localStorage.getItem(SPEAK_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [historyQuery, setHistoryQuery] = useState("");
   const { data: session } = useSessionUser();
   const owner = isD4AiOwner(session);
@@ -1379,6 +1383,7 @@ function D4AiPage() {
         setVoiceOn(false);
         voiceOnRef.current = false;
       }
+      unlockAudio();
       // Unlock WebView audio so auto-talk can play after the network round-trip
       try {
         const silent = new Audio(
@@ -1584,7 +1589,7 @@ function D4AiPage() {
           const tickMs = 16;
           const doSpeak = Boolean(autoSpeakRef.current);
           // Longer speech phrases = fewer network gaps, still continuous
-          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 160) : [];
+          const speechChunks = doSpeak ? chunkSpeech(stripForSpeech(full), 220) : [];
           // Cumulative end index in stripForSpeech space ≈ use full text length proportionally
           let speakIdx = 0;
           let speakQueue = Promise.resolve();
@@ -1609,7 +1614,7 @@ function D4AiPage() {
                     },
                     onend: () => resolve(),
                   });
-                  window.setTimeout(() => resolve(), Math.max(45000, piece.length * 150));
+                  window.setTimeout(() => resolve(), Math.max(90000, piece.length * 250));
                 }),
             );
           };
@@ -1620,7 +1625,7 @@ function D4AiPage() {
               if (doSpeak) {
                 while (speakIdx < speechChunks.length) {
                   // First speech after ~one line / first few tokens on screen
-                  if (speakIdx === 0 && i < 40) break;
+                  if (speakIdx === 0 && i < 12) break;
                   const spokenSoFar = speechChunks.slice(0, speakIdx + 1).join(" ");
                   const need = Math.min(
                     full.length,
@@ -2018,7 +2023,9 @@ function D4AiPage() {
 
   const toggleAutoSpeak = () => {
     const next = !autoSpeak;
+    if (next) unlockAudio();
     setAutoSpeak(next);
+    autoSpeakRef.current = next;
     try {
       localStorage.setItem(SPEAK_KEY, next ? "1" : "0");
     } catch {}
@@ -2106,6 +2113,7 @@ function D4AiPage() {
         type="button"
         onClick={() => {
           const next = !autoSpeak;
+          if (next) unlockAudio();
           setAutoSpeak(next);
           autoSpeakRef.current = next;
           try {
