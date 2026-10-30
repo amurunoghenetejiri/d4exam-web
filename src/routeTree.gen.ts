@@ -103,6 +103,11 @@ import { Route as TeacherResultsRouteImport } from './routes/teacher.results'
 import { Route as TeacherSettingsRouteImport } from './routes/teacher.settings'
 import { Route as TeacherSubmissionsRouteImport } from './routes/teacher.submissions'
 import { Route as AdminStudentIdRouteImport } from './routes/admin.student.$id'
+import { Route as ApiD4aiChatRouteImport } from './routes/api/d4ai.chat'
+import { Route as ApiD4aiLiveRouteImport } from './routes/api/d4ai.live'
+import { Route as ApiD4aiStreamRouteImport } from './routes/api/d4ai.stream'
+import { Route as ApiD4aiTtsRouteImport } from './routes/api/d4ai.tts'
+import { Route as ApiD4aiVoiceRouteImport } from './routes/api/d4ai.voice'
 import { Route as OfficerExamPreviewIdRouteImport } from './routes/officer.exam-preview.$id'
 import { Route as StudentExamIdRouteImport } from './routes/student.exam.$id'
 import { Route as StudentMessagesConversationIdRouteImport } from './routes/student.messages.$conversationId'
@@ -582,6 +587,31 @@ const AdminStudentIdRoute = AdminStudentIdRouteImport.update({
   path: '/student/$id',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiD4aiChatRoute = ApiD4aiChatRouteImport.update({
+  id: '/api/d4ai/chat',
+  path: '/api/d4ai/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiD4aiLiveRoute = ApiD4aiLiveRouteImport.update({
+  id: '/api/d4ai/live',
+  path: '/api/d4ai/live',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiD4aiStreamRoute = ApiD4aiStreamRouteImport.update({
+  id: '/api/d4ai/stream',
+  path: '/api/d4ai/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiD4aiTtsRoute = ApiD4aiTtsRouteImport.update({
+  id: '/api/d4ai/tts',
+  path: '/api/d4ai/tts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiD4aiVoiceRoute = ApiD4aiVoiceRouteImport.update({
+  id: '/api/d4ai/voice',
+  path: '/api/d4ai/voice',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OfficerExamPreviewIdRoute = OfficerExamPreviewIdRouteImport.update({
   id: '/exam-preview/$id',
   path: '/exam-preview/$id',
@@ -719,6 +749,11 @@ export interface FileRoutesByFullPath {
   '/super-admin/': typeof SuperAdminIndexRoute
   '/teacher/': typeof TeacherIndexRoute
   '/admin/student/$id': typeof AdminStudentIdRoute
+  '/api/d4ai/chat': typeof ApiD4aiChatRoute
+  '/api/d4ai/live': typeof ApiD4aiLiveRoute
+  '/api/d4ai/stream': typeof ApiD4aiStreamRoute
+  '/api/d4ai/tts': typeof ApiD4aiTtsRoute
+  '/api/d4ai/voice': typeof ApiD4aiVoiceRoute
   '/officer/exam-preview/$id': typeof OfficerExamPreviewIdRoute
   '/student/exam/$id': typeof StudentExamIdRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
@@ -817,6 +852,11 @@ export interface FileRoutesByTo {
   '/super-admin': typeof SuperAdminIndexRoute
   '/teacher': typeof TeacherIndexRoute
   '/admin/student/$id': typeof AdminStudentIdRoute
+  '/api/d4ai/chat': typeof ApiD4aiChatRoute
+  '/api/d4ai/live': typeof ApiD4aiLiveRoute
+  '/api/d4ai/stream': typeof ApiD4aiStreamRoute
+  '/api/d4ai/tts': typeof ApiD4aiTtsRoute
+  '/api/d4ai/voice': typeof ApiD4aiVoiceRoute
   '/officer/exam-preview/$id': typeof OfficerExamPreviewIdRoute
   '/student/exam/$id': typeof StudentExamIdRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
@@ -922,6 +962,11 @@ export interface FileRoutesById {
   '/super-admin/': typeof SuperAdminIndexRoute
   '/teacher/': typeof TeacherIndexRoute
   '/admin/student/$id': typeof AdminStudentIdRoute
+  '/api/d4ai/chat': typeof ApiD4aiChatRoute
+  '/api/d4ai/live': typeof ApiD4aiLiveRoute
+  '/api/d4ai/stream': typeof ApiD4aiStreamRoute
+  '/api/d4ai/tts': typeof ApiD4aiTtsRoute
+  '/api/d4ai/voice': typeof ApiD4aiVoiceRoute
   '/officer/exam-preview/$id': typeof OfficerExamPreviewIdRoute
   '/student/exam/$id': typeof StudentExamIdRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
@@ -1028,6 +1073,11 @@ export interface FileRouteTypes {
     | '/super-admin/'
     | '/teacher/'
     | '/admin/student/$id'
+    | '/api/d4ai/chat'
+    | '/api/d4ai/live'
+    | '/api/d4ai/stream'
+    | '/api/d4ai/tts'
+    | '/api/d4ai/voice'
     | '/officer/exam-preview/$id'
     | '/student/exam/$id'
     | '/student/messages/$conversationId'
@@ -1126,6 +1176,11 @@ export interface FileRouteTypes {
     | '/super-admin'
     | '/teacher'
     | '/admin/student/$id'
+    | '/api/d4ai/chat'
+    | '/api/d4ai/live'
+    | '/api/d4ai/stream'
+    | '/api/d4ai/tts'
+    | '/api/d4ai/voice'
     | '/officer/exam-preview/$id'
     | '/student/exam/$id'
     | '/student/messages/$conversationId'
@@ -1230,6 +1285,11 @@ export interface FileRouteTypes {
     | '/super-admin/'
     | '/teacher/'
     | '/admin/student/$id'
+    | '/api/d4ai/chat'
+    | '/api/d4ai/live'
+    | '/api/d4ai/stream'
+    | '/api/d4ai/tts'
+    | '/api/d4ai/voice'
     | '/officer/exam-preview/$id'
     | '/student/exam/$id'
     | '/student/messages/$conversationId'
@@ -1263,6 +1323,11 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute
   TeacherRoute: typeof TeacherRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
+  ApiD4aiChatRoute: typeof ApiD4aiChatRoute
+  ApiD4aiLiveRoute: typeof ApiD4aiLiveRoute
+  ApiD4aiStreamRoute: typeof ApiD4aiStreamRoute
+  ApiD4aiTtsRoute: typeof ApiD4aiTtsRoute
+  ApiD4aiVoiceRoute: typeof ApiD4aiVoiceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1925,6 +1990,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminStudentIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/d4ai/chat': {
+      id: '/api/d4ai/chat'
+      path: '/api/d4ai/chat'
+      fullPath: '/api/d4ai/chat'
+      preLoaderRoute: typeof ApiD4aiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/d4ai/live': {
+      id: '/api/d4ai/live'
+      path: '/api/d4ai/live'
+      fullPath: '/api/d4ai/live'
+      preLoaderRoute: typeof ApiD4aiLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/d4ai/stream': {
+      id: '/api/d4ai/stream'
+      path: '/api/d4ai/stream'
+      fullPath: '/api/d4ai/stream'
+      preLoaderRoute: typeof ApiD4aiStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/d4ai/tts': {
+      id: '/api/d4ai/tts'
+      path: '/api/d4ai/tts'
+      fullPath: '/api/d4ai/tts'
+      preLoaderRoute: typeof ApiD4aiTtsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/d4ai/voice': {
+      id: '/api/d4ai/voice'
+      path: '/api/d4ai/voice'
+      fullPath: '/api/d4ai/voice'
+      preLoaderRoute: typeof ApiD4aiVoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/officer/exam-preview/$id': {
       id: '/officer/exam-preview/$id'
       path: '/exam-preview/$id'
@@ -2241,6 +2341,11 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   TeacherRoute: TeacherRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
+  ApiD4aiChatRoute: ApiD4aiChatRoute,
+  ApiD4aiLiveRoute: ApiD4aiLiveRoute,
+  ApiD4aiStreamRoute: ApiD4aiStreamRoute,
+  ApiD4aiTtsRoute: ApiD4aiTtsRoute,
+  ApiD4aiVoiceRoute: ApiD4aiVoiceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
