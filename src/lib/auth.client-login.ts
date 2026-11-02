@@ -18,7 +18,7 @@ async function assertSchoolMembership(
   try {
     return await Promise.race([
       assertSchoolMembershipInner(userId, schoolId),
-      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 4_000)),
+      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 1_500)),
     ]);
   } catch {
     return { ok: true };
@@ -74,7 +74,7 @@ async function assertSchoolMembershipInner(
 
 
 
-async function timedSignIn(email: string, password: string, ms = 8_000) {
+async function timedSignIn(email: string, password: string, ms = 12_000) {
   return Promise.race([
     supabase.auth.signInWithPassword({ email: email.toLowerCase(), password }),
     new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
@@ -130,7 +130,7 @@ export async function clientSignInWithSchoolCode(
       new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
         setTimeout(
           () => resolve({ data: { session: null, user: null }, error: { message: "Sign-in timed out. Check network and try again." } }),
-          8_000,
+          12_000,
         ),
       ),
     ]);
@@ -164,7 +164,7 @@ export async function clientSignInWithSchoolCode(
     const { data: rpcSchool, error: schoolErr } = await Promise.race([
       rpcPromise,
       new Promise<{ data: null; error: { message: string } }>((resolve) =>
-        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 4_000),
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 2_500),
       ),
     ]);
     if (schoolErr) {

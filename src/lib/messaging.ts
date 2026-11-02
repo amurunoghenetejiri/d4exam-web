@@ -350,7 +350,7 @@ export async function getOrCreateDirectConversation(
         p_peer_user_id: peerUserId,
       }),
       new Promise<{ data: null; error: { message: string } }>((resolve) =>
-        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 5_000),
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 8_000),
       ),
     ]);
     if (!raced.error && raced.data) return raced.data as string;

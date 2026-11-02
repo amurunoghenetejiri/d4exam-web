@@ -622,7 +622,9 @@ function MessagesHub() {
         toast.error("This student cannot receive messages yet");
         return;
       }
+      const title = peer.full_name || "Chat";
       try {
+        toast.message(`Opening chat with ${title}…`);
         const sid = schoolId || schoolIdHint || "";
         const cacheKey = `d4_dm_${userId}_${peer.auth_user_id}`;
         let cid: string | null = null;
@@ -635,19 +637,26 @@ function MessagesHub() {
         }
         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
         if (cid) {
+          // Always open inline chat (works on web + APK even if route lag)
           openConversation(cid, {
-            title: peer.full_name || "Chat",
+            title,
             peerUserId: peer.auth_user_id,
           });
+          try {
+            void navigate({
+              to: "/student/messages/$conversationId",
+              params: { conversationId: cid },
+            });
+          } catch { /* inline view already shown */ }
         } else {
-          toast.error("Could not open chat");
+          toast.error("Could not open chat. Check your connection and try again.");
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Could not open chat";
         toast.error(msg.replace(/row-level security policy/gi, "permission denied — try again"));
       }
     },
-    [userId, schoolId, schoolIdHint, qc, openConversation],
+    [userId, schoolId, schoolIdHint, qc, openConversation, navigate],
   );
 
   const openOfficer = useCallback(() => {
