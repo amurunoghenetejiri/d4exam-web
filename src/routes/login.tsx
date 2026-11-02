@@ -233,9 +233,8 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
     /* ignore */
   }
   if (!home) return false;
-  const last = readLastPath();
-  const prefix = home;
-  const path = last && last.startsWith(prefix) ? last : home;
+  // Always land on role home after login (do not restore /profile mid-session path)
+  const path = home;
   try {
     seedPendingLoginRole(role);
   } catch {

@@ -14,21 +14,23 @@ async function assertSchoolMembership(
   userId: string,
   schoolId: string,
 ): Promise<{ ok: true } | { error: string }> {
-  // Outer timeout so login never hangs on membership queries
+  // Soft check only — never sign out after a successful Supabase password auth.
+  // Wrong-school hard rejects caused valid logins to show "Invalid credentials".
   try {
-    return await Promise.race([
+    await Promise.race([
       assertSchoolMembershipInner(userId, schoolId),
-      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 1_500)),
+      new Promise<void>((resolve) => setTimeout(resolve, 800)),
     ]);
-  } catch {
-    return { ok: true };
+  } catch (e) {
+    console.warn("[client-login] membership soft-check", e);
   }
+  return { ok: true };
 }
 
 async function assertSchoolMembershipInner(
   userId: string,
   schoolId: string,
-): Promise<{ ok: true } | { error: string }> {
+): Promise<void> {
   try {
     const { data: profile } = await supabase
       .from("profiles")
@@ -37,7 +39,7 @@ async function assertSchoolMembershipInner(
       .maybeSingle();
 
     if (profile?.school_id && String(profile.school_id) === String(schoolId)) {
-      return { ok: true };
+      return;
     }
 
     const profileId = profile?.id ? String(profile.id) : null;
@@ -54,21 +56,12 @@ async function assertSchoolMembershipInner(
     const match = (roles || []).some(
       (r) => r.school_id && String(r.school_id) === String(schoolId),
     );
-    if (match) return { ok: true };
+    if (!match) {
+      console.warn("[client-login] membership soft mismatch", { userId, schoolId });
+    }
   } catch (e) {
     console.warn("[client-login] membership check", e);
   }
-
-  // Not a member of this school — reject
-  try {
-    await supabase.auth.signOut();
-  } catch {
-    /* ignore */
-  }
-  return {
-    error:
-      "Invalid login details for this school. Check school code, email / ID, and password.",
-  };
 }
 
 
@@ -164,7 +157,7 @@ export async function clientSignInWithSchoolCode(
     const { data: rpcSchool, error: schoolErr } = await Promise.race([
       rpcPromise,
       new Promise<{ data: null; error: { message: string } }>((resolve) =>
-        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 2_500),
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 2_000),
       ),
     ]);
     if (schoolErr) {
