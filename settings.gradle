@@ -1,18 +1,17 @@
-/**
- * Root settings so IDEs that open the repo root can discover the Android app module.
- * Primary Android project remains under android/
- */
-rootProject.name = "d4exam-web"
-include(":app")
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "D4EXAM"
+include ":app"
 project(":app").projectDir = file("android/app")
-
-// Capacitor Android plugins (if present after cap sync)
-def pluginsDir = file("android/capacitor-cordova-android-plugins")
-if (pluginsDir.exists()) {
-    include(":capacitor-cordova-android-plugins")
-    project(":capacitor-cordova-android-plugins").projectDir = pluginsDir
-}
-def capSettings = file("android/capacitor.settings.gradle")
-if (capSettings.exists()) {
-    apply from: capSettings
-}
