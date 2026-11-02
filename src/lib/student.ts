@@ -56,23 +56,33 @@ export function useStudentContext() {
     queryKey: ["student-context", session?.profileId, session?.schoolId, session?.userId],
     enabled: Boolean(session?.userId),
     staleTime: 20_000,
+    retry: 4,
+    retryDelay: (i) => Math.min(1000 * (i + 1), 4000),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     queryFn: async (): Promise<StudentContext | null> => {
       const uid = session?.userId;
-      return withOfflineCache(
-        uid,
-        OfflineKeys.studentContext,
-        async () => {
-          const ctx = await fetchStudentContextClient(session);
-          if (ctx?.schoolId) {
-            try {
-              seedLoginSchoolContext(ctx.schoolId, null);
-            } catch { /* ignore */ }
-          }
-          // Never permanently cache a null context — allow retry on next visit
-          return ctx;
-        },
-        { schoolId: session?.schoolId, fallback: null },
-      );
+      // Retry a few times right after login — profile row may lag auth
+      let last: StudentContext | null = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        last = await withOfflineCache(
+          uid,
+          OfflineKeys.studentContext,
+          async () => {
+            const ctx = await fetchStudentContextClient(session);
+            if (ctx?.schoolId) {
+              try {
+                seedLoginSchoolContext(ctx.schoolId, null);
+              } catch { /* ignore */ }
+            }
+            return ctx;
+          },
+          { schoolId: session?.schoolId, fallback: null },
+        );
+        if (last?.studentId) return last;
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+      return last;
     },
   });
 }

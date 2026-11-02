@@ -461,14 +461,15 @@ function LoginPage() {
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         setError("No network. Check your connection and try again.");
       } else {
-        setError("Sign-in is taking longer than usual. Please try again.");
+        setError("Still signing in… If this keeps happening, check network and try again.");
       }
-    }, 15_000);
+    }, 35_000);
 
     try {
       const schoolCode = code.trim().toUpperCase();
       const ident = identifier.trim();
       const pass = password;
+      try { window.sessionStorage.setItem("d4exam.loginIdent", ident); } catch { /* */ }
       const looksEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident);
 
       try {
@@ -480,7 +481,7 @@ function LoginPage() {
               identifier: ident,
               password: pass,
             }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 28_000)),
           ]);
           if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
             const { error: sessErr } = await supabase.auth.setSession({

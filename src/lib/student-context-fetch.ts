@@ -149,6 +149,52 @@ export async function fetchStudentContextClient(session: {
         .limit(5);
       if (any.data?.[0]) student = any.data[0] as Record<string, unknown>;
     }
+    // Match by email on profiles → student (common when profile_id not linked yet)
+    if (!student && (session?.email || profile?.email)) {
+      try {
+        const em = String(session?.email || profile?.email || "").trim().toLowerCase();
+        if (em) {
+          const { data: byEmail } = await supabase
+            .from("profiles")
+            .select("id, full_name, email, status, school_id")
+            .ilike("email", em)
+            .limit(3);
+          for (const pr of byEmail || []) {
+            const { data: stRow } = await supabase
+              .from("students")
+              .select(
+                "id, matric_number, student_id, school_id, profile_id, department_id, level_id, faculty_id, status, full_name, departments(name), faculties(name), levels(name)",
+              )
+              .eq("profile_id", pr.id)
+              .maybeSingle();
+            if (stRow) {
+              student = stRow as Record<string, unknown>;
+              profile = pr as typeof profile;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[student-context] email link", e);
+      }
+    }
+    // Match matric stored at login
+    if (!student) {
+      try {
+        const matric = (typeof window !== "undefined" && window.sessionStorage.getItem("d4exam.loginIdent")) || "";
+        const m = String(matric).trim();
+        if (m && !m.includes("@")) {
+          let mq = supabase.from("students").select(
+            "id, matric_number, student_id, school_id, profile_id, department_id, level_id, faculty_id, status, full_name, departments(name), faculties(name), levels(name)",
+          ).ilike("matric_number", m);
+          if (schoolId) mq = mq.eq("school_id", schoolId);
+          const { data: byMat } = await mq.limit(3);
+          if (byMat?.[0]) student = byMat[0] as Record<string, unknown>;
+        }
+      } catch (e) {
+        console.warn("[student-context] matric link", e);
+      }
+    }
     if (!student) return null;
     const departments = student.departments as { name?: string } | null;
     const faculties = student.faculties as { name?: string } | null;
