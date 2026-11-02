@@ -70,7 +70,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+
+type D4AndroidBridge = {
+  isBiometricAvailable?: () => string | boolean;
+  authenticate?: (reason: string) => void;
+  authenticateAsync?: (reason: string) => Promise<{ ok?: boolean; code?: string; message?: string }>;
+};
+
+function getD4Android(): D4AndroidBridge | null {
+  try {
+    return (window as unknown as { D4Android?: D4AndroidBridge }).D4Android || null;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureNative(): Promise<boolean> {
+  if (getD4Android()) return true;
   if (isNativeShell()) return true;
   // Capacitor injects after WebView load — give the bridge more time on cold start
   if (await waitForNativeShell(12_000)) return true;
@@ -145,6 +161,14 @@ export async function checkFingerprintAvailable(): Promise<FingerprintAvailabili
   if (typeof window === "undefined") {
     return { ok: false, reason: "web", message: "Not available." };
   }
+  try {
+    const bridge = getD4Android();
+    if (bridge?.isBiometricAvailable) {
+      const raw = bridge.isBiometricAvailable();
+      const ok = raw === true || raw === "true" || (typeof raw === "string" && raw.includes("true"));
+      if (ok) return { ok: true, hasFingerprint: true };
+    }
+  } catch { /* continue */ }
   const native = await ensureNative();
   if (!native && !isNativeShell()) {
     return {
@@ -173,6 +197,35 @@ export async function authenticateWithFingerprint(opts?: {
   title?: string;
   subtitle?: string;
 }): Promise<FingerprintAuthResult> {
+  // 0) D4EXAM standalone WebView bridge
+  try {
+    const bridge = getD4Android();
+    if (bridge) {
+      const reason = opts?.reason || "Unlock D4EXAM";
+      if (typeof bridge.authenticateAsync === "function") {
+        const r = await bridge.authenticateAsync(reason);
+        if (r?.ok) return { ok: true };
+        if (r?.code === "cancelled") return { ok: false, code: "cancelled", message: r.message || "Cancelled" };
+        return { ok: false, code: "failed", message: r?.message || "Fingerprint not recognized." };
+      }
+      if (typeof bridge.authenticate === "function") {
+        return await new Promise<FingerprintAuthResult>((resolve) => {
+          const prev = (window as unknown as { __d4FpCb?: (r: FingerprintAuthResult) => void }).__d4FpCb;
+          (window as unknown as { __d4FpResult?: (ok: boolean, code?: string, message?: string) => void }).__d4FpResult = (ok, code, message) => {
+            if (ok) resolve({ ok: true });
+            else resolve({ ok: false, code: (code as "cancelled") || "failed", message: message || "Failed" });
+          };
+          try {
+            bridge.authenticate!(reason);
+          } catch (e) {
+            resolve({ ok: false, code: "error", message: e instanceof Error ? e.message : "error" });
+          }
+          window.setTimeout(() => resolve({ ok: false, code: "timeout", message: "Fingerprint timed out." }), 90_000);
+        });
+      }
+    }
+  } catch { /* fall through */ }
+
   const native = await ensureNative();
   if (!native && !isNativeShell()) {
     return { ok: false, code: "unavailable", message: "Not in native app." };

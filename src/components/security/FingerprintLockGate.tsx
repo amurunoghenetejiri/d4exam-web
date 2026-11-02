@@ -141,8 +141,12 @@ export function FingerprintLockGate() {
   const [native, setNative] = useState(() => {
     try {
       // Strict: only real Capacitor native shell — never treat mobile Chrome as APK
-      const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-      return Boolean(Cap?.isNativePlatform?.());
+      const w = window as unknown as {
+        Capacitor?: { isNativePlatform?: () => boolean };
+        D4Android?: unknown;
+        __D4_NATIVE__?: boolean;
+      };
+      return Boolean(w.__D4_NATIVE__ || w.D4Android || w.Capacitor?.isNativePlatform?.());
     } catch {
       return false;
     }
@@ -155,8 +159,12 @@ export function FingerprintLockGate() {
     void waitForNativeShell(3_000).then((ok) => {
       if (cancelled) return;
       try {
-        const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-        if (ok && Cap?.isNativePlatform?.()) setNative(true);
+        const w = window as unknown as {
+          Capacitor?: { isNativePlatform?: () => boolean };
+          D4Android?: unknown;
+          __D4_NATIVE__?: boolean;
+        };
+        if (ok && (w.__D4_NATIVE__ || w.D4Android || w.Capacitor?.isNativePlatform?.())) setNative(true);
       } catch { /* web stays non-native */ }
     });
     const onReady = () => {

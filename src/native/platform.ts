@@ -43,6 +43,17 @@ function readNativeFlag(): boolean {
   }
 }
 
+
+/** D4EXAM standalone WebView app (d4exam-app) injects this bridge. */
+function hasD4AndroidBridge(): boolean {
+  try {
+    const w = window as CapWindow & { D4Android?: unknown; __D4_NATIVE__?: boolean };
+    return Boolean(w.__D4_NATIVE__ || w.D4Android);
+  } catch {
+    return false;
+  }
+}
+
 function readCapacitor(): CapWindow["Capacitor"] | undefined {
   try {
     return (window as CapWindow).Capacitor;
@@ -54,6 +65,10 @@ function readCapacitor(): CapWindow["Capacitor"] | undefined {
 /** Synchronous detection — may be false before Capacitor bridge injects. */
 export function getRuntimePlatform(): RuntimePlatform {
   if (typeof window === "undefined") return "unknown";
+  if (hasD4AndroidBridge()) {
+    persistNativeFlag("android");
+    return "android";
+  }
   const Cap = readCapacitor();
   try {
     if (Cap?.isNativePlatform?.()) {
@@ -112,6 +127,7 @@ export function getRuntimePlatform(): RuntimePlatform {
 }
 
 export function isNativeShell(): boolean {
+  if (typeof window !== "undefined" && hasD4AndroidBridge()) return true;
   if (typeof window === "undefined") return false;
   // Require a real Capacitor bridge — never treat a normal browser as the APK
   const Cap = readCapacitor();
