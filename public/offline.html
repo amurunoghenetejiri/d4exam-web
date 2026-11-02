@@ -3,74 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a1a3a" />
-  <title>You're Offline — D4EXAM</title>
+  <meta name="theme-color" content="#0b1b3a" />
+  <title>D4EXAM — Offline</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      min-height: 100%; min-height: 100dvh; background: #0a1a3a; color: #fff;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    }
-    body {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom));
-      text-align: center;
-    }
-    .icon-circle {
-      width: 120px; height: 120px; border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #3b5bdb, #1e3a8a 55%, #152a5c);
-      display: grid; place-items: center;
-      box-shadow: 0 12px 40px rgba(37, 99, 235, 0.35);
-      margin-bottom: 1.5rem;
-    }
-    h1 { font-size: 1.75rem; font-weight: 800; }
-    h1 span { color: #3b82f6; }
-    p.msg { margin-top: 0.85rem; max-width: 18rem; font-size: 0.95rem; line-height: 1.5; color: #94a3b8; }
-    button {
-      margin-top: 1.75rem; border: 0; border-radius: 999px; background: #2563eb; color: #fff;
-      font-size: 1rem; font-weight: 700; padding: 0.9rem 1.75rem;
-      box-shadow: 0 10px 28px rgba(37, 99, 235, 0.4);
-    }
-    .foot { margin-top: 2.25rem; max-width: 16rem; font-size: 0.8rem; color: #64748b; line-height: 1.45; }
+    body { min-height:100dvh; margin:0; background:#0b1b3a; color:#e2e8f0; font-family:system-ui,sans-serif;
+      display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; }
+    h1 { font-size:1.5rem; } h1 span { color:#3b82f6; }
+    p { color:#94a3b8; max-width:280px; line-height:1.5; }
+    button { margin-top:20px; border:0; border-radius:999px; background:#2563eb; color:#fff; font-weight:700; padding:12px 22px; }
   </style>
 </head>
 <body>
-  <div class="icon-circle" aria-hidden="true">
-    <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
-      <path d="M5 12.5a7 7 0 0 1 11.9-5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-      <path d="M8.2 15a4.5 4.5 0 0 1 6.2-1.2" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="12" cy="18.2" r="1.2" fill="#fff"/>
-      <path d="M4 5l16 14" stroke="#f87171" stroke-width="2.4" stroke-linecap="round"/>
-    </svg>
-  </div>
-  <h1>You're <span>Offline</span></h1>
-  <p class="msg">It looks like you're not connected to the internet. Please check your network connection and try again.</p>
-  <button type="button" id="retry">Try Again</button>
-  <p class="foot">D4EXAM will reconnect automatically once you're back online.</p>
-  <script>
-    (function () {
-      var LIVE = "https://d4exam-platform.vercel.app";
-      function goApp() {
-        try {
-          // Hybrid APK: return to live shell (keeps Capacitor bridge when server.url is set)
-          if (navigator.onLine) {
-            location.replace(LIVE + "/?boot=" + Date.now());
-            return;
-          }
-        } catch (e) {}
-        try {
-          location.replace("./index.html?boot=" + Date.now());
-        } catch (e2) {
-          try { location.reload(); } catch (e3) {}
-        }
-      }
-      document.getElementById("retry").addEventListener("click", goApp);
-      window.addEventListener("online", goApp);
-      // Auto-recover quickly if device is already online (false offline flash after app lock)
-      setTimeout(function () {
-        if (navigator.onLine) goApp();
-      }, 600);
-    })();
-  </script>
+  <h1><span>D4EXAM</span> is offline</h1>
+  <p>No network right now. Cached data still works in the app. Retry when you are back online.</p>
+  <button type="button" onclick="location.href='index.html'">Retry</button>
 </body>
 </html>

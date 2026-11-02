@@ -14,7 +14,9 @@
     "cap:sync": "node scripts/prepare-capacitor-dist.mjs && npx cap sync android",
     "cap:build": "node scripts/prepare-capacitor-dist.mjs && npx cap sync android",
     "cap:open": "npx cap open android",
-    "cap:copy": "npx cap copy android"
+    "cap:copy": "npx cap copy android",
+    "cap:offline": "node scripts/prepare-capacitor-dist.mjs && npx cap sync android && python3 scripts/force-local-capacitor-assets.py",
+    "cap:hybrid": "node scripts/prepare-capacitor-dist.mjs && npx cap sync android && D4EXAM_LIVE_UI=1 python3 scripts/force-local-capacitor-assets.py"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",

@@ -6,9 +6,9 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * Production runtime:
  *   APK → native splash → dist/ (webDir) → Capacitor bridge → native plugins → Supabase online
  *
- * APK production build injects server.url → https://d4exam.name.ng (live UI from Vercel)
- * while native plugins handle fingerprint, notifications, and screen share.
- * Source config stays without server.url; scripts/force-local-capacitor-assets.py sets hybrid mode.
+ * Offline-first: bundled dist/ in the APK (no server.url by default).
+ * Website (Vercel) unchanged. Optional hybrid: D4EXAM_LIVE_UI=1 force-local-capacitor-assets.py
+ * Native plugins: fingerprint, notifications, camera, screen share.
  */
 const config: CapacitorConfig = {
   appId: "com.d4exam.app",
