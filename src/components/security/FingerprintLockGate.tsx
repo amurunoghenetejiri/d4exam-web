@@ -286,9 +286,15 @@ export function FingerprintLockGate() {
     };
   }, [native, splashDone]);
 
-  const [mode, setMode] = useState<"fingerprint" | "password">(() =>
-    typeof window !== "undefined" && !isNativeShell() ? "password" : "fingerprint",
-  );
+  const [mode, setMode] = useState<"fingerprint" | "password">(() => {
+    try {
+      if (typeof window === "undefined") return "password";
+      // Native shell (Capacitor or D4Android WebView) → fingerprint first
+      const w = window as unknown as { D4Android?: unknown; __D4_NATIVE__?: boolean };
+      if (w.__D4_NATIVE__ || w.D4Android || isNativeShell()) return "fingerprint";
+    } catch { /* */ }
+    return "password";
+  });
   const [appPw, setAppPw] = useState("");
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwBusy, setPwBusy] = useState(false);
@@ -348,7 +354,7 @@ export function FingerprintLockGate() {
 
   function showPasswordMode() {
     userPickedPasswordRef.current = true;
-    setMode("password");
+    setMode("password"); /* mode password */
     setAppPw("");
     setPwError(null);
     setStatus("idle");
@@ -519,7 +525,8 @@ export function FingerprintLockGate() {
       setStatus("idle");
       promptedRef.current = false;
       userPickedPasswordRef.current = false;
-      if (native) setMode("fingerprint");
+      // Fingerprint is primary unlock; password is only a secondary choice
+      if (native) setMode(hwState === "no" ? "password" : "fingerprint");
       else setMode("password");
       return;
     }
@@ -569,13 +576,21 @@ export function FingerprintLockGate() {
             markAppBackgrounded();
             return;
           }
+          // Returning to app — only lock if away >= 8 seconds (or explicit lock flag)
+          if (isActiveCbtExamPath()) {
+            clearBackgroundMark();
+            return;
+          }
+          if (!shouldLockAfterBackground()) {
+            // Quick switch / in-app; keep session unlocked
+            clearBackgroundMark();
+            return;
+          }
           const uid = session?.userId ?? pref?.userId ?? lastUid;
           const fpEnabled = isFingerprintEnabledFor(uid) || Boolean(pref?.enabled && pref.userId);
           const canFp = Boolean(hwState !== "no");
-          // Native APK: offer FP whenever hardware is available (do not require preference)
-          const canLock = hasAppPw || fpEnabled || canFp;
+          const canLock = hasAppPw || fpEnabled || canFp || true;
           if (!canLock) return;
-          if (isActiveCbtExamPath()) return;
           setFingerprintLocked(true);
           setLocked(true);
           setAppPw("");
@@ -599,6 +614,42 @@ export function FingerprintLockGate() {
     };
   }, [native, session?.userId, pref?.userId, lastUid]);
 
+
+
+  // Native WebView: visibility uses 8s grace (do not lock on in-app page changes)
+  useEffect(() => {
+    if (!native) return;
+    const onVis = () => {
+      try {
+        if (document.visibilityState === "hidden") {
+          markAppBackgrounded();
+          return;
+        }
+        if (isPublicAuthPath || isActiveCbtExamPath()) {
+          clearBackgroundMark();
+          return;
+        }
+        if (!shouldLockAfterBackground()) {
+          clearBackgroundMark();
+          return;
+        }
+        const canFp = Boolean(hwState !== "no");
+        setFingerprintLocked(true);
+        setLocked(true);
+        userPickedPasswordRef.current = false;
+        setMode(canFp ? "fingerprint" : "password");
+        setAppPw("");
+        setPwError(null);
+        setFailedMsg(null);
+        setStatus("idle");
+        promptedRef.current = false;
+        setPageReady(false);
+        clearBackgroundMark();
+      } catch { /* ignore */ }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [native, isPublicAuthPath, hwState]);
 
   // Website: always require app password again after leaving the page/tab
   useEffect(() => {

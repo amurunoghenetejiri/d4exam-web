@@ -19,7 +19,8 @@ const BG_AT_KEY = "d4_fp_bg_at_v1";
 const SESSION_UNLOCKED_KEY = "d4_fp_session_unlocked_v1";
 
 /** Grace period (ms) after background before requiring fingerprint again */
-export const FP_LOCK_GRACE_MS = 0;
+/** App must be in background this long before unlock is required again */
+export const FP_LOCK_GRACE_MS = 8_000;
 
 export type FingerprintLockPref = {
   enabled: boolean;
@@ -174,19 +175,21 @@ export function clearSessionUnlocked(): void {
 export function shouldLockAfterBackground(): boolean {
   if (typeof window === "undefined") return false;
   try {
+    // Explicit lock flag (e.g. user locked, or we decided to lock after 8s away)
     if (isFingerprintLocked()) return true;
 
     const raw = window.sessionStorage.getItem(BG_AT_KEY);
     if (raw) {
       const at = Number(raw);
       if (Number.isFinite(at) && Date.now() - at >= FP_LOCK_GRACE_MS) {
+        // Away for 8+ seconds → lock
         return true;
       }
-      // Within grace — only lock if this process was never unlocked
-      return !isSessionUnlocked();
+      // Still within 8s grace after leaving the app → do NOT lock (in-app navigation OK)
+      return false;
     }
 
-    // No background mark = cold start / first paint → require unlock if not already
+    // No background mark = cold start / process kill → require unlock if session not unlocked
     return !isSessionUnlocked();
   } catch {
     return true;
