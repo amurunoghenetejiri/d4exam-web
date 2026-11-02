@@ -1,23 +1,39 @@
-# Run D4EXAM in Code Assist
+# How to run D4EXAM in Code Assist
 
-## Why it failed before
-1. Repo root is a **website** (Vite) — not Gradle.
-2. Capacitor needed `node_modules` (not on phone).
-3. Opening `capacitor-cordova-android-plugins` is a **library**, not the app.
+## STOP opening the website root
+If you open `d4exam-web` (full repo), Code Assist shows:
+**"No build system recognized / Nothing to run"**
 
-## What works now
-Android project is **self-contained** (WebView shell, no npm required).
+That folder is mostly a **website**, not a pure Android app.
 
-## Steps on your phone
+## DO THIS instead
+
 1. **Pull** latest `d4exam-web` from GitHub.
-2. In Code Assist **close** the project.
-3. Open project folder: **`d4exam-web/android`**  
-   (or open `d4exam-web` root — root `settings.gradle` points at `android/app`).
+2. **Close** the current project in Code Assist.
+3. Open **only** this folder:
+
+```text
+d4exam-web/D4EXAMApp
+```
+
 4. Wait for Gradle sync.
-5. Select module **app** → press **Run**.
+5. Press **Run** (green play) on the **app** module.
 
-You should see D4EXAM load inside the app (same website UI).
+You should install **D4EXAM** and see the same login/UI as the website.
 
-## Note
-This runnable build uses an in-app WebView to the live site so it works offline of npm.
-Full Capacitor plugins (fingerprint native, etc.) still need `npm run cap:sync` on a PC later.
+## Folder layout (what Code Assist needs)
+
+```text
+D4EXAMApp/
+  settings.gradle      ← include :app
+  build.gradle         ← Android Gradle plugin
+  app/
+    build.gradle       ← com.android.application
+    src/main/...
+```
+
+Same style as your working **D4AI** project.
+
+## Do not open
+- `d4exam-web` (website root)
+- `android/capacitor-cordova-android-plugins` (library only)
