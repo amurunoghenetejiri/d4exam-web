@@ -97,7 +97,7 @@ function RoleBadge({ roleKey }: { roleKey: string }) {
 }
 
 export function ProfilePage() {
-  const { data: user, isLoading, error } = useSessionUser();
+  const { data: user, isLoading, error, refetch, isFetching } = useSessionUser();
   const { data: school } = useSchoolIdentity(user?.schoolId);
   const { data: student } = useStudentContext();
   const qc = useQueryClient();
@@ -229,13 +229,23 @@ export function ProfilePage() {
               : "Please refresh or sign in again."
           }
         />
-        <button
-          type="button"
-          className="mx-auto block rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
-          onClick={() => window.location.reload()}
-        >
-          Refresh
-        </button>
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={isFetching}
+            onClick={() => void refetch()}
+          >
+            {isFetching ? "Loading…" : "Try again"}
+          </button>
+          <button
+            type="button"
+            className="text-sm font-medium text-slate-500 underline"
+            onClick={() => window.location.reload()}
+          >
+            Full refresh
+          </button>
+        </div>
       </div>
     );
   }
@@ -271,7 +281,6 @@ export function ProfilePage() {
               <p className="truncate text-lg font-bold text-slate-900">
                 {user.fullName || "User"}
               </p>
-              <p className="truncate text-sm text-slate-500">{user.email}</p>
               <RoleBadge roleKey={primaryRole} />
             </div>
           </div>

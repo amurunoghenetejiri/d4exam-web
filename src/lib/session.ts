@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { offlineSet, OfflineKeys } from "@/lib/offline-cache";
+import { offlineSet, offlineGet, OfflineKeys } from "@/lib/offline-cache";
 import { rememberLastUserId, readLastUserId, withOfflineCache } from "@/lib/offline-query";
 import { mirrorSessionUser } from "@/lib/local-db/mirror";
 import { useEffect } from "react";
@@ -1014,9 +1014,24 @@ export function useSessionUser() {
 
   return useQuery({
     queryKey: ["session-user"],
+    staleTime: 30_000,
+    retry: 3,
+    retryDelay: (i) => Math.min(1500 * (i + 1), 5000),
     queryFn: async () => {
       const last = readLastUserId();
-      let u = await withTimeout(fetchSessionUser(), 6000, "session");
+      let u = null as Awaited<ReturnType<typeof fetchSessionUser>> | null;
+      try {
+        u = await withTimeout(fetchSessionUser(), 20000, "session");
+      } catch (e) {
+        // Soft recovery: offline cache so Profile still opens after slow network
+        try {
+          if (last) {
+            const env = await offlineGet<any>(last, OfflineKeys.sessionUser);
+            if (env?.data) return env.data;
+          }
+        } catch { /* ignore */ }
+        throw e;
+      }
       // Merge login school if session still missing school (teacher/admin after unlock)
       if (u && !u.schoolId && u.role !== "super_admin") {
         const loginSchool = readLoginSchoolContext();

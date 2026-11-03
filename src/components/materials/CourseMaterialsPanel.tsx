@@ -519,7 +519,7 @@ export function CourseMaterialsPanel({
       )}
 
       {uploadOpen && (
-        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+        <div className="fixed inset-0 z-[110] flex items-end justify-center overflow-y-auto bg-black/40 p-0 sm:items-center sm:p-4">
           <div className="flex max-h-[min(94dvh,94vh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <h3 className="text-base font-bold">{editItem ? "Edit material" : "Upload material"}</h3>
@@ -533,8 +533,8 @@ export function CourseMaterialsPanel({
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOver(false); onPickFiles(e.dataTransfer.files); }}
                 >
-                  <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
-                  <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>Choose files</Button>
+                  <input ref={fileRef} type="file" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip" className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
+                  <Button type="button" variant="outline" className="min-h-11 w-full max-w-xs touch-manipulation" onClick={() => fileRef.current?.click()}>Choose files from device</Button>
                   <p className="mt-2 text-xs text-slate-500">Up to {MAX_FILES} files, {MAX_FILE_MB}MB each</p>
                   {files.length > 0 && (
                     <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto text-left text-xs">
