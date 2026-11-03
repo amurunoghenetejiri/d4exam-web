@@ -514,22 +514,21 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    if (isFingerprintLocked() || shouldLockAfterBackground()) {
-      if (isSessionUnlocked() && !isFingerprintLocked() && !shouldLockAfterBackground()) {
-        setLocked(false);
-        return;
-      }
+    // Only lock when truly required (cold start or away >= 10s). Never on in-app navigation.
+    if (shouldLockAfterBackground()) {
       setFingerprintLocked(true);
       setLocked(true);
       setFailedMsg(null);
       setStatus("idle");
       promptedRef.current = false;
       userPickedPasswordRef.current = false;
-      // Fingerprint is primary unlock; password is only a secondary choice
+      // Fingerprint is always primary on native; password is the secondary option
       if (native) setMode(hwState === "no" ? "password" : "fingerprint");
       else setMode("password");
       return;
     }
+    // Stay unlocked for in-app page changes
+    if (isFingerprintLocked()) setFingerprintLocked(false);
     setLocked(false);
   }, [native, isPublicAuthPath, session?.userId, pathname, pref?.userId, pref?.enabled, lastUid, hasAppPw, hwState]);
 
@@ -553,13 +552,13 @@ export function FingerprintLockGate() {
       setMode("password");
       return;
     }
+    // User explicitly chose password this cycle
     if (userPickedPasswordRef.current) {
       setMode("password");
       return;
     }
-    const canFp = Boolean(native && hwState !== "no");
-    if (canFp) setMode("fingerprint");
-    else setMode("password");
+    // Always prefer fingerprint on native app (password is only a bottom option)
+    setMode(hwState === "no" ? "password" : "fingerprint");
   }, [locked, userId, pref?.enabled, hwState, native]);
 
 
@@ -576,7 +575,7 @@ export function FingerprintLockGate() {
             markAppBackgrounded();
             return;
           }
-          // Returning to app — only lock if away >= 8 seconds (or explicit lock flag)
+          // Returning to app — only lock if away >= 10 seconds (or explicit lock flag)
           if (isActiveCbtExamPath()) {
             clearBackgroundMark();
             return;
@@ -616,7 +615,7 @@ export function FingerprintLockGate() {
 
 
 
-  // Native WebView: visibility uses 8s grace (do not lock on in-app page changes)
+  // Native WebView: visibility uses 10s grace (do not lock on in-app page changes)
   useEffect(() => {
     if (!native) return;
     const onVis = () => {
