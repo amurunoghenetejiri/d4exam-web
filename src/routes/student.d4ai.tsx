@@ -236,7 +236,7 @@ const VOICE_CHARS: VoiceChar[] = [
   { id: "david", name: "David", title: "Male · Neutral", vibe: "Neutral professional male", emoji: "💼", file: "cosmo_alien_ref.wav", sample: "David speaking. How can I help with your studies?", rate: 1.1, pitch: 0.95, seVoice: "Brian" },
   { id: "sarah", name: "Sarah", title: "Female · Tutor", vibe: "Patient tutor female", emoji: "📚", file: "nova_alien_ref.wav", sample: "I'm Sarah, your tutor voice. Ask me anything.", rate: 1.15, pitch: 1.12, seVoice: "Joanna" },
   { id: "michael", name: "Michael", title: "Male · Coach", vibe: "Encouraging male coach", emoji: "🏆", file: "astro_chill_ref.wav", sample: "Michael here. Let's push for your best result.", rate: 1.12, pitch: 0.9, seVoice: "Matthew" },
-];];
+];
 
 function loadVoicePreset(): VoicePreset {
   try {
