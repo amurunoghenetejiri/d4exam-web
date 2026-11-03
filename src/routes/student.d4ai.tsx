@@ -196,19 +196,18 @@ const VOICE_KEY = "d4ai_voice_v2";
 const SILENCE_MS = 1200;
 
 type VoicePreset =
-  | "ceo"
-  | "lovelle"
-  | "chippy"
-  | "whisper"
-  | "nova"
-  | "robo"
-  | "bella"
-  | "bubbly"
-  | "cosmo"
-  | "titan"
-  | "orion"
-  | "astro"
-  | "baritone";
+  | "ada"
+  | "chidi"
+  | "amaka"
+  | "tunde"
+  | "ngozi"
+  | "ebuka"
+  | "funke"
+  | "kola"
+  | "zainab"
+  | "david"
+  | "sarah"
+  | "michael";
 
 type VoiceChar = {
   id: VoicePreset;
@@ -224,38 +223,37 @@ type VoiceChar = {
 };
 
 const VOICE_CHARS: VoiceChar[] = [
-  // rate = HTMLAudio playbackRate (Google base). Male < 1, chipmunk > 1.2, robot slightly fast+flat
-  { id: "ceo", name: "Amurun Destiny", title: "👑 CEO - Male Nigerian", vibe: "Deep male visionary", emoji: "👑", file: "ceo_ref.wav", sample: "Hello, I'm Amurun Destiny, founder and CEO of D4Tech. Creating solutions, innovating lives.", rate: 0.97, pitch: 0.8, seVoice: "Brian" },
-  { id: "lovelle", name: "Lovelle", title: "💖 Romantic Female", vibe: "Warm romantic", emoji: "💖", file: "lovelle_romantic_ref.wav", sample: "Welcome to D4AI, I'm Lovelle, your romantic guide.", rate: 1.05, pitch: 1.2, seVoice: "Amy" },
-  { id: "chippy", name: "Chippy", title: "🐿️ Chipmunk Voice", vibe: "High cute chipmunk", emoji: "🐿️", file: "chippy_chipmunk_ref.wav", sample: "Hey hey! I'm Chippy the chipmunk! Let's learn fast and fun!", rate: 1.45, pitch: 1.6, seVoice: "Ivy" },
-  { id: "whisper", name: "Whisper", title: "🤫 Soft Whisper", vibe: "Slow soft ASMR", emoji: "🤫", file: "whisper_soft_ref.wav", sample: "Shhh... Hi, I'm Whisper. Let me guide you gently.", rate: 0.82, pitch: 1.05, seVoice: "Emma" },
-  { id: "nova", name: "Nova", title: "👽 Alien Sweet", vibe: "Sweet higher alien", emoji: "👽", file: "nova_alien_ref.wav", sample: "Greetings. I am Nova from the stars.", rate: 1.12, pitch: 1.25, seVoice: "Joanna" },
-  { id: "robo", name: "Robo", title: "🤖 Robot AI", vibe: "Fast metallic robot", emoji: "🤖", file: "robo_metal_ref.wav", sample: "System online. I am Robo. Processing your request.", rate: 1.18, pitch: 0.55, seVoice: "Justin" },
-  { id: "bella", name: "Bella", title: "💋 Romance Warm", vibe: "Warm female", emoji: "💋", file: "bella_romance_ref.wav", sample: "Hi, I'm Bella. Let's learn together with warmth.", rate: 1.02, pitch: 1.15, seVoice: "Amy" },
-  { id: "bubbly", name: "Bubbly", title: "🌈 Cartoon Vibrant", vibe: "Fast cartoon", emoji: "🌈", file: "bubbly_cartoon_ref.wav", sample: "Hi hi! Bubbly here! Ready for fun learning!", rate: 1.28, pitch: 1.4, seVoice: "Ivy" },
-  { id: "cosmo", name: "Cosmo", title: "🛸 Alien Cool Male", vibe: "Cool male alien", emoji: "🛸", file: "cosmo_alien_ref.wav", sample: "Cosmo reporting. Ready when you are, captain.", rate: 0.92, pitch: 0.85, seVoice: "Matthew" },
-  { id: "titan", name: "Titan", title: "🔊 Bass Beast Male", vibe: "Super deep male bass", emoji: "🔊", file: "titan_bass_ref.wav", sample: "I am Titan. Deep power. I speak with strength.", rate: 0.72, pitch: 0.5, seVoice: "Matthew" },
-  { id: "orion", name: "Orion", title: "🧠 Wise Robot Male", vibe: "Slow wise male robot", emoji: "🧠", file: "orion_wise_ref.wav", sample: "I am Orion. Think carefully. Wisdom takes time.", rate: 0.8, pitch: 0.65, seVoice: "Brian" },
-  { id: "astro", name: "Astro", title: "👾 Chill Alien Male", vibe: "Chill male buddy", emoji: "👾", file: "astro_chill_ref.wav", sample: "Yo, Astro here. Let's chill and learn together.", rate: 0.95, pitch: 0.9, seVoice: "Joey" },
-  { id: "baritone", name: "Baritone", title: "🎙️ Deep Bass Male", vibe: "Steady deep male", emoji: "🎙️", file: "baritone_deep_ref.wav", sample: "Baritone speaking. Steady, clear, and deep.", rate: 0.78, pitch: 0.6, seVoice: "Matthew" },
-];
+  // Two main voices first — Ada (female, faster), Chidi (male Nigerian)
+  { id: "ada", name: "Ada", title: "Main · Female", vibe: "Clear Nigerian female — default", emoji: "🎙️", file: "ceo_ref.wav", sample: "Hi, I'm Ada, your D4AI study companion. Let's learn together.", rate: 1.18, pitch: 1.12, seVoice: "Amy" },
+  { id: "chidi", name: "Chidi", title: "Main · Male", vibe: "Warm Nigerian male", emoji: "🎙️", file: "ceo_ref.wav", sample: "Hello, I'm Chidi. I'm here to help you study and succeed.", rate: 1.08, pitch: 0.92, seVoice: "Brian" },
+  { id: "amaka", name: "Amaka", title: "Female · Bright", vibe: "Friendly and bright", emoji: "😊", file: "lovelle_romantic_ref.wav", sample: "Hi, I'm Amaka. Ready when you are.", rate: 1.2, pitch: 1.15, seVoice: "Joanna" },
+  { id: "tunde", name: "Tunde", title: "Male · Deep", vibe: "Deep steady male", emoji: "🗣️", file: "titan_bass_ref.wav", sample: "I'm Tunde. Let's take this step by step.", rate: 1.05, pitch: 0.78, seVoice: "Matthew" },
+  { id: "ngozi", name: "Ngozi", title: "Female · Soft", vibe: "Soft calm female", emoji: "🌿", file: "whisper_soft_ref.wav", sample: "Hello, I'm Ngozi. I'll guide you gently.", rate: 1.12, pitch: 1.08, seVoice: "Emma" },
+  { id: "ebuka", name: "Ebuka", title: "Male · Clear", vibe: "Clear confident male", emoji: "📢", file: "baritone_deep_ref.wav", sample: "Ebuka here. Clear, calm, and focused.", rate: 1.1, pitch: 0.88, seVoice: "Joey" },
+  { id: "funke", name: "Funke", title: "Female · Energetic", vibe: "Upbeat female", emoji: "✨", file: "bubbly_cartoon_ref.wav", sample: "Hey! I'm Funke — let's make learning fun!", rate: 1.22, pitch: 1.2, seVoice: "Ivy" },
+  { id: "kola", name: "Kola", title: "Male · Firm", vibe: "Firm instructive male", emoji: "📘", file: "orion_wise_ref.wav", sample: "I'm Kola. Think carefully; you've got this.", rate: 1.06, pitch: 0.85, seVoice: "Matthew" },
+  { id: "zainab", name: "Zainab", title: "Female · Warm", vibe: "Warm supportive female", emoji: "💜", file: "bella_romance_ref.wav", sample: "Hi, I'm Zainab. We'll work through this together.", rate: 1.16, pitch: 1.1, seVoice: "Amy" },
+  { id: "david", name: "David", title: "Male · Neutral", vibe: "Neutral professional male", emoji: "💼", file: "cosmo_alien_ref.wav", sample: "David speaking. How can I help with your studies?", rate: 1.1, pitch: 0.95, seVoice: "Brian" },
+  { id: "sarah", name: "Sarah", title: "Female · Tutor", vibe: "Patient tutor female", emoji: "📚", file: "nova_alien_ref.wav", sample: "I'm Sarah, your tutor voice. Ask me anything.", rate: 1.15, pitch: 1.12, seVoice: "Joanna" },
+  { id: "michael", name: "Michael", title: "Male · Coach", vibe: "Encouraging male coach", emoji: "🏆", file: "astro_chill_ref.wav", sample: "Michael here. Let's push for your best result.", rate: 1.12, pitch: 0.9, seVoice: "Matthew" },
+];];
 
 function loadVoicePreset(): VoicePreset {
   try {
     const v = localStorage.getItem(VOICE_KEY);
     if (v && VOICE_CHARS.some((c) => c.id === v)) return v as VoicePreset;
-    // legacy ids → closest new character
-    if (v === "male" || v === "rex" || v === "atlas") return "ceo";
-    if (v === "female" || v === "luna" || v === "aria") return "lovelle";
-    if (v === "deep") return "titan";
-    if (v === "soft") return "whisper";
-    if (v === "auto") return "ceo";
+    // legacy ids → human voices
+    if (v === "ceo" || v === "male" || v === "rex" || v === "atlas" || v === "titan" || v === "baritone" || v === "orion" || v === "cosmo" || v === "astro" || v === "robo") return "chidi";
+    if (v === "lovelle" || v === "female" || v === "luna" || v === "aria" || v === "bella" || v === "whisper" || v === "nova" || v === "bubbly" || v === "chippy") return "ada";
+    if (v === "deep") return "tunde";
+    if (v === "soft") return "ngozi";
+    if (v === "auto") return "ada";
   } catch {}
-  return "ceo";
+  return "ada";
 }
 
 function getVoiceChar(id: VoicePreset): VoiceChar {
-  return VOICE_CHARS.find((c) => c.id === id) || VOICE_CHARS.find((c) => c.id === "ceo") || VOICE_CHARS[0];
+  return VOICE_CHARS.find((c) => c.id === id) || VOICE_CHARS.find((c) => c.id === "ada") || VOICE_CHARS[0];
 }
 
 function pickVoice(preset: VoicePreset): SpeechSynthesisVoice | null {
@@ -1476,7 +1474,7 @@ function D4AiPage() {
         if (identityQ) {
           full =
             /who (made|created) you|who is your (ceo|creator|founder)/i.test(userText)
-              ? "I was created by **Amurun Destiny O**, founder and CEO of **D4TECH**. I'm **D4AI** — here to help you learn and solve problems."
+              ? "I'm **D4AI** by **D4TECH** — your study companion. Creating solutions, innovating lives."
               : "I'm **D4AI** — your AI assistant on D4EXAM by D4TECH. I help with study, code, and questions. What do you need?";
         } else {
           const ac = new AbortController();
@@ -2633,7 +2631,7 @@ function D4AiPage() {
                 </button>
               ))}
             </div>
-            <p className="pb-4 text-center text-[11px] text-slate-500">D4AI · built by Amurun Destiny under D4TECH</p>
+            <p className="pb-4 text-center text-[11px] text-slate-500">D4AI · D4TECH</p>
           </div>
         </div>
       ) : null}
@@ -3221,7 +3219,7 @@ function D4AiPage() {
             <p className="text-[11px] font-semibold tracking-[0.35em] text-slate-400">D4TECH</p>
             <p className={cn("mt-3 text-sm leading-relaxed", dark ? "text-slate-300" : "text-slate-600")}>
               D4AI is your all-round AI assistant — learning, research, coding, cybersecurity and more.
-              Built by Amurun Destiny under D4TECH.
+              D4AI by D4TECH — Creating solutions, innovating lives.
             </p>
             <p className="mt-2 text-xs text-cyan-300/80">Creating Solutions. Innovating Lives.</p>
             <button type="button" className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#1d4ed8] to-[#2563eb] py-2 text-sm font-semibold text-white" onClick={() => setAboutOpen(false)}>

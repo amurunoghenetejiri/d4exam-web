@@ -219,10 +219,24 @@ export function ProfilePage() {
 
   if (error || !user) {
     return (
-      <EmptyState
-        title="Could not load profile"
-        description="Please refresh or sign in again."
-      />
+      <div className="mx-auto w-full max-w-2xl space-y-4 pb-8">
+        <PageHeader title="Profile" description="Your account details" />
+        <EmptyState
+          title="Could not load profile"
+          description={
+            error
+              ? `Please refresh or sign in again. (${String((error as Error)?.message || error)})`
+              : "Please refresh or sign in again."
+          }
+        />
+        <button
+          type="button"
+          className="mx-auto block rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
+          onClick={() => window.location.reload()}
+        >
+          Refresh
+        </button>
+      </div>
     );
   }
 

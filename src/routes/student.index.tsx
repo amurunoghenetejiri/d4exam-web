@@ -350,7 +350,7 @@ function Page() {
     return (
       <>
         <EmptyState
-          title="Student profile not found"
+          title="Linking your student profile…"
           description="Contact School Admin to link your account to a student record. If you just signed in, tap Retry or sign out and sign in again."
         />
         <div className="mt-4 flex justify-center">

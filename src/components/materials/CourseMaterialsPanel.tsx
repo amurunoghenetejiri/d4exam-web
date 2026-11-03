@@ -170,6 +170,39 @@ export function CourseMaterialsPanel({
     if (fileRef.current) fileRef.current.value = "";
   }
 
+
+  /** Compress images; pass PDFs through with size check (client-side friendly). */
+  async function compressForUpload(file: File): Promise<File> {
+    const type = (file.type || "").toLowerCase();
+    const name = file.name || "file";
+    try {
+      if (type.startsWith("image/")) {
+        const bitmap = await createImageBitmap(file);
+        const maxSide = 1600;
+        let w = bitmap.width;
+        let h = bitmap.height;
+        const scale = Math.min(1, maxSide / Math.max(w, h));
+        w = Math.max(1, Math.round(w * scale));
+        h = Math.max(1, Math.round(h * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return file;
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        const blob: Blob | null = await new Promise((res) =>
+          canvas.toBlob((b) => res(b), "image/jpeg", 0.78),
+        );
+        if (!blob) return file;
+        return new File([blob], name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+      }
+      // PDF / other: if already small, keep; if huge, still upload but user was warned by MAX_FILE_MB
+      return file;
+    } catch {
+      return file;
+    }
+  }
+
   async function uploadBlob(blob: Blob, fileName: string, mime: string) {
     const safe = fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
     const path = `${schoolId}/${courseId || "general"}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
@@ -214,7 +247,8 @@ export function CourseMaterialsPanel({
         for (let i = 0; i < files.length; i++) {
           setProgress(15 + Math.round((i / files.length) * 70));
           const file = files[i];
-          const up = await uploadBlob(file, file.name, file.type || "application/octet-stream");
+          const prepared = await compressForUpload(file);
+            const up = await uploadBlob(prepared, prepared.name, prepared.type || file.type || "application/octet-stream");
           if (!up) { toast.error(`Failed: ${file.name}`); continue; }
           rows.push({
             school_id: schoolId, course_id: courseId, uploaded_by: session.userId, uploader_role: role,
@@ -232,6 +266,7 @@ export function CourseMaterialsPanel({
       if (error) throw error;
       setProgress(100);
       toast.success(rows.length === 1 ? "Material uploaded." : `${rows.length} materials uploaded.`);
+      if (!rows.length) toast.error("Upload finished but nothing was saved.");
       setTitle(""); setDescription(""); setTags(""); setFiles([]); setUploadOpen(false);
       await qc.invalidateQueries({ queryKey: ["course-materials"] });
     } catch (e) {
@@ -485,12 +520,12 @@ export function CourseMaterialsPanel({
 
       {uploadOpen && (
         <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
-          <div className="flex h-[min(94dvh,94vh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl">
+          <div className="flex max-h-[min(94dvh,94vh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <h3 className="text-base font-bold">{editItem ? "Edit material" : "Upload material"}</h3>
               <button type="button" onClick={() => setUploadOpen(false)} aria-label="Close"><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 pb-6">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 pb-8 [-webkit-overflow-scrolling:touch]">
               {!editItem && (
                 <div
                   className={cn("rounded-xl border-2 border-dashed p-4 text-center", dragOver ? "border-primary bg-primary/5" : "border-slate-200")}
