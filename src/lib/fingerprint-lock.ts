@@ -22,6 +22,31 @@ const SESSION_UNLOCKED_KEY = "d4_fp_session_unlocked_v1";
 /** App must be in background this long before unlock is required again */
 export const FP_LOCK_GRACE_MS = 10_000;
 
+/** True when running inside D4EXAM Android WebView / Capacitor (not mobile Chrome). */
+export function isNativeAppShell(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const w = window as unknown as {
+      __D4_NATIVE__?: boolean;
+      D4Android?: unknown;
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    if (w.__D4_NATIVE__ || w.D4Android) return true;
+    if (w.Capacitor?.isNativePlatform?.()) return true;
+  } catch { /* ignore */ }
+  try {
+    const flag = window.localStorage.getItem("d4exam_native_shell_v1");
+    if (flag) return true;
+  } catch { /* ignore */ }
+  try {
+    const ua = navigator.userAgent || "";
+    if (ua.includes("; wv)") && /Android/i.test(ua)) return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
+
+
 export type FingerprintLockPref = {
   enabled: boolean;
   userId: string;

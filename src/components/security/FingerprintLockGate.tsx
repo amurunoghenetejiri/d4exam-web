@@ -43,6 +43,7 @@ import {
   readFingerprintPref,
   setFingerprintLocked,
   shouldLockAfterBackground,
+  isNativeAppShell,
   isActiveCbtExamPath,
   enableFingerprintFor,
 } from "@/lib/fingerprint-lock";
@@ -140,13 +141,8 @@ function lastKnownRole(): AppRole | null {
 export function FingerprintLockGate() {
   const [native, setNative] = useState(() => {
     try {
-      // Strict: only real Capacitor native shell — never treat mobile Chrome as APK
-      const w = window as unknown as {
-        Capacitor?: { isNativePlatform?: () => boolean };
-        D4Android?: unknown;
-        __D4_NATIVE__?: boolean;
-      };
-      return Boolean(w.__D4_NATIVE__ || w.D4Android || w.Capacitor?.isNativePlatform?.());
+      // D4EXAM Android WebView injects D4Android / __D4_NATIVE__; Capacitor optional
+      return isNativeAppShell();
     } catch {
       return false;
     }
@@ -156,23 +152,26 @@ export function FingerprintLockGate() {
   useEffect(() => {
     if (native) return;
     let cancelled = false;
-    void waitForNativeShell(3_000).then((ok) => {
+    void waitForNativeShell(3_000).then(() => {
       if (cancelled) return;
-      try {
-        const w = window as unknown as {
-          Capacitor?: { isNativePlatform?: () => boolean };
-          D4Android?: unknown;
-          __D4_NATIVE__?: boolean;
-        };
-        if (ok && (w.__D4_NATIVE__ || w.D4Android || w.Capacitor?.isNativePlatform?.())) setNative(true);
-      } catch { /* web stays non-native */ }
+      if (isNativeAppShell() || isNativeShell()) setNative(true);
     });
     const onReady = () => {
-      if (isNativeShell()) setNative(true);
+      if (isNativeAppShell() || isNativeShell()) setNative(true);
     };
+    // Poll briefly — WebView may inject D4Android after first paint
+    const poll = window.setInterval(() => {
+      if (cancelled) return;
+      if (isNativeAppShell()) {
+        setNative(true);
+        window.clearInterval(poll);
+      }
+    }, 200);
+    window.setTimeout(() => window.clearInterval(poll), 4000);
     window.addEventListener("d4-native-ready", onReady);
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
       window.removeEventListener("d4-native-ready", onReady);
     };
   }, [native]);
@@ -474,16 +473,9 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    // Website: ALWAYS password-only. Never fingerprint. Never auto-unlock without password entry.
-    const capNative = (() => {
-      try {
-        const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-        return Boolean(Cap?.isNativePlatform?.());
-      } catch {
-        return false;
-      }
-    })();
-    const onWeb = !capNative;
+    // Website (browser): ALWAYS password-only. Never fingerprint.
+    // Android app (D4Android / __D4_NATIVE__ / Capacitor): fingerprint primary.
+    const onWeb = !(native || isNativeAppShell());
     if (onWeb) {
       setMode("password");
       // Prefer app-password when configured; if still loading hasAppPw, keep lock visible once unlocked key missing
@@ -514,7 +506,7 @@ export function FingerprintLockGate() {
       setLocked(false);
       return;
     }
-    // Only lock when truly required (cold start or away >= 10s). Never on in-app navigation.
+    // APP PATH: fingerprint primary. Lock ONLY after 10s away or cold start — never on page navigation.
     if (shouldLockAfterBackground()) {
       setFingerprintLocked(true);
       setLocked(true);
@@ -522,12 +514,10 @@ export function FingerprintLockGate() {
       setStatus("idle");
       promptedRef.current = false;
       userPickedPasswordRef.current = false;
-      // Fingerprint is always primary on native; password is the secondary option
-      if (native) setMode(hwState === "no" ? "password" : "fingerprint");
-      else setMode("password");
+      setMode(hwState === "no" ? "password" : "fingerprint");
       return;
     }
-    // Stay unlocked for in-app page changes
+    // In-app navigation / within grace — stay unlocked
     if (isFingerprintLocked()) setFingerprintLocked(false);
     setLocked(false);
   }, [native, isPublicAuthPath, session?.userId, pathname, pref?.userId, pref?.enabled, lastUid, hasAppPw, hwState]);
