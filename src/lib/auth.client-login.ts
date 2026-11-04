@@ -67,7 +67,7 @@ async function assertSchoolMembershipInner(
 
 
 
-async function timedSignIn(email: string, password: string, ms = 12_000) {
+async function timedSignIn(email: string, password: string, ms = 15_000) {
   return Promise.race([
     supabase.auth.signInWithPassword({ email: email.toLowerCase(), password }),
     new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>

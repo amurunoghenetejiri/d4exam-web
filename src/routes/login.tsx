@@ -240,58 +240,17 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
   } catch {
     /* ignore */
   }
-  // Warm session so dashboards have schoolId before first paint (retry hard after auth)
+  // Seed school from login code without blocking navigation
   try {
-    const needsSchool = role !== "super_admin";
-    // Let auth tokens settle in the client
-    try {
-      await supabase.auth.getSession();
-    } catch {
-      /* ignore */
-    }
-    // Ensure school context from login school-code is available before fetchSessionUser
-    try {
-      const { readLoginSchoolContext } = await import("@/lib/session");
-      if (!readLoginSchoolContext()?.schoolId && loginSchool?.schoolCode) {
-        await seedSchoolFromCode(loginSchool.schoolCode);
-      }
-    } catch {
-      /* ignore */
-    }
-    // Fast path: one short session hydrate, then navigate — never block login
-    try {
-      const u = await Promise.race([
-        fetchSessionUser(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000)),
-      ]);
-      if (u?.userId) {
-        try {
-          const { offlineSet, OfflineKeys } = await import("@/lib/offline-cache");
-          await offlineSet(u.userId, OfflineKeys.sessionUser, u, { schoolId: u.schoolId });
-        } catch { /* ignore */ }
-      } else if (needsSchool) {
-        try {
-          const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
-          await Promise.race([
-            repairMySessionSchool().then((fixed) => {
-              if (fixed?.schoolId) seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
-            }),
-            new Promise((r) => setTimeout(r, 1_500)),
-          ]);
-        } catch { /* ignore */ }
-      }
-    } catch { /* ignore */ }
-  } catch {
-    /* ignore */
-  }
-  try {
-    const addFlow = consumeAddAccountFlow();
-    if (rememberDevice || addFlow || listSavedAccounts().length > 0) {
-      await saveCurrentAccountToVault();
+    if (loginSchool?.schoolId) {
+      seedLoginSchoolContext(loginSchool.schoolId, loginSchool.schoolCode);
+    } else if (loginSchool?.schoolCode) {
+      void seedSchoolFromCode(loginSchool.schoolCode);
     }
   } catch {
     /* ignore */
   }
+  // NAVIGATE IMMEDIATELY — warm session/vault in background after redirect
   try {
     appReplace(path);
   } catch {
@@ -301,6 +260,34 @@ async function goToRoleHome(role: string, rememberDevice = true, loginSchool?: {
       window.location.href = path;
     }
   }
+  // Background (do not await): cache session + vault so next open is instant
+  void (async () => {
+    try {
+      await supabase.auth.getSession();
+      const u = await Promise.race([
+        fetchSessionUser(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+      ]);
+      if (u?.userId) {
+        try {
+          const { offlineSet, OfflineKeys } = await import("@/lib/offline-cache");
+          await offlineSet(u.userId, OfflineKeys.sessionUser, u, { schoolId: u.schoolId });
+        } catch { /* ignore */ }
+      } else if (role !== "super_admin") {
+        try {
+          const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
+          const fixed = await repairMySessionSchool();
+          if (fixed?.schoolId) seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
+        } catch { /* ignore */ }
+      }
+      try {
+        const addFlow = consumeAddAccountFlow();
+        if (rememberDevice || addFlow || listSavedAccounts().length > 0) {
+          await saveCurrentAccountToVault();
+        }
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+  })();
   return true;
 }
 
@@ -335,17 +322,33 @@ function LoginPage() {
       "student",
     ] as const;
 
-    // Prefer session user (allow enough time after setSession)
+    // FAST PATH 1: get_my_roles (usually <1s) — do NOT wait on full fetchSessionUser
     try {
-      await new Promise((r) => setTimeout(r, 150));
+      const rolesRace = await Promise.race([
+        supabase.rpc("get_my_roles"),
+        new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 2_500)),
+      ]);
+      const myRoles = (rolesRace as { data?: unknown })?.data;
+      const list = Array.isArray(myRoles)
+        ? myRoles.map((r: { role?: string } | string) =>
+            typeof r === "string" ? r : String((r as { role?: string }).role || ""),
+          )
+        : [];
+      const found = priority.find((r) => list.map((x) => x.toLowerCase()).includes(r));
+      if (found) return await goToRoleHome(found, remember);
+    } catch {
+      /* ignore */
+    }
+
+    // FAST PATH 2: short session fetch (2.5s max)
+    try {
       const user = await Promise.race([
         fetchSessionUser(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500)),
       ]);
       if (user?.role && user.role in roleHome) {
         return await goToRoleHome(user.role, remember);
       }
-      // Role list without primaryRole still counts
       if (user?.roles?.length) {
         const found = priority.find((r) => user.roles.map((x) => String(x).toLowerCase()).includes(r));
         if (found) return await goToRoleHome(found, remember);
@@ -463,7 +466,7 @@ function LoginPage() {
       } else {
         setError("Still signing in… If this keeps happening, check network and try again.");
       }
-    }, 35_000);
+    }, 18_000);
 
     try {
       const schoolCode = code.trim().toUpperCase();
@@ -481,7 +484,7 @@ function LoginPage() {
               identifier: ident,
               password: pass,
             }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 28_000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 16_000)),
           ]);
           if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
             const { error: sessErr } = await supabase.auth.setSession({
@@ -499,9 +502,15 @@ function LoginPage() {
               // Mark navigated immediately so the 15s timeout cannot fire mid-redirect
               navigated = true;
               window.clearTimeout(loginTimeout);
+              // Navigate as soon as role is known (target: <3s after setSession)
               if (await resolveRoleAndGoHome()) {
                 return;
               }
+              // Instant fallback — dashboard will finish loading session
+              try {
+                await goToRoleHome("student", remember);
+                return;
+              } catch { /* continue to legacy probes */ }
               // Last resort: detect role from membership tables, never preferred
               try {
                 const { data: au } = await supabase.auth.getUser();
