@@ -1,36 +1,11 @@
 // @ts-nocheck
-/**
- * Client-side school login for native Capacitor shell (no TanStack server fn).
- * Uses public Supabase anon key + RPCs already granted to anon/authenticated.
- */
 import { supabase } from "@/integrations/supabase/client";
 
-function looksLikeEmail(s: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+function looksLikeEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 }
 
-/** After auth, user must belong to the resolved school (or be super admin). */
-async function assertSchoolMembership(
-  userId: string,
-  schoolId: string,
-): Promise<{ ok: true } | { error: string }> {
-  // Soft check only — never sign out after a successful Supabase password auth.
-  // Wrong-school hard rejects caused valid logins to show "Invalid credentials".
-  try {
-    await Promise.race([
-      assertSchoolMembershipInner(userId, schoolId),
-      new Promise<void>((resolve) => setTimeout(resolve, 800)),
-    ]);
-  } catch (e) {
-    console.warn("[client-login] membership soft-check", e);
-  }
-  return { ok: true };
-}
-
-async function assertSchoolMembershipInner(
-  userId: string,
-  schoolId: string,
-): Promise<void> {
+async function assertSchoolMembershipInner(userId: string, schoolId: string): Promise<void> {
   try {
     const { data: profile } = await supabase
       .from("profiles")
@@ -46,11 +21,7 @@ async function assertSchoolMembershipInner(
     const { data: roles } = await supabase
       .from("user_roles")
       .select("id, school_id, role")
-      .or(
-        profileId
-          ? `user_id.eq.${userId},user_id.eq.${profileId}`
-          : `user_id.eq.${userId}`,
-      )
+      .or(profileId ? `user_id.eq.${userId},user_id.eq.${profileId}` : `user_id.eq.${userId}`)
       .limit(20);
 
     const match = (roles || []).some(
@@ -64,10 +35,19 @@ async function assertSchoolMembershipInner(
   }
 }
 
+async function assertSchoolMembership(userId: string, schoolId: string) {
+  try {
+    await Promise.race([
+      assertSchoolMembershipInner(userId, schoolId),
+      new Promise((r) => setTimeout(r, 800)),
+    ]);
+  } catch {
+    /* soft */
+  }
+  return { ok: true as const };
+}
 
-
-
-async function timedSignIn(email: string, password: string, ms = 15_000) {
+async function timedSignIn(email: string, password: string, ms = 10_000) {
   return Promise.race([
     supabase.auth.signInWithPassword({ email: email.toLowerCase(), password }),
     new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
@@ -100,6 +80,130 @@ export type ClientLoginResult =
       schoolCode?: string | null;
     };
 
+async function resolveSchoolId(schoolCode: string): Promise<{ id: string | null; error: string | null }> {
+  let schoolId: string | null = null;
+  let schoolResolveError: string | null = null;
+  try {
+    const { data: rpcSchool, error: schoolErr } = await Promise.race([
+      supabase.rpc("resolve_school_for_login", { _school_code: schoolCode }),
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 3_000),
+      ),
+    ]);
+    if (schoolErr) schoolResolveError = schoolErr.message || String(schoolErr);
+    const row = Array.isArray(rpcSchool) ? rpcSchool[0] : rpcSchool;
+    if (row && typeof row === "object" && (row as { id?: string }).id) {
+      schoolId = String((row as { id: string }).id);
+    }
+  } catch (e) {
+    schoolResolveError = e instanceof Error ? e.message : String(e);
+  }
+  if (!schoolId) {
+    try {
+      const { data: schoolRow, error: sErr } = await supabase
+        .from("schools")
+        .select("id, school_code, status")
+        .ilike("school_code", schoolCode)
+        .limit(1)
+        .maybeSingle();
+      if (sErr) schoolResolveError = schoolResolveError || sErr.message;
+      else if (schoolRow?.id) {
+        const st = String(schoolRow.status || "active").toLowerCase();
+        if (["active", "approved", "live"].includes(st) || !schoolRow.status) {
+          schoolId = String(schoolRow.id);
+        }
+      }
+    } catch (e) {
+      schoolResolveError = schoolResolveError || (e instanceof Error ? e.message : String(e));
+    }
+  }
+  return { id: schoolId, error: schoolResolveError };
+}
+
+/** Collect login emails from RPCs + profile name / matric heuristics */
+async function collectCandidateEmails(
+  schoolCode: string,
+  schoolId: string | null,
+  ident: string,
+): Promise<string[]> {
+  const emails: string[] = [];
+  const push = (e?: string | null) => {
+    const v = String(e || "").trim().toLowerCase();
+    if (v.includes("@") && !emails.includes(v)) emails.push(v);
+  };
+
+  if (looksLikeEmail(ident)) push(ident);
+
+  // Preferred RPC
+  try {
+    const { data: resolved } = await Promise.race([
+      supabase.rpc("resolve_login_identity", {
+        _school_code: schoolCode,
+        _identifier: ident,
+      }),
+      new Promise<{ data: null }>((r) => setTimeout(() => r({ data: null }), 2_500)),
+    ]);
+    const row = Array.isArray(resolved) ? resolved[0] : resolved;
+    if (row && typeof row === "object" && (row as { email?: string }).email) {
+      push((row as { email: string }).email);
+    }
+  } catch {
+    /* optional */
+  }
+
+  try {
+    const { data: resolved } = await Promise.race([
+      supabase.rpc("resolve_login_email", {
+        _school_id: schoolId,
+        _identifier: ident,
+      }),
+      new Promise<{ data: null }>((r) => setTimeout(() => r({ data: null }), 2_500)),
+    ]);
+    if (resolved) {
+      const email =
+        typeof resolved === "string"
+          ? resolved
+          : Array.isArray(resolved)
+            ? String((resolved[0] as { email?: string })?.email || resolved[0] || "")
+            : String((resolved as { email?: string })?.email || "");
+      push(email);
+    }
+  } catch {
+    /* optional */
+  }
+
+  // Name / partial match on profiles (when RLS allows)
+  if (schoolId && !looksLikeEmail(ident)) {
+    try {
+      const q = ident.replace(/%/g, "").trim();
+      if (q.length >= 3) {
+        const { data: profs } = await Promise.race([
+          supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("school_id", schoolId)
+            .ilike("full_name", `%${q}%`)
+            .limit(5),
+          new Promise<{ data: null }>((r) => setTimeout(() => r({ data: null }), 2_500)),
+        ]);
+        for (const p of profs || []) {
+          push((p as { email?: string }).email);
+        }
+      }
+    } catch {
+      /* RLS may block */
+    }
+  }
+
+  // Synthetic student emails (matric-style)
+  const safeMatric = ident.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  push(`${safeMatric}@${safeCode || "school"}.student.d4exam.local`);
+  push(`${safeMatric}@placeholder.local`);
+
+  return emails;
+}
+
 export async function clientSignInWithSchoolCode(
   data: ClientLoginInput,
 ): Promise<ClientLoginResult> {
@@ -113,20 +217,8 @@ export async function clientSignInWithSchoolCode(
   const isSuperCode =
     schoolCode === "" || schoolCode === "SUPER" || schoolCode === "PLATFORM";
 
-  // Super admin / plain email path
   if (looksLikeEmail(ident) && isSuperCode) {
-    const si = await Promise.race([
-      supabase.auth.signInWithPassword({
-        email: ident.toLowerCase(),
-        password,
-      }),
-      new Promise<{ data: { session: null; user: null }; error: { message: string } }>((resolve) =>
-        setTimeout(
-          () => resolve({ data: { session: null, user: null }, error: { message: "Sign-in timed out. Check network and try again." } }),
-          12_000,
-        ),
-      ),
-    ]);
+    const si = await timedSignIn(ident, password, 10_000);
     const signIn = si.data;
     const error = si.error;
     if (error || !signIn?.session || !signIn?.user) {
@@ -146,80 +238,27 @@ export async function clientSignInWithSchoolCode(
     return { error: "Enter your school code." };
   }
 
-  // Resolve school via public RPC (with direct-table fallback)
-  let schoolId: string | null = null;
-  let schoolResolveError: string | null = null;
-  try {
-    const rpcPromise = supabase.rpc(
-      "resolve_school_for_login",
-      { _school_code: schoolCode },
-    );
-    const { data: rpcSchool, error: schoolErr } = await Promise.race([
-      rpcPromise,
-      new Promise<{ data: null; error: { message: string } }>((resolve) =>
-        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 2_000),
-      ),
-    ]);
-    if (schoolErr) {
-      schoolResolveError = schoolErr.message || String(schoolErr);
-      console.warn("[client-login] resolve_school", schoolResolveError);
-    }
-    const row = Array.isArray(rpcSchool) ? rpcSchool[0] : rpcSchool;
-    if (row && typeof row === "object" && (row as { id?: string }).id) {
-      schoolId = String((row as { id: string }).id);
-    }
-  } catch (e) {
-    schoolResolveError = e instanceof Error ? e.message : String(e);
-    console.warn("[client-login] school rpc", e);
-  }
-
-  // Fallback: direct schools lookup (RPC may fail if apikey was wrong mid-session)
-  if (!schoolId) {
-    try {
-      const { data: schoolRow, error: sErr } = await supabase
-        .from("schools")
-        .select("id, school_code, status")
-        .ilike("school_code", schoolCode)
-        .limit(1)
-        .maybeSingle();
-      if (sErr) {
-        schoolResolveError = schoolResolveError || sErr.message;
-      } else if (schoolRow?.id) {
-        const st = String(schoolRow.status || "active").toLowerCase();
-        if (["active", "approved", "live"].includes(st)) {
-          schoolId = String(schoolRow.id);
-        }
-      }
-    } catch (e) {
-      schoolResolveError =
-        schoolResolveError || (e instanceof Error ? e.message : String(e));
-    }
-  }
-
+  const { id: schoolId, error: schoolResolveError } = await resolveSchoolId(schoolCode);
   if (!schoolId) {
     const msg = (schoolResolveError || "").toLowerCase();
-    if (msg.includes("invalid api key") || msg.includes("jwt") || msg.includes("apikey")) {
-      return {
-        error:
-          "Connection error (Invalid API key). Force-close the app, clear cache, and try again.",
-      };
+    if (msg.includes("invalid api key") || msg.includes("jwt")) {
+      return { error: "Configuration error (API key). Contact support." };
     }
-    if (schoolResolveError && !msg.includes("permission") && !msg.includes("rls")) {
-      return { error: `Could not verify school code: ${schoolResolveError}` };
-    }
-    return { error: "School code not found. Check and try again." };
+    return { error: "School code not found. Check the code and try again." };
   }
 
-  // Email login within school
-  if (looksLikeEmail(ident)) {
-    const si = await timedSignIn(ident, password);
+  const emails = await collectCandidateEmails(schoolCode, schoolId, ident);
+  let lastErr = "Invalid credentials.";
+
+  for (const email of emails.slice(0, 6)) {
+    const si = await timedSignIn(email, password, 8_000);
     const signIn = si.data;
     const error = si.error;
-    if (error || !signIn?.session || !signIn.user) {
-      return { error: error?.message || "Invalid email or password." };
+    if (error || !signIn?.session || !signIn?.user) {
+      lastErr = error?.message || lastErr;
+      continue;
     }
-    const member = await assertSchoolMembership(signIn.user.id, schoolId);
-    if ("error" in member) return member;
+    await assertSchoolMembership(signIn.user.id, schoolId);
     return {
       ok: true,
       accessToken: signIn.session.access_token,
@@ -230,64 +269,9 @@ export async function clientSignInWithSchoolCode(
     };
   }
 
-  // Matric / staff ID → resolve login email via RPC if available
-  try {
-    const { data: resolved, error: rErr } = await supabase.rpc("resolve_login_email", {
-      _school_id: schoolId,
-      _identifier: ident,
-    });
-    if (!rErr && resolved) {
-      const email =
-        typeof resolved === "string"
-          ? resolved
-          : Array.isArray(resolved)
-            ? String((resolved[0] as { email?: string })?.email || resolved[0] || "")
-            : String((resolved as { email?: string })?.email || "");
-      if (email.includes("@")) {
-        const si = await timedSignIn(email, password);
-        const signIn = si.data;
-        const error = si.error;
-        if (error || !signIn?.session || !signIn.user) {
-          return { error: error?.message || "Invalid credentials." };
-        }
-        const member = await assertSchoolMembership(signIn.user.id, schoolId);
-        if ("error" in member) return member;
-        return {
-          ok: true,
-          accessToken: signIn.session.access_token,
-          refreshToken: signIn.session.refresh_token,
-          userId: signIn.user.id,
-          schoolId,
-          schoolCode,
-        };
-      }
-    }
-  } catch (e) {
-    console.warn("[client-login] resolve_login_email", e);
-  }
-
-  // Fallback synthetic student email pattern used by the platform
-  const safeMatric = ident.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const synthetic = `${safeMatric}@${safeCode || "school"}.student.d4exam.local`;
-  const si2 = await timedSignIn(synthetic, password);
-  const signIn = si2.data;
-  const error = si2.error;
-  if (error || !signIn?.session || !signIn.user) {
-    return {
-      error:
-        error?.message ||
-        "Invalid credentials. If this is your first login, ask your school to provision your account online first.",
-    };
-  }
-  const member = await assertSchoolMembership(signIn.user.id, schoolId);
-  if ("error" in member) return member;
   return {
-    ok: true,
-    accessToken: signIn.session.access_token,
-    refreshToken: signIn.session.refresh_token,
-    userId: signIn.user.id,
-    schoolId,
-    schoolCode,
+    error:
+      lastErr ||
+      "Invalid credentials. Use your matric / staff ID or registered email (not only display name) if this continues.",
   };
 }

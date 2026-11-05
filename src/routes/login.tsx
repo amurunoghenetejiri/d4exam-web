@@ -431,13 +431,7 @@ function LoginPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (inFlight.current || loading) {
-      // If a previous attempt left the button stuck, a second tap resets it
-      setLoading(false);
-      inFlight.current = false;
-      setError("");
-      return;
-    }
+    if (inFlight.current) return;
     setError("");
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setError("No network. Check your connection and try again.");
@@ -449,277 +443,136 @@ function LoginPage() {
     }
     inFlight.current = true;
     setLoading(true);
-    // Wipe previous account role so a teacher cannot inherit school_admin
     try {
       clearPreferredRole();
       clearPendingLoginRole();
     } catch { /* ignore */ }
+
     let navigated = false;
     let lastServerMsg = "";
-    // Hard ceiling so the Sign in button never stays stuck
+    const schoolCode = code.trim().toUpperCase();
+    const ident = identifier.trim();
+    const pass = password;
+    try { window.sessionStorage.setItem("d4exam.loginIdent", ident); } catch { /* */ }
+
+    const finishHome = async (loginSchool?: { schoolId?: string | null; schoolCode?: string | null }) => {
+      navigated = true;
+      try {
+        if (loginSchool?.schoolId) seedLoginSchoolContext(loginSchool.schoolId, loginSchool.schoolCode);
+        else if (schoolCode) await seedSchoolFromCode(schoolCode);
+      } catch { /* ignore */ }
+      if (await resolveRoleAndGoHome()) return true;
+      // Hard fallback — never leave user on login after a valid session
+      await goToRoleHome("student", remember, loginSchool);
+      return true;
+    };
+
+    const applyTokens = async (accessToken: string, refreshToken: string, schoolId?: string | null, sc?: string | null) => {
+      const { error: sessErr } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || "",
+      });
+      if (sessErr) throw sessErr;
+      return finishHome({ schoolId: schoolId || null, schoolCode: sc || schoolCode || null });
+    };
+
+    // Ceiling: if something hangs, unlock UI with a clear message
     const loginTimeout = window.setTimeout(() => {
       if (navigated) return;
       setLoading(false);
       inFlight.current = false;
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setError("No network. Check your connection and try again.");
-      } else {
-        setError("Still signing in… If this keeps happening, check network and try again.");
-      }
-    }, 18_000);
+      setError("Sign-in is taking too long. Check network, use matric/email if you typed a name, and try again.");
+    }, 22_000);
 
     try {
-      const schoolCode = code.trim().toUpperCase();
-      const ident = identifier.trim();
-      const pass = password;
-      try { window.sessionStorage.setItem("d4exam.loginIdent", ident); } catch { /* */ }
-      const looksEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident);
+      // Run client + server login in parallel — first success wins
+      type Ok = { kind: "ok"; accessToken: string; refreshToken: string; schoolId?: string | null; schoolCode?: string | null };
+      type Fail = { kind: "fail"; msg: string };
+      type Race = Ok | Fail | null;
 
-      try {
-        // Always try client Supabase login first (APK has no reliable SSR; website benefits too)
-        {
-          const nativeResult = await Promise.race([
-            clientSignInWithSchoolCode({
-              schoolCode: schoolCode || "",
-              identifier: ident,
-              password: pass,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 16_000)),
-          ]);
-          if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
-            const { error: sessErr } = await supabase.auth.setSession({
-              access_token: nativeResult.accessToken,
-              refresh_token: nativeResult.refreshToken || "",
-            });
-            if (!sessErr) {
-              try {
-                if (nativeResult.schoolId) {
-                  seedLoginSchoolContext(nativeResult.schoolId, nativeResult.schoolCode || schoolCode);
-                } else if (schoolCode) {
-                  void seedSchoolFromCode(schoolCode);
-                }
-              } catch { /* ignore */ }
-              // Mark navigated immediately so the 15s timeout cannot fire mid-redirect
-              navigated = true;
-              window.clearTimeout(loginTimeout);
-              // Navigate as soon as role is known (target: <3s after setSession)
-              if (await resolveRoleAndGoHome()) {
-                return;
-              }
-              // Instant fallback — dashboard will finish loading session
-              try {
-                await goToRoleHome("student", remember);
-                return;
-              } catch { /* continue to legacy probes */ }
-              // Last resort: detect role from membership tables, never preferred
-              try {
-                const { data: au } = await supabase.auth.getUser();
-                const uid = au.user?.id;
-                if (uid) {
-                  const { data: prof } = await supabase
-                    .from("profiles")
-                    .select("id")
-                    .or(`id.eq.${uid},auth_user_id.eq.${uid}`)
-                    .maybeSingle();
-                  const pid = prof?.id || uid;
-                  for (const [table, role] of [
-                    ["examination_officers", "examination_officer"],
-                    ["teachers", "teacher"],
-                    ["students", "student"],
-                  ] as const) {
-                    const { data: row } = await supabase
-                      .from(table)
-                      .select("id")
-                      .eq("profile_id", pid)
-                      .limit(1)
-                      .maybeSingle();
-                    if (row?.id) {
-                      await goToRoleHome(role, remember);
-                      return;
-                    }
-                  }
-                  const { data: roles } = await supabase
-                    .from("user_roles")
-                    .select("role")
-                    .eq("user_id", uid)
-                    .limit(10);
-                  const list = (roles || []).map((r) => String(r.role).toLowerCase());
-                  for (const r of ["super_admin", "school_admin", "examination_officer", "teacher", "student"]) {
-                    if (list.includes(r)) {
-                      await goToRoleHome(r, remember);
-                      return;
-                    }
-                  }
-                }
-              } catch { /* ignore */ }
-              await goToRoleHome("student", remember);
-              return;
-            }
-          } else if (nativeResult && "error" in nativeResult && nativeResult.error) {
-            lastServerMsg = String(nativeResult.error);
-            // Fatal client errors (wrong school / invalid key) — do not mask with server path
-            const fatal = String(nativeResult.error).toLowerCase();
-            if (
-              fatal.includes("school code not found") ||
-              fatal.includes("invalid api key") ||
-              fatal.includes("invalid email") ||
-              fatal.includes("invalid credentials") ||
-              fatal.includes("invalid password")
-            ) {
-              setError(String(nativeResult.error));
-              return;
-            }
-          }
-        }
-
-        // Cap server login so UI never hangs (client fallback still runs)
-        const result = await Promise.race([
-          loginFn({
-            data: {
-              schoolCode: schoolCode || "",
-              identifier: ident,
-              password: pass,
-            },
-          }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
-        ]);
-
-        if (result && "session" in result && result.session?.access_token) {
-          if (result.role && result.role in roleHome) {
-            try {
-              seedPendingLoginRole(String(result.role));
-            } catch {
-              /* ignore */
-            }
-          }
-          const loginSchool = {
-            schoolId: (result as { schoolId?: string | null }).schoolId || null,
-            schoolCode: (result as { schoolCode?: string | null }).schoolCode || schoolCode || null,
+      const clientPromise: Promise<Race> = clientSignInWithSchoolCode({
+        schoolCode: schoolCode || "",
+        identifier: ident,
+        password: pass,
+      }).then((r) => {
+        if (r && "ok" in r && r.ok && r.accessToken) {
+          return {
+            kind: "ok" as const,
+            accessToken: r.accessToken,
+            refreshToken: r.refreshToken || "",
+            schoolId: r.schoolId,
+            schoolCode: r.schoolCode,
           };
-          try {
-            if (loginSchool.schoolId) {
-              seedLoginSchoolContext(loginSchool.schoolId, loginSchool.schoolCode);
-            } else if (schoolCode) {
-              await seedSchoolFromCode(schoolCode);
-            }
-          } catch {
-            /* ignore */
-          }
-          const { error: sessErr } = await supabase.auth.setSession({
-            access_token: result.session.access_token,
-            refresh_token: result.session.refresh_token,
-          });
-          if (!sessErr) {
-            navigated = true;
-            window.clearTimeout(loginTimeout);
-            if (result.role && result.role in roleHome) {
-              await goToRoleHome(String(result.role), remember, loginSchool);
-              return;
-            }
-            void seedSchoolFromCode(schoolCode);
-            if (await resolveRoleAndGoHome()) {
-              return;
-            }
-            // Session exists — never bounce back to login form with a stale preferred role
-            await goToRoleHome("student", remember, loginSchool);
-            return;
-          } else if (result.role && result.role in roleHome) {
-            navigated = true;
-            await goToRoleHome(String(result.role), remember, loginSchool);
-            return;
-          }
         }
-        if (result && "error" in result && result.error) {
-          lastServerMsg = String(result.error);
-        }
-      } catch (serverErr) {
-        console.warn("[login] server fn failed, trying client fallback", serverErr);
-        lastServerMsg = friendlyLoginError(serverErr);
-      }
+        if (r && "error" in r && r.error) return { kind: "fail" as const, msg: String(r.error) };
+        return { kind: "fail" as const, msg: "Client sign-in failed." };
+      }).catch((e) => ({ kind: "fail" as const, msg: e instanceof Error ? e.message : String(e) }));
 
-      // Client-side auth fallback (works even if server fn is slow/unavailable)
-      const emailsToTry: string[] = [];
-      if (looksEmail) emailsToTry.push(ident.toLowerCase());
-      if (!looksEmail && schoolCode) {
-        const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-        const build = (raw: string) => {
-          const safe = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
-          const safeDot = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, ".");
-          return [
-            `${safe}@${safeCode || "school"}.student.d4exam.local`,
-            `${safeDot}@placeholder.local`,
-            `${safe}@placeholder.local`,
-          ];
+      const serverPromise: Promise<Race> = Promise.race([
+        loginFn({ data: { schoolCode: schoolCode || "", identifier: ident, password: pass } }),
+        new Promise<null>((r) => setTimeout(() => r(null), 14_000)),
+      ]).then(async (fixed) => {
+        if (!fixed) return { kind: "fail" as const, msg: "Server sign-in timed out." };
+        if (fixed && "ok" in fixed && (fixed as any).ok && (fixed as any).accessToken) {
+          return {
+            kind: "ok" as const,
+            accessToken: String((fixed as any).accessToken),
+            refreshToken: String((fixed as any).refreshToken || ""),
+            schoolId: (fixed as any).schoolId ?? null,
+            schoolCode: (fixed as any).schoolCode ?? schoolCode,
+          };
+        }
+        if (fixed && "session" in fixed && (fixed as any).session?.access_token) {
+          return {
+            kind: "ok" as const,
+            accessToken: String((fixed as any).session.access_token),
+            refreshToken: String((fixed as any).session.refresh_token || ""),
+            schoolId: (fixed as any).schoolId ?? null,
+            schoolCode: schoolCode,
+          };
+        }
+        if (fixed && "error" in fixed && (fixed as any).error) {
+          return { kind: "fail" as const, msg: String((fixed as any).error) };
+        }
+        // Some server paths only confirm credentials — try direct password if email-like
+        return { kind: "fail" as const, msg: "Server did not return a session." };
+      }).catch((e) => ({ kind: "fail" as const, msg: e instanceof Error ? e.message : String(e) }));
+
+      // Prefer whichever finishes first with ok
+      const firstOk = await new Promise<Race>((resolve) => {
+        let pending = 2;
+        let lastFail: Race = null;
+        const done = (r: Race) => {
+          if (r && r.kind === "ok") resolve(r);
+          else {
+            lastFail = r;
+            pending -= 1;
+            if (pending <= 0) resolve(lastFail);
+          }
         };
-        for (const em of [...build(ident), ...build(pass)]) {
-          if (em && !emailsToTry.includes(em)) emailsToTry.push(em);
+        clientPromise.then(done);
+        serverPromise.then(done);
+      });
+
+      if (firstOk && firstOk.kind === "ok") {
+        await applyTokens(firstOk.accessToken, firstOk.refreshToken, firstOk.schoolId, firstOk.schoolCode);
+        return;
+      }
+      if (firstOk && firstOk.kind === "fail") lastServerMsg = firstOk.msg;
+
+      // Direct email path as last resort
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident)) {
+        const { data: again, error: againErr } = await supabase.auth.signInWithPassword({
+          email: ident.toLowerCase(),
+          password: pass,
+        });
+        if (!againErr && again.session) {
+          await finishHome({ schoolCode });
+          return;
         }
+        if (againErr?.message) lastServerMsg = againErr.message;
       }
 
-      for (const email of emailsToTry) {
-        try {
-          const authPromise = supabase.auth.signInWithPassword({
-            email,
-            password: pass,
-          });
-          const raced = await Promise.race([
-            authPromise,
-            new Promise<{ data: { session: null }; error: { message: string } }>((resolve) =>
-              setTimeout(() => resolve({ data: { session: null }, error: { message: "timeout" } }), 4_000),
-            ),
-          ]);
-          const data = raced.data;
-          const authErr = raced.error;
-          if (!authErr && data?.session) {
-            await seedSchoolFromCode(schoolCode); if (await resolveRoleAndGoHome()) {
-              navigated = true;
-              return;
-            }
-            if (looksEmail) {
-              navigated = true;
-              await goToRoleHome("school_admin", remember);
-              return;
-            }
-          }
-          if (authErr?.message && authErr.message !== "timeout") lastServerMsg = authErr.message;
-        } catch {
-          /* try next */
-        }
-      }
-
-      if (looksEmail) {
-        try {
-          const fixed = await Promise.race([
-            ensureLoginFn({
-              data: {
-                email: ident.toLowerCase(),
-                password: pass,
-                schoolCode: schoolCode || null,
-              },
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
-          ]);
-          if (fixed && "ok" in fixed && fixed.ok) {
-            const { data: again, error: againErr } = await supabase.auth.signInWithPassword({
-              email: ident.toLowerCase(),
-              password: pass,
-            });
-            if (!againErr && again.session) {
-              await seedSchoolFromCode(schoolCode); if (await resolveRoleAndGoHome()) {
-                navigated = true;
-                return;
-              }
-              navigated = true;
-              await goToRoleHome("school_admin", remember);
-              return;
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // Prefer network message when offline; otherwise short credentials message
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         setError("No network. Check your connection and try again.");
       } else {
@@ -730,17 +583,14 @@ function LoginPage() {
       setError(friendlyLoginError(err));
     } finally {
       window.clearTimeout(loginTimeout);
-      // Always release the button. Successful navigations leave the page;
-      // if replace is delayed, user can still retry after a short moment.
       if (!navigated) {
         setLoading(false);
         inFlight.current = false;
       } else {
-        // Safety: if navigation is slow, unstick after 2s
         window.setTimeout(() => {
           setLoading(false);
           inFlight.current = false;
-        }, 2_000);
+        }, 1500);
       }
     }
   }

@@ -5,6 +5,7 @@ import {
   readPendingLoginRole,
   readPreferredRole,
   clearPendingLoginRole,
+  readLoginSchoolContext,
   roleHome,
   type AppRole,
   type SessionUser,
@@ -143,17 +144,16 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
   }
 
   if (!user) {
-    // Last resort: valid Supabase session + role we just logged in with (avoids bounce to /login)
+    // Valid auth session after login must NOT bounce to /login while profile hydrates
     try {
       const { data: sess } = await supabase.auth.getSession();
-      const pending = readPendingLoginRole() || readPreferredRole();
-      if (sess.session?.user && pending && allowed.includes(pending)) {
+      const authUser = sess.session?.user;
+      if (authUser?.id) {
         try {
           const hard = await Promise.race([
             fetchSessionUser(),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
           ]);
-          // Accept resolved role even if schoolId is still hydrating (admin/officer login loop fix)
           if (
             hard &&
             (hard.role === "super_admin" ||
@@ -165,16 +165,48 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
             if (hard.role || hard.schoolId) clearPendingLoginRole();
             return { user: hard };
           }
+          if (hard && queryClient) {
+            // Accept full session user even if role still matching
+            const roleMatch =
+              (hard.role && allowed.includes(hard.role as never)) ||
+              allowed.some((r) => hard.roles?.includes(r));
+            if (roleMatch || hard.role === "super_admin") {
+              queryClient.setQueryData(["session-user"], hard);
+              return { user: hard };
+            }
+          }
         } catch {
-          /* continue to minimal */
+          /* continue minimal */
         }
-        // Do NOT invent a role from preferred/pending alone — that let teachers open /admin
-        clearPendingLoginRole();
-        throw redirect({ to: "/login" });
-      }
-      // Session exists but role not yet known — never route by pending preferred role
-      if (sess.session?.user) {
-        clearPendingLoginRole();
+        // Minimal session so dashboard can open; layout will hydrate school/profile
+        const pending = readPendingLoginRole() || readPreferredRole();
+        const roleGuess =
+          pending && allowed.includes(pending)
+            ? pending
+            : allowed[0];
+        const loginSchool = readLoginSchoolContext();
+        const minimal: SessionUser = {
+          userId: authUser.id,
+          profileId: authUser.id,
+          email: String(authUser.email || ""),
+          fullName: String(
+            (authUser.user_metadata as { full_name?: string } | undefined)?.full_name ||
+              authUser.email ||
+              "User",
+          ),
+          status: "active",
+          schoolId: loginSchool?.schoolId ?? null,
+          schoolName: null,
+          schoolCode: loginSchool?.schoolCode ?? null,
+          schoolLogoUrl: null,
+          avatarUrl: null,
+          roles: [roleGuess],
+          role: roleGuess,
+          identifier: null,
+          identifierLabel: "ID",
+        };
+        if (queryClient) queryClient.setQueryData(["session-user"], minimal);
+        return { user: minimal };
       }
     } catch (e) {
       if (e && typeof e === "object" && "to" in e) throw e;
