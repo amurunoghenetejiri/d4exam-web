@@ -636,3 +636,28 @@ html.d4-monitor-desktop-site .sa-main {
 html.d4-monitor-desktop-site .d4-monitor-grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
 }
+
+
+/* Login / forms: always light fields (no black autofill or dark flash) */
+.d4-login-light input,
+.d4-login-light textarea,
+.d4-login-light select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  caret-color: #0f172a;
+}
+.d4-login-light input::placeholder {
+  color: #94a3b8 !important;
+}
+.d4-login-light input:-webkit-autofill,
+.d4-login-light input:-webkit-autofill:hover,
+.d4-login-light input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #0f172a !important;
+  box-shadow: 0 0 0px 1000px #ffffff inset !important;
+  transition: background-color 99999s ease-in-out 0s;
+}
+
+/* Prefer light theme surfaces across the app (avoid accidental black cards) */
+html {
+  color-scheme: light;
+}

@@ -290,6 +290,40 @@ export const loginWithSchoolCode = createServerFn({ method: "POST" })
             }
           }
 
+          
+          // Teacher by name (full name / first + last) when identifier is not staff_id
+          if (resolvedKind !== "teacher" && /[a-zA-Z]/.test(ident) && !ident.includes("@")) {
+            const { data: trows } = await admin
+              .from("teachers")
+              .select("staff_id, profiles(email, auth_user_id, full_name)")
+              .eq("school_id", schoolId)
+              .limit(800);
+            const idn = ident.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+            const idParts = idn.split(" ").filter(Boolean);
+            for (const t of trows ?? []) {
+              const fn = String(
+                ((t as { profiles?: { full_name?: string } | null }).profiles?.full_name || ""),
+              )
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+              if (!fn) continue;
+              const ok =
+                fn === idn ||
+                (idParts.length >= 1 && idParts.every((p) => fn.split(" ").some((f) => f === p || f.startsWith(p))));
+              if (!ok) continue;
+              const em = String(
+                ((t as { profiles?: { email?: string } | null }).profiles?.email || ""),
+              )
+                .trim()
+                .toLowerCase();
+              if (em && !candidateEmails.includes(em)) candidateEmails.unshift(em);
+              resolvedKind = "teacher";
+              break;
+            }
+          }
+
           if (resolvedKind !== "teacher") {
             const { data: officers } = await admin
               .from("examination_officers")

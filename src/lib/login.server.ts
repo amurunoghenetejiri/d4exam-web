@@ -21,6 +21,43 @@ function matricMatches(stored: string, password: string) {
   return a.length > 0 && a === b;
 }
 
+function normalizePersonName(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** True if identifier looks like a person name (not email/matric). */
+function looksLikePersonName(s: string) {
+  const t = s.trim();
+  if (!t || t.includes("@")) return false;
+  if (/^\d+$/.test(t.replace(/[\s\-\/]/g, ""))) return false;
+  // Has letters
+  return /[a-zA-Z]/.test(t);
+}
+
+function namesMatch(fullName: string, identifier: string) {
+  const full = normalizePersonName(fullName);
+  const id = normalizePersonName(identifier);
+  if (!full || !id) return false;
+  if (full === id) return true;
+  // identifier is first + last subset of full name tokens
+  const ft = full.split(" ").filter(Boolean);
+  const it = id.split(" ").filter(Boolean);
+  if (it.length === 0) return false;
+  // all identifier tokens appear in full name (order-independent)
+  if (it.every((tok) => ft.some((f) => f === tok || f.startsWith(tok) || tok.startsWith(f)))) {
+    return it.length >= 1 && (it.length >= 2 || ft.some((f) => f === it[0]));
+  }
+  // full name contains identifier string
+  if (full.includes(id)) return true;
+  return false;
+}
+
 /** All historical synthetic email formats used across import/login versions. */
 export function studentAuthEmailCandidates(opts: {
   schoolId: string;
@@ -125,10 +162,65 @@ export async function provisionStudentLogin(params: {
     if (byPass.length === 1) {
       student = byPass[0]!;
     } else if (byPass.length > 1) {
+      // Prefer the one whose profile name matches identifier
+      let preferred: StudentLookupRow | null = null;
+      if (looksLikePersonName(identifier)) {
+        const profileIds = byPass.map((s) => s.profile_id).filter(Boolean) as string[];
+        if (profileIds.length) {
+          const { data: profs } = await supabaseAdmin
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", profileIds);
+          const matchId = (profs || []).find((pr) =>
+            namesMatch(String((pr as { full_name?: string }).full_name || ""), identifier),
+          )?.id;
+          if (matchId) preferred = byPass.find((s) => s.profile_id === matchId) ?? null;
+        }
+      }
       student =
+        preferred ??
         byPass.find((s) => (s.matric_number || "").trim().toLowerCase() === password.toLowerCase()) ??
         byPass[0] ??
         null;
+    }
+  }
+
+  // 3) Identifier is a name — match profiles.full_name, password must be that student's matric
+  if (!student && looksLikePersonName(identifier) && passNorm.length >= 4) {
+    const profileIds = rows.map((s) => s.profile_id).filter(Boolean) as string[];
+    if (profileIds.length) {
+      // Chunk in case of large schools
+      const nameHits: { id: string; full_name: string | null }[] = [];
+      for (let i = 0; i < profileIds.length; i += 200) {
+        const slice = profileIds.slice(i, i + 200);
+        const { data: profs } = await supabaseAdmin
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", slice);
+        for (const pr of profs || []) {
+          const fn = String((pr as { full_name?: string }).full_name || "");
+          if (namesMatch(fn, identifier)) {
+            nameHits.push({ id: String((pr as { id: string }).id), full_name: fn });
+          }
+        }
+      }
+      const matchedStudents = rows.filter((s) =>
+        nameHits.some((h) => h.id === s.profile_id),
+      );
+      const withPass = matchedStudents.filter(
+        (s) =>
+          matricMatches(s.matric_number || "", password) ||
+          matricMatches(s.student_id || "", password),
+      );
+      if (withPass.length === 1) student = withPass[0]!;
+      else if (withPass.length > 1) {
+        student =
+          withPass.find((s) => (s.matric_number || "").trim().toLowerCase() === password.toLowerCase()) ??
+          withPass[0]!;
+      } else if (matchedStudents.length === 1) {
+        // Name matched one student but password not matric — fail clearly later
+        student = null;
+      }
     }
   }
 

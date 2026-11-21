@@ -654,7 +654,7 @@ function LoginPage() {
               </Alert>
             ) : null}
 
-            <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+            <form onSubmit={submit} className="mt-6 space-y-4 d4-login-light" noValidate>
               <div className="space-y-1.5">
                 <Label htmlFor="school-code">School code</Label>
                 <Input
@@ -668,7 +668,7 @@ function LoginPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="identifier">Email / matric / staff ID</Label>
+                <Label htmlFor="identifier">Email, name, matric or staff ID</Label>
                 <Input
                   id="identifier"
                   value={identifier}
