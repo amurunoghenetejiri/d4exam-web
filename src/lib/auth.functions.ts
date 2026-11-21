@@ -362,18 +362,34 @@ export const loginWithSchoolCode = createServerFn({ method: "POST" })
       }
 
       if (!looksLikeEmail(ident)) {
-        const synth = studentSyntheticEmail(schoolCode, ident);
-        if (!candidateEmails.includes(synth)) candidateEmails.push(synth);
-        const safeMatric = ident.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-        const alts = [
-          `${safeMatric}@${safeCode || "school"}.student.d4exam.local`,
-          `${ident.replace(/[^a-z0-9]+/gi, ".").toLowerCase()}@placeholder.local`,
-          `${safeMatric.replace(/-/g, ".")}@placeholder.local`,
-        ];
-        for (const a of alts) {
-          if (a && !candidateEmails.includes(a)) candidateEmails.push(a);
-        }
+        const pushMatricAlts = (raw: string) => {
+          const m = String(raw || "").trim();
+          if (!m || m.includes("@")) return;
+          const hasDigit = /\d/.test(m);
+          // Skip multi-word display names without digits
+          if (!hasDigit && m.split(/\s+/).length >= 2) return;
+          const safeMatric = m.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+          const safeMatricDot = m.toLowerCase().replace(/[^a-z0-9]+/g, ".");
+          if (!safeMatric) return;
+          const alts = [
+            `${safeMatric}@${safeCode || "school"}.student.d4exam.local`,
+            `${safeMatric}@placeholder.local`,
+            `${safeMatricDot}@placeholder.local`,
+            `${safeMatric.replace(/-/g, ".")}@placeholder.local`,
+          ];
+          for (const a of alts) {
+            if (a && !candidateEmails.includes(a)) candidateEmails.push(a);
+          }
+        };
+        // Identifier may be matric
+        pushMatricAlts(ident);
+        try {
+          const synth = studentSyntheticEmail(schoolCode, ident);
+          if (synth && !candidateEmails.includes(synth) && /\d/.test(ident)) candidateEmails.push(synth);
+        } catch { /* */ }
+        // Critical: name + matric-password → synth emails from PASSWORD (matric)
+        pushMatricAlts(password);
       }
 
       if (!schoolId && candidateEmails.length === 0 && !looksLikeEmail(ident)) {

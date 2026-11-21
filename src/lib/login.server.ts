@@ -75,6 +75,9 @@ export function studentAuthEmailCandidates(opts: {
     `${safeMatricDot}@placeholder.local`,
     `${safeMatric.replace(/-/g, ".")}@placeholder.local`,
     `${safeMatric}@placeholder.local`,
+    // Uppercase school code variants
+    `${safeMatric}@${(opts.schoolCode.trim().toLowerCase() || "school")}.student.d4exam.local`,
+    `${safeMatric}@${safeCode || "school"}.d4exam.local`,
   ];
   return out.filter((e, i) => e && out.indexOf(e) === i);
 }

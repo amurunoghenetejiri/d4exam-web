@@ -195,11 +195,30 @@ async function collectCandidateEmails(
     }
   }
 
-  // Synthetic student emails (matric-style)
-  const safeMatric = ident.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  // Synthetic student emails — prefer matric-shaped values (identifier OR password)
   const safeCode = schoolCode.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-  push(`${safeMatric}@${safeCode || "school"}.student.d4exam.local`);
-  push(`${safeMatric}@placeholder.local`);
+  const schoolKey = (schoolId || "").replace(/-/g, "").slice(0, 12);
+
+  const pushMatricSynths = (raw: string) => {
+    const m = String(raw || "").trim();
+    if (!m || m.includes("@")) return;
+    // Skip pure display names without digits (not a matric)
+    const hasDigit = /\d/.test(m);
+    const looksMatric = hasDigit || /\//.test(m) || m.length <= 24;
+    if (!hasDigit && m.split(/\s+/).length >= 2) return; // "John Doe" style name
+    const safeMatric = m.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const safeMatricDot = m.toLowerCase().replace(/[^a-z0-9]+/g, ".");
+    if (!safeMatric) return;
+    push(`${safeMatric}@${safeCode || "school"}.student.d4exam.local`);
+    push(`${safeMatric}@placeholder.local`);
+    push(`${safeMatricDot}@placeholder.local`);
+    if (schoolKey) push(`${safeMatric}.${schoolKey}@student.d4exam.local`);
+  };
+
+  // If user typed matric as identifier
+  pushMatricSynths(ident);
+  // If user typed name as identifier + matric as password — critical path
+  if (password) pushMatricSynths(password);
 
   return emails;
 }
@@ -247,10 +266,10 @@ export async function clientSignInWithSchoolCode(
     return { error: "School code not found. Check the code and try again." };
   }
 
-  const emails = await collectCandidateEmails(schoolCode, schoolId, ident);
+  const emails = await collectCandidateEmails(schoolCode, schoolId, ident, password);
   let lastErr = "Invalid credentials.";
 
-  for (const email of emails.slice(0, 6)) {
+  for (const email of emails.slice(0, 12)) {
     const si = await timedSignIn(email, password, 8_000);
     const signIn = si.data;
     const error = si.error;
