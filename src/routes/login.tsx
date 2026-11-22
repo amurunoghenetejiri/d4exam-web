@@ -322,6 +322,15 @@ function LoginPage() {
       "student",
     ] as const;
 
+    // Prefer role chosen at login (avoids teacher→admin when dual-role)
+    try {
+      const { readPreferredRole, readLastRole } = await import("@/lib/session");
+      const pref = (readPreferredRole?.() || readLastRole?.() || "") as string;
+      if (pref && pref in roleHome) {
+        return await goToRoleHome(pref as never, remember);
+      }
+    } catch { /* */ }
+
     // FAST PATH 1: get_my_roles (usually <1s) — do NOT wait on full fetchSessionUser
     try {
       const rolesRace = await Promise.race([
@@ -334,7 +343,12 @@ function LoginPage() {
             typeof r === "string" ? r : String((r as { role?: string }).role || ""),
           )
         : [];
-      const found = priority.find((r) => list.map((x) => x.toLowerCase()).includes(r));
+      // Prefer teacher over school_admin when both present unless preferred is admin
+      const lower = list.map((x) => x.toLowerCase());
+      if (lower.includes("teacher") && lower.includes("school_admin")) {
+        return await goToRoleHome("teacher", remember);
+      }
+      const found = priority.find((r) => lower.includes(r));
       if (found) return await goToRoleHome(found, remember);
     } catch {
       /* ignore */
@@ -486,7 +500,7 @@ function LoginPage() {
 
     try {
       // Run client + server login in parallel — first success wins
-      type Ok = { kind: "ok"; accessToken: string; refreshToken: string; schoolId?: string | null; schoolCode?: string | null };
+      type Ok = { kind: "ok"; accessToken: string; refreshToken: string; schoolId?: string | null; schoolCode?: string | null; role?: string | null };
       type Fail = { kind: "fail"; msg: string };
       type Race = Ok | Fail | null;
 
@@ -528,7 +542,8 @@ function LoginPage() {
             accessToken: String((fixed as any).session.access_token),
             refreshToken: String((fixed as any).session.refresh_token || ""),
             schoolId: (fixed as any).schoolId ?? null,
-            schoolCode: schoolCode,
+            schoolCode: (fixed as any).schoolCode ?? schoolCode,
+            role: (fixed as any).role ?? null,
           };
         }
         if (fixed && "error" in fixed && (fixed as any).error) {
@@ -555,6 +570,16 @@ function LoginPage() {
       });
 
       if (firstOk && firstOk.kind === "ok") {
+        if (firstOk.role && firstOk.role in roleHome) {
+          try {
+            const { rememberPreferredRole, rememberLastRole } = await import("@/lib/session");
+            rememberPreferredRole?.(firstOk.role as never);
+            rememberLastRole?.(firstOk.role as never);
+          } catch { /* */ }
+          await applyTokens(firstOk.accessToken, firstOk.refreshToken, firstOk.schoolId, firstOk.schoolCode);
+          await goToRoleHome(firstOk.role as never, remember);
+          return;
+        }
         await applyTokens(firstOk.accessToken, firstOk.refreshToken, firstOk.schoolId, firstOk.schoolCode);
         return;
       }

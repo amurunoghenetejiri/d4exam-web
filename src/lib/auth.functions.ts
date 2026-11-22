@@ -532,13 +532,30 @@ export const loginWithSchoolCode = createServerFn({ method: "POST" })
         }
       }
 
+      // Prefer login intent (resolvedKind) so teachers are not sent to school_admin
+      // when they also have an admin role on the same account.
       const priority = ["super_admin", "school_admin", "examination_officer", "teacher", "student"];
       let primaryRole: string | null = null;
+      const kindMap: Record<string, string> = {
+        student: "student",
+        teacher: "teacher",
+        officer: "examination_officer",
+        school_admin: "school_admin",
+      };
 
       const pickRole = (roles: string[]) => {
         const list = roles.map((r) => r.toLowerCase().trim()).filter(Boolean);
+        // If login resolved as teacher/student/officer, honor that even if school_admin is also present
+        if (resolvedKind && kindMap[resolvedKind] && list.includes(kindMap[resolvedKind])) {
+          return kindMap[resolvedKind];
+        }
         return priority.find((r) => list.includes(r)) ?? list[0] ?? null;
       };
+
+      // Strong preference: staff_id / teacher name login → teacher portal
+      if (resolvedKind && kindMap[resolvedKind]) {
+        primaryRole = kindMap[resolvedKind];
+      }
 
       try {
         const authed = makeClient(url, anonKey, token);
@@ -549,7 +566,14 @@ export const loginWithSchoolCode = createServerFn({ method: "POST" })
                 typeof r === "string" ? r : String((r as { role?: string }).role || ""),
               )
             : [];
-          primaryRole = pickRole(list);
+          // Only override resolvedKind if super_admin is the only elevated match needed
+          if (resolvedKind && kindMap[resolvedKind] && list.includes(kindMap[resolvedKind])) {
+            primaryRole = kindMap[resolvedKind];
+          } else if (!primaryRole) {
+            primaryRole = pickRole(list);
+          } else if (list.includes("super_admin") && resolvedKind !== "teacher" && resolvedKind !== "student") {
+            primaryRole = "super_admin";
+          }
         } catch {
           /* ignore */
         }
@@ -560,15 +584,6 @@ export const loginWithSchoolCode = createServerFn({ method: "POST" })
         if (!primaryRole) {
           const { data: rpcSuper } = await authed.rpc("is_super_admin");
           if (rpcSuper === true) primaryRole = "super_admin";
-        }
-        if (!primaryRole && resolvedKind) {
-          const kindMap: Record<string, string> = {
-            student: "student",
-            teacher: "teacher",
-            officer: "examination_officer",
-            school_admin: "school_admin",
-          };
-          if (kindMap[resolvedKind]) primaryRole = kindMap[resolvedKind];
         }
       } catch (e) {
         console.warn("[login] role lookup failed", e);

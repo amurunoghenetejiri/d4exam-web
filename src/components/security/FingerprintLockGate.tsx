@@ -1133,12 +1133,7 @@ export function FingerprintLockGate() {
             <LogOut className="h-4 w-4 md:h-5 md:w-5" aria-hidden />
             Log out
           </button>
-          {mode === "fingerprint" && native && (() => {
-            try {
-              const Cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-              return Boolean(Cap?.isNativePlatform?.());
-            } catch { return false; }
-          })() ? (
+          {mode === "fingerprint" && (native || isNativeAppShell()) ? (
             <button
               type="button"
               onClick={showPasswordMode}
@@ -1146,7 +1141,7 @@ export function FingerprintLockGate() {
             >
               Use password
             </button>
-          ) : native && hwState !== "no" ? (
+          ) : mode === "password" && (native || isNativeAppShell()) && hwState !== "no" ? (
             <button
               type="button"
               onClick={showFingerprintMode}
