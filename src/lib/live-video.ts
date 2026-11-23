@@ -312,6 +312,16 @@ export function isLiveCamFrameUsable(ts: number | null | undefined, now = Date.n
 }
 
 export const LIVE_SCREEN_EVENT = "screen-frame";
+
+/** Ensure monitor <img> can render the frame. */
+function normalizeScreenFrame(frame: string): string {
+  const f = String(frame || "").trim();
+  if (!f) return "";
+  if (f.startsWith("data:")) return f;
+  // raw base64 from native
+  return `data:image/jpeg;base64,${f}`;
+}
+
 export const LIVE_SCREEN_FRAME_INTERVAL_MS = 400;
 export type LiveScreenFramePayload = {
   attemptId: string;
@@ -407,26 +417,31 @@ export function startLiveScreenPublisher(opts: {
         console.warn("[live-screen] frame too large, skip", frame.length);
         return;
       }
+      const frameOut = normalizeScreenFrame(frame);
+      if (!frameOut) return;
       const basePayload = {
         studentId: opts.studentId,
         examId: opts.examId,
-        frame,
+        frame: frameOut,
         ts: Date.now(),
         screenActive: true as const,
       };
-      // Prefer real attemptId only (no dual pending broadcast once known).
-      const attemptKey = String(opts.attemptId || "");
-      const status = await channel.send({
-        type: "broadcast",
-        event: LIVE_SCREEN_EVENT,
-        payload: { ...basePayload, attemptId: attemptKey },
-      });
-      if (status !== "ok") {
-        console.warn("[live-screen] broadcast status=", status, "size=", frame.length);
+      const attemptKey = String(opts.attemptId || "").trim();
+      const keys = new Set<string>();
+      if (attemptKey) keys.add(attemptKey);
+      // Always also publish under pending key so monitor can match before/after attempt id stabilizes
+      if (opts.studentId && opts.examId) {
+        keys.add(`pending:${opts.studentId}:${opts.examId}`);
       }
-      // Only dual-send pending key when attemptId itself is still pending.
-      if (attemptKey.startsWith("pending:") === false && opts.studentId && opts.examId && !attemptKey) {
-        /* no-op */
+      for (const key of keys) {
+        const status = await channel.send({
+          type: "broadcast",
+          event: LIVE_SCREEN_EVENT,
+          payload: { ...basePayload, attemptId: key },
+        });
+        if (status !== "ok") {
+          console.warn("[live-screen] broadcast status=", status, "key=", key, "size=", frameOut.length);
+        }
       }
     } catch (e) {
       console.warn("[live-screen]", e);
@@ -454,7 +469,7 @@ export function startLiveScreenPublisher(opts: {
   };
 }
 
-export const LIVE_SCREEN_STALE_MS = 4_500;
+export const LIVE_SCREEN_STALE_MS = 12_000;
 export const LIVE_SCREEN_DISPLAY_MS = 90_000;
 
 export function isLiveScreenFrameFresh(ts: number | null | undefined, now = Date.now()): boolean {
@@ -489,11 +504,12 @@ export function startLiveScreenSubscriber(opts: {
     const p: LiveScreenFramePayload = {
       attemptId,
       studentId: raw.studentId || raw.student_id || "",
-      examId: raw.examId || "",
-      frame: raw.frame,
+      examId: raw.examId || (raw as { exam_id?: string }).exam_id || "",
+      frame: normalizeScreenFrame(String(raw.frame)),
       ts: raw.ts || Date.now(),
       screenActive: raw.screenActive !== false,
     };
+    if (!p.frame) return;
     const prev = lastTsByAttempt.get(attemptId) ?? 0;
     if (p.ts && p.ts < prev - 500) return;
     if (p.ts) lastTsByAttempt.set(attemptId, p.ts);

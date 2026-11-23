@@ -399,6 +399,8 @@ export function LiveMonitorPage({ courseIds = null, pageTitle }: LiveMonitorPage
         setScreenFrames((prev) => {
           const next = { ...prev, [attemptId]: entry };
           if (sid) next[`student:${sid}`] = entry;
+          const eid = entry.examId || "";
+          if (sid && eid) next[`pending:${sid}:${eid}`] = entry;
           return next;
         });
       },

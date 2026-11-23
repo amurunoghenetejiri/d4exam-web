@@ -41,10 +41,15 @@ export function useLiveScreenPublish(opts: {
     String(opts.attemptId || "") ||
     (studentId && examId ? `pending:${studentId}:${examId}` : "");
   const identityOk = Boolean(schoolId && studentId && examId && attemptId);
+  const streamLive = Boolean(
+    opts.stream &&
+      opts.stream.getVideoTracks().some((tr) => tr.readyState === "live"),
+  );
   const enabled =
     opts.enabled &&
     identityOk &&
-    (Boolean(opts.stream) ||
+    (streamLive ||
+      Boolean(opts.stream) ||
       isNativeScreenShareActive() ||
       isExamScreenShareHold() ||
       wasActiveRef.current);
