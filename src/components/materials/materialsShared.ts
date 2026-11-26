@@ -54,7 +54,7 @@ export const CAT_META = {
 } as const;
 
 export const MAX_FILES = 50;
-export const MAX_FILE_MB = 15;
+export const MAX_FILE_MB = 50;
 
 export type CourseOpt = { id: string; code: string; name: string };
 

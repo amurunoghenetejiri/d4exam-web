@@ -172,31 +172,42 @@ export function CourseMaterialsPanel({
 
 
   /** Compress images; pass PDFs through with size check (client-side friendly). */
+  /** Compress images toward ~1MB; pass through PDF/docs/video (size-capped by MAX_FILE_MB). */
   async function compressForUpload(file: File): Promise<File> {
     const type = (file.type || "").toLowerCase();
     const name = file.name || "file";
+    const TARGET = 1_000_000; // ~1 MB target for images
     try {
       if (type.startsWith("image/")) {
         const bitmap = await createImageBitmap(file);
-        const maxSide = 1600;
-        let w = bitmap.width;
-        let h = bitmap.height;
-        const scale = Math.min(1, maxSide / Math.max(w, h));
-        w = Math.max(1, Math.round(w * scale));
-        h = Math.max(1, Math.round(h * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return file;
-        ctx.drawImage(bitmap, 0, 0, w, h);
-        const blob: Blob | null = await new Promise((res) =>
-          canvas.toBlob((b) => res(b), "image/jpeg", 0.78),
-        );
-        if (!blob) return file;
-        return new File([blob], name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+        let maxSide = 1920;
+        let quality = 0.82;
+        let best: Blob | null = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          let w = bitmap.width;
+          let h = bitmap.height;
+          const scale = Math.min(1, maxSide / Math.max(w, h));
+          w = Math.max(1, Math.round(w * scale));
+          h = Math.max(1, Math.round(h * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return file;
+          ctx.drawImage(bitmap, 0, 0, w, h);
+          const blob: Blob | null = await new Promise((res) =>
+            canvas.toBlob((b) => res(b), "image/jpeg", quality),
+          );
+          if (!blob) break;
+          best = blob;
+          if (blob.size <= TARGET) break;
+          quality = Math.max(0.45, quality - 0.12);
+          maxSide = Math.max(900, Math.round(maxSide * 0.82));
+        }
+        if (!best) return file;
+        return new File([best], name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
       }
-      // PDF / other: if already small, keep; if huge, still upload but user was warned by MAX_FILE_MB
+      // PDF / Office / video / text: no browser-native compress without heavy libs — enforce size gate only
       return file;
     } catch {
       return file;
@@ -207,11 +218,15 @@ export function CourseMaterialsPanel({
     const safe = fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
     const path = `${schoolId}/${courseId || "general"}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
     const { error } = await supabase.storage.from("course-materials").upload(path, blob, {
-      cacheControl: "3600", upsert: false, contentType: mime || undefined,
+      cacheControl: "3600", upsert: false, contentType: mime || "application/octet-stream",
     });
-    if (error) return null;
+    if (error) {
+      console.error("course-materials upload", error);
+      toast.error(error.message || `Upload failed: ${fileName}`);
+      return null;
+    }
     const { data } = supabase.storage.from("course-materials").getPublicUrl(path);
-    return { url: data.publicUrl, name: fileName, mime, size: blob.size };
+    return { url: data.publicUrl, name: fileName, mime: mime || "application/octet-stream", size: blob.size };
   }
 
   async function submitUpload() {
@@ -519,13 +534,13 @@ export function CourseMaterialsPanel({
       )}
 
       {uploadOpen && (
-        <div className="fixed inset-0 z-[110] flex items-end justify-center overflow-y-auto bg-black/40 p-0 sm:items-center sm:p-4">
-          <div className="flex max-h-[min(94dvh,94vh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+        <div className="fixed inset-0 z-[110] flex items-end justify-center overflow-y-auto overscroll-contain bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="flex max-h-[min(92dvh,92vh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <h3 className="text-base font-bold">{editItem ? "Edit material" : "Upload material"}</h3>
               <button type="button" onClick={() => setUploadOpen(false)} aria-label="Close"><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 pb-8 [-webkit-overflow-scrolling:touch]">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 pb-10 [-webkit-overflow-scrolling:touch]">
               {!editItem && (
                 <div
                   className={cn("rounded-xl border-2 border-dashed p-4 text-center", dragOver ? "border-primary bg-primary/5" : "border-slate-200")}
@@ -533,9 +548,9 @@ export function CourseMaterialsPanel({
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOver(false); onPickFiles(e.dataTransfer.files); }}
                 >
-                  <input ref={fileRef} type="file" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip" className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
+                  <input ref={fileRef} type="file" multiple accept="image/*,video/*,audio/*,application/pdf,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip,.mp4,.webm,.mov,.mkv" className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
                   <Button type="button" variant="outline" className="min-h-11 w-full max-w-xs touch-manipulation" onClick={() => fileRef.current?.click()}>Choose files from device</Button>
-                  <p className="mt-2 text-xs text-slate-500">Up to {MAX_FILES} files, {MAX_FILE_MB}MB each</p>
+                  <p className="mt-2 text-xs text-slate-500">Up to {MAX_FILES} files · max {MAX_FILE_MB}MB each · images auto-compressed · PDF/docs/video supported</p>
                   {files.length > 0 && (
                     <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto text-left text-xs">
                       {files.map((f, i) => (
