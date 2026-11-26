@@ -769,11 +769,6 @@ export function CbtExamPage() {
     const recordTabLeave = () => {
       if (finishingRef.current || doneRef.current) return;
       if (calcOpenRef.current || (window as unknown as { __d4CalcOpen?: boolean }).__d4CalcOpen) return;
-      if (!security.tabMonitoring) {
-        leftExamSessionRef.current = true;
-        void flushAttemptProgress();
-        return;
-      }
       if (pausedRef.current) {
         leftExamSessionRef.current = true;
         void flushAttemptProgress();
@@ -783,11 +778,14 @@ export function CbtExamPage() {
       if (now - lastTabHiddenAtRef.current < 600) return;
       lastTabHiddenAtRef.current = now;
       leftExamSessionRef.current = true;
+      // Always count tab leaves so the badge and monitor stay accurate
       tabSwitchCountRef.current += 1;
       setTabSwitchCount(tabSwitchCountRef.current);
-      try {
-        reshuffleOnTabLeaveRef.current();
-      } catch { /* ignore */ }
+      if (security.tabMonitoring) {
+        try {
+          reshuffleOnTabLeaveRef.current();
+        } catch { /* ignore */ }
+      }
       void flushAttemptProgress();
       if (attemptIdRef.current) {
         void (async () => {
@@ -836,9 +834,13 @@ export function CbtExamPage() {
     const onReturnToExam = () => {
       if (leftExamSessionRef.current) {
         const ids = new Set(
-          Object.keys(answersRef.current).filter(
-            (k) => answersRef.current[k] !== undefined && answersRef.current[k] !== null,
-          ),
+          Object.keys(answersRef.current).filter((k) => {
+            const v = answersRef.current[k];
+            if (v === undefined || v === null) return false;
+            if (typeof v === "string") return v.trim().length > 0;
+            if (Array.isArray(v)) return v.length > 0;
+            return true;
+          }),
         );
         if (ids.size) {
           setLockedAnswerIds((prev) => {
@@ -1704,9 +1706,10 @@ export function CbtExamPage() {
                 <button key={qq.id} type="button" onClick={() => setIndex(i)}
                   className={cn("grid h-9 place-items-center rounded-md text-xs font-bold transition",
                     isCurrent && "bg-primary text-white ring-2 ring-primary/30",
-                    !isCurrent && answered && "bg-emerald-500 text-white",
-                    !isCurrent && isFlag && !answered && "bg-amber-400 text-slate-900",
-                    !isCurrent && !answered && !isFlag && "border border-slate-200 bg-white text-slate-700 hover:border-primary")}>
+                    !isCurrent && lockedAnswerIds.has(qq.id) && "bg-slate-300 text-slate-600 line-through cursor-not-allowed",
+                    !isCurrent && !lockedAnswerIds.has(qq.id) && isFlag && "bg-amber-400 text-slate-900",
+                    !isCurrent && !lockedAnswerIds.has(qq.id) && !isFlag && answered && "bg-emerald-500 text-white",
+                    !isCurrent && !lockedAnswerIds.has(qq.id) && !answered && !isFlag && "border border-slate-200 bg-white text-slate-700 hover:border-primary")}>
                   {i + 1}
                 </button>
               );
@@ -1832,9 +1835,9 @@ export function CbtExamPage() {
         </section>
       </div>
       </main>
-      {started && !done && security.tabMonitoring && (
+      {started && !done && (
         <div className="pointer-events-none fixed bottom-3 right-3 z-[120] sm:bottom-4 sm:right-4">
-          <div className="rounded-full border border-slate-200 bg-white/95 px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+          <div className="rounded-full border border-amber-300/80 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-900 shadow-md shadow-amber-900/10">
             Tab violations: {tabSwitchCount}/{Math.max(1, Number(security.maxTabSwitches) || 5)}
           </div>
         </div>
