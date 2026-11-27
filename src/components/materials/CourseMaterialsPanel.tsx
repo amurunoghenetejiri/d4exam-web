@@ -215,25 +215,41 @@ export function CourseMaterialsPanel({
   }
 
   async function uploadBlob(blob: Blob, fileName: string, mime: string) {
-    const safe = fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
-    const path = `${schoolId}/${courseId || "general"}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
-    const { error } = await supabase.storage.from("course-materials").upload(path, blob, {
-      cacheControl: "3600", upsert: false, contentType: mime || "application/octet-stream",
+    const safe = (fileName || "file").replace(/[^\w.\-()+ ]+/g, "_").replace(/_+/g, "_").slice(0, 100) || "file";
+    const path = `${String(schoolId || "school")}/${String(courseId || "general")}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
+    const contentType = mime || "application/octet-stream";
+    let { error } = await supabase.storage.from("course-materials").upload(path, blob, {
+      cacheControl: "3600", upsert: true, contentType,
     });
     if (error) {
       console.error("course-materials upload", error);
-      toast.error(error.message || `Upload failed: ${fileName}`);
+      if (/mime|type|content/i.test(error.message || "")) {
+        const alt = path + ".bin";
+        const retry = await supabase.storage.from("course-materials").upload(alt, blob, {
+          cacheControl: "3600", upsert: true, contentType: "application/octet-stream",
+        });
+        if (!retry.error) {
+          const { data } = supabase.storage.from("course-materials").getPublicUrl(alt);
+          return { url: data.publicUrl, name: fileName, mime: contentType, size: blob.size };
+        }
+        error = retry.error;
+      }
+      toast.error(error?.message || `Upload failed: ${fileName}`);
       return null;
     }
     const { data } = supabase.storage.from("course-materials").getPublicUrl(path);
-    return { url: data.publicUrl, name: fileName, mime: mime || "application/octet-stream", size: blob.size };
+    return { url: data.publicUrl, name: fileName, mime: contentType, size: blob.size };
   }
 
   async function submitUpload() {
-    if (!session?.userId || !schoolId) return toast.error("Sign in required.");
-    if (!courseId) return toast.error("Select a subject/course.");
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    const authUid = authData?.user?.id || session?.userId || null;
+    if (authErr || !authUid) return toast.error("Sign in required. Please log in again.");
+    if (!schoolId) return toast.error("School not found on your profile. Re-login with school code.");
+    if (!courseId) return toast.error("Select a subject/course before uploading.");
+    if (!courses.length) return toast.error("No courses assigned yet. Ask School Admin to assign a course.");
     const baseTitle = title.trim();
-    if (!baseTitle && !files.length && !description.trim()) return toast.error("Add a title or file.");
+    if (!baseTitle && !files.length && !description.trim()) return toast.error("Add a title or at least one file.");
     setBusy(true); setProgress(8);
     try {
       const rows: Record<string, unknown>[] = [];
@@ -247,14 +263,15 @@ export function CourseMaterialsPanel({
         setProgress(85);
         if (!up) throw new Error("Could not upload PDF.");
         rows.push({
-          school_id: schoolId, course_id: courseId, uploaded_by: session.userId, uploader_role: role,
+          school_id: schoolId, course_id: courseId, uploaded_by: authUid, uploader_role: role,
           uploader_name: displayName || null, title: baseTitle || pdfName, description: description.trim() || null,
-          material_type: materialType, file_url: up.url, file_name: up.name, file_mime: up.mime, file_size: up.size,
+          material_type: materialType, file_url: up.url, file_name: up.name, file_mime: up.mime,
+          file_size: Math.min(Number(up.size) || 0, 2147483647),
           tags: tags.trim() || null, download_count: 0,
         });
       } else if (!files.length) {
         rows.push({
-          school_id: schoolId, course_id: courseId, uploaded_by: session.userId, uploader_role: role,
+          school_id: schoolId, course_id: courseId, uploaded_by: authUid, uploader_role: role,
           uploader_name: displayName || null, title: baseTitle || typeMeta(materialType).label,
           description: description.trim() || null, material_type: materialType, tags: tags.trim() || null, download_count: 0,
         });
@@ -266,11 +283,12 @@ export function CourseMaterialsPanel({
             const up = await uploadBlob(prepared, prepared.name, prepared.type || file.type || "application/octet-stream");
           if (!up) { toast.error(`Failed: ${file.name}`); continue; }
           rows.push({
-            school_id: schoolId, course_id: courseId, uploaded_by: session.userId, uploader_role: role,
+            school_id: schoolId, course_id: courseId, uploaded_by: authUid, uploader_role: role,
             uploader_name: displayName || null,
             title: files.length === 1 ? baseTitle || file.name : `${baseTitle || typeMeta(materialType).label} (${i + 1}/${files.length})`,
             description: description.trim() || null, material_type: materialType,
-            file_url: up.url, file_name: up.name, file_mime: up.mime, file_size: up.size,
+            file_url: up.url, file_name: up.name, file_mime: up.mime,
+            file_size: Math.min(Number(up.size) || 0, 2147483647),
             tags: tags.trim() || null, download_count: 0,
           });
         }
@@ -278,7 +296,10 @@ export function CourseMaterialsPanel({
       if (!rows.length) throw new Error("Nothing uploaded.");
       setProgress(92);
       const { error } = await supabase.from("course_materials").insert(rows as never);
-      if (error) throw error;
+      if (error) {
+        console.error("course_materials insert", error);
+        throw new Error(error.message || "Could not save material (check RLS / school / course).");
+      }
       setProgress(100);
       toast.success(rows.length === 1 ? "Material uploaded." : `${rows.length} materials uploaded.`);
       if (!rows.length) toast.error("Upload finished but nothing was saved.");
